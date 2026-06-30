@@ -9,6 +9,7 @@ import './styles/library.css'
 import './styles/discover.css'
 import './styles/updates.css'
 import './styles/series.css'
+import './styles/reader.css'
 
 import { startRouter } from './lib/router.js'
 import { setupNative } from './lib/native.js'
@@ -17,6 +18,7 @@ import { showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
 import { showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
+import { showReader } from './screens/reader.js'
 
 // swap which view fills the main column
 const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hidden = v.id !== `view-${name}` })
@@ -30,7 +32,8 @@ let origin = 'library'
 
 startRouter(route => {
     mountShell()
-    if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
+    if (route.name === 'read') { setActiveNav(origin); view('read'); showReader(route.slug, route.n) }
+    else if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }
