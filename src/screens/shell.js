@@ -30,7 +30,26 @@ export function applyFeel() {
     }
 }
 
-export const setCrumb = text => { const c = $('#crumb'); if (c) c.textContent = text }
+// rebuild the whole crumb so a series breadcrumb is wiped clean when a browse screen takes over again
+export const setCrumb = text => {
+    const c = $('.crumb')
+    if (!c) return
+    c.className = 'crumb'
+    c.innerHTML = '<b id="crumb"></b>'
+    c.firstElementChild.textContent = text
+}
+
+// the series screen owns a richer crumb, a back chevron then origin, a separator and the series title
+export function setSeriesCrumb(origin, title, onBack) {
+    const c = $('.crumb')
+    if (!c) return
+    c.className = 'crumb crumb-series'
+    c.innerHTML = '<span class="back" title="Back">‹</span><span class="orig"></span><span class="sl">/</span><b id="crumb"></b>'
+    c.querySelector('.orig').textContent = origin
+    c.querySelector('#crumb').textContent = title
+    c.querySelector('.back').addEventListener('click', onBack)
+}
+
 export const setActiveNav = name => $$('.ni').forEach(n => n.classList.toggle('on', n.dataset.nav === name))
 
 async function winAction(action) {
