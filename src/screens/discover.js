@@ -1,4 +1,4 @@
-import { searchNovels, getSeries } from '../lib/api.js'
+import { searchNovels, getSeries, discoverTaxonomy } from '../lib/api.js'
 import { go } from '../lib/router.js'
 
 // the discover screen. a debounced search across every source renders a ranked list. the filter panel
@@ -9,10 +9,26 @@ const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
-// representative taxonomy. production would load the full set from the metadata provider
-const GENRES = ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Romance', 'Sci-fi', 'Slice of Life', 'Horror', 'Mystery', 'Thriller', 'Tragedy', 'Psychological', 'Supernatural', 'Historical', 'Martial Arts', 'Mecha', 'Sports', 'School Life', 'Isekai', 'LitRPG', 'Cultivation', 'Wuxia', 'Xianxia', 'Xuanhuan', 'Cyberpunk', 'Post-Apocalyptic', 'Dystopia', 'GameLit', 'Progression', 'Harem', 'Reverse Harem', 'Yuri', 'Josei', 'Seinen', 'Shoujo', 'Shounen', 'Military', 'Crime', 'Dark Fantasy', 'Urban Fantasy', 'High Fantasy', 'Steampunk', 'Space Opera', 'Superhero', 'Villainess']
-const TAGS = ['Weak to Strong', 'Overpowered Protagonist', 'Reincarnation', 'Transmigration', 'System', 'Dungeon', 'Demon Lord', 'Anti-Hero', 'Female Protagonist', 'Male Protagonist', 'Kingdom Building', 'Slow Burn', 'Fast-Paced', 'Revenge', 'Found Family', 'Academy', 'Necromancer', 'Summoner', 'Beast Companion', 'Crafting', 'Alchemy', 'Cooking', 'Merchant', 'Court Politics', 'War', 'Cunning Protagonist', 'Genius Protagonist', 'Tower Climbing', 'Regression', 'Time Loop', 'Multiple POV', 'Hidden Identity', 'Dragons', 'Elves', 'Gods', 'Mythology', 'Monster Tamer', 'Ruthless Protagonist', 'Cheats', 'Status Window', 'Level System', 'Guild', 'Magic Academy', 'Mind Games', 'Strategy', 'Tearjerker']
-const OPTIONS = GENRES.map(v => ({ v, k: 'genre' })).concat(TAGS.map(v => ({ v, k: 'tag' })))
+// the genre and tag vocabulary, loaded from the backend on first show. it returns the full novelupdates
+// taxonomy as { genres, tags } and we flatten that into the token field option list of { v, k }. until it
+// lands the dropdown stays empty
+let OPTIONS = []
+let taxoLoaded = false
+let taxoLoading = false
+
+async function loadTaxonomy() {
+    if (taxoLoaded || taxoLoading) return
+    taxoLoading = true
+    try {
+        const t = await discoverTaxonomy()
+        OPTIONS = (t.genres || []).map(v => ({ v, k: 'genre' })).concat((t.tags || []).map(v => ({ v, k: 'tag' })))
+        taxoLoaded = true
+        const input = $('#toksearch')
+        if (input && document.activeElement === input) input.dispatchEvent(new Event('input'))
+    } catch (e) {} finally {
+        taxoLoading = false
+    }
+}
 
 let wired = false
 let inited = false
@@ -255,6 +271,7 @@ function wire() {
 // chip on the series screen can hand off a term here, which lands as a fresh search
 export function showDiscover() {
     wire()
+    loadTaxonomy()
 
     const seed = sessionStorage.getItem('vellum:discoverSeed')
     if (seed) {
