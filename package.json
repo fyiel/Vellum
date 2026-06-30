@@ -25,6 +25,8 @@
     "@capacitor/android": "^6",
     "@capacitor/core": "^6",
     "@capacitor/ios": "^6",
+    "@fontsource/archivo": "^5",
+    "@fontsource/ibm-plex-mono": "^5",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-http": "^2"
   }

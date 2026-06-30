@@ -28,3 +28,8 @@ export const dropLibrary = slug => lsSet(`${NS}:lib`, library().filter(e => e.sl
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }
 export const loadSettings = () => ({ ...SET_DEFAULT, ...lsGet(`${NS}:settings`, {}) })
 export const saveSettings = s => lsSet(`${NS}:settings`, s)
+
+// library page feel and sort. scheme and density are the design feel controls, sort is the table state
+export const LIB_UI_DEFAULT = { scheme: 'Graphite', density: 'comfortable', sortKey: 'recent', sortDir: 'desc' }
+export const loadLibUI = () => ({ ...LIB_UI_DEFAULT, ...lsGet(`${NS}:libui`, {}) })
+export const saveLibUI = u => lsSet(`${NS}:libui`, u)

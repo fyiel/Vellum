@@ -1,0 +1,96 @@
+/* the desktop library design, transcribed from the handoff. palette and density live as classes on
+   .den so swapping a class swaps the whole feel. only additions over the spec are interaction cursors
+   and real cover art filling the placeholder boxes */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: #15161a; overflow: hidden; }
+
+.den {
+  --bg: #15161a; --panel: #1a1c21; --row: #1d1f25; --rowh: #212329; --sel: #23262d;
+  --text: #b6bac2; --hi: #f1f2f5; --dim: #6c7079; --line: #ffffff10; --line2: #ffffff1c;
+  --ac: #d8a24a; --track: #ffffff14; --mono: 'IBM Plex Mono', monospace;
+  width: 100%; height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg); color: var(--text); font: 400 13px/1.45 'Archivo', system-ui, sans-serif;
+}
+.den.s-ink { --bg: #08090b; --panel: #0d0f12; --row: #101317; --rowh: #15191e; --sel: #181d24; --text: #9aa3ad; --hi: #eef3f8; --dim: #586069; --line: #ffffff0b; --line2: #ffffff15; --ac: #6fb4ff; --track: #ffffff12; }
+.den.s-paper { --bg: #f1ece1; --panel: #e7e1d3; --row: #faf7ef; --rowh: #f1ebdf; --sel: #e6dece; --text: #4a463d; --hi: #211e18; --dim: #8c8475; --line: #2c24140f; --line2: #2c241424; --ac: #1f7a6b; --track: #2c241414; }
+.den.s-phosphor { --bg: #06120c; --panel: #0a1810; --row: #0c1d13; --rowh: #102619; --sel: #133121; --text: #7fcf9f; --hi: #d6ffe6; --dim: #4f7d63; --line: #52ff9412; --line2: #52ff9420; --ac: #33e06b; --track: #52ff9418; }
+.den.s-ember { --bg: #17120f; --panel: #1d1714; --row: #221b16; --rowh: #271f19; --sel: #2d241c; --text: #b6a89b; --hi: #f4ece3; --dim: #8a7d6f; --line: #ffffff0e; --line2: #ffffff1a; --ac: #f0805a; --track: #ffffff14; }
+
+.den .tb { display: flex; align-items: center; gap: 13px; height: 38px; flex: none; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.den .sq { display: flex; gap: 7px; }
+.den .s { width: 11px; height: 11px; background: var(--row); border: 1px solid var(--line2); cursor: pointer; }
+.den .s.red { background: #ff5f57; border-color: #ff5f57; }
+.den .s.yel { background: #febc2e; border-color: #febc2e; }
+.den .s.grn { background: #28c840; border-color: #28c840; }
+.den .crumb { font: 500 11px 'Archivo'; color: var(--dim); letter-spacing: .4px; text-transform: uppercase; }
+.den .crumb b { color: var(--text); font-weight: 600; }
+.den .sp { flex: 1; }
+
+.den .body { display: flex; flex: 1; min-height: 0; }
+.den .side { width: 200px; flex: none; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.den .nl { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; padding: 14px 14px 7px; }
+.den .ni { display: flex; align-items: center; gap: 9px; padding: 7px 14px; color: var(--text); font: 500 13px 'Archivo'; cursor: pointer; }
+.den .ni .ix { color: var(--dim); font: 400 11px var(--mono); width: 13px; }
+.den .ni .c { margin-left: auto; color: var(--dim); font: 400 11px var(--mono); }
+.den .ni.on { background: var(--sel); color: var(--hi); }
+.den .ni.on .ix { color: var(--ac); }
+.den .grow { flex: 1; }
+
+.den .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.den .tool { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.den .srch { flex: 1; display: flex; align-items: center; gap: 9px; background: var(--row); border: 1px solid var(--line2); padding: 7px 11px; }
+.den .srch input { flex: 1; background: transparent; border: none; outline: none; color: var(--hi); font: 400 13px 'Archivo'; }
+.den .srch input::placeholder { color: var(--dim); }
+.den .seg { display: flex; border: 1px solid var(--line2); }
+.den .seg span { padding: 6px 11px; font: 500 11px 'Archivo'; color: var(--dim); border-right: 1px solid var(--line2); cursor: pointer; }
+.den .seg span:last-child { border-right: none; }
+.den .seg span.on { background: var(--sel); color: var(--hi); }
+.den .sortlbl { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+.den .seg .dir { display: flex; align-items: center; justify-content: center; padding: 0; width: 30px; color: var(--ac); font-family: var(--mono); font-size: 15px; cursor: pointer; }
+
+.den .scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.den .lab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin: 0 0 9px; }
+.den .cont { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 20px; }
+.den .ctile { display: flex; gap: 11px; padding: 9px; background: var(--row); border: 1px solid var(--line); cursor: pointer; }
+.den .ctile .cv { flex: none; width: 40px; aspect-ratio: 3/4; background: var(--bg); border: 1px solid var(--line2); display: flex; align-items: flex-end; padding: 4px; overflow: hidden; }
+.den .ctile .cv span { font: 600 8px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .5px; line-height: 1.1; }
+.den .ctile .cbd { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.den .ctile .ti { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .ctile .mt { font: 400 11px var(--mono); color: var(--dim); display: flex; gap: 9px; align-items: center; }
+.den .ctile .bar { flex: 1; height: 4px; background: var(--track); }
+.den .ctile .bar > span { display: block; height: 100%; background: var(--ac); }
+
+.den .trow { display: grid; grid-template-columns: 48px minmax(0, 1fr) 150px 62px 70px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .trow:hover { background: var(--rowh); }
+.den .trow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .tt { min-width: 0; }
+.den .tt .n { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .tt .au { font: 400 11px 'Archivo'; color: var(--dim); }
+.den .pcell { display: flex; align-items: center; gap: 9px; }
+.den .bar { flex: 1; height: 4px; background: var(--track); }
+.den .bar > span { display: block; height: 100%; background: var(--ac); }
+.den .pct { font: 400 11px var(--mono); color: var(--text); min-width: 28px; text-align: right; }
+.den .chp { font: 400 12px var(--mono); color: var(--text); text-align: right; }
+.den .upd { font: 400 11px var(--mono); color: var(--dim); text-align: right; }
+.den .upd .new { color: var(--ac); }
+.den .done { color: var(--dim); }
+
+/* real cover art fills the placeholder boxes when we have it */
+.den .cv img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+/* empty state when nothing has been read yet */
+.den .void { color: var(--dim); font: 400 13px 'Archivo'; padding: 40px 4px; text-align: center; }
+
+.den.d-compact .trow { padding: 6px 10px; }
+.den.d-compact .trow .cv { width: 30px; height: 40px; }
+.den.d-compact .ctile { padding: 7px; }
+.den.d-dense .trow { padding: 3px 10px; }
+.den.d-dense .trow .cv { width: 22px; height: 30px; }
+.den.d-dense .tt .au { display: none; }
+.den.d-dense .tt .n { font-size: 13px; }
+.den.d-dense .cont { margin-bottom: 13px; }
+.den.d-dense .ctile { padding: 6px; }
+.den.d-dense .ctile .cv { width: 34px; }
+.den.d-dense .lab { margin-bottom: 7px; }

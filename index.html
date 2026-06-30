@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#15161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,6 +12,48 @@
 <title>Vellum</title>
 </head>
 <body>
+
+<div class="den" id="den">
+  <div class="tb" data-tauri-drag-region>
+    <div class="sq">
+      <span class="s red" data-win="close" title="Close"></span>
+      <span class="s yel" data-win="min" title="Minimize"></span>
+      <span class="s grn" data-win="zoom" title="Zoom"></span>
+    </div>
+    <span class="crumb"><b>Library</b></span>
+    <span class="sp"></span>
+  </div>
+  <div class="body">
+    <aside class="side">
+      <div class="nl">Browse</div>
+      <nav>
+        <span class="ni on" data-nav="library"><span class="ix">1</span>Library<span class="c" id="count-library"></span></span>
+        <span class="ni" data-nav="discover"><span class="ix">2</span>Discover</span>
+        <span class="ni" data-nav="updates"><span class="ix">3</span>Updates<span class="c" id="count-updates"></span></span>
+      </nav>
+      <div class="grow"></div>
+    </aside>
+    <main class="main">
+      <div class="tool">
+        <div class="srch"><input id="filter" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Filter library&hellip;"></div>
+        <span class="sortlbl">Sort</span>
+        <div class="seg" id="seg">
+          <span data-sort="recent">Recent</span>
+          <span data-sort="title">Title</span>
+          <span data-sort="progress">Progress</span>
+          <span data-sort="unread">Unread</span>
+          <span class="dir" id="dir">&#9660;</span>
+        </div>
+      </div>
+      <div class="scroll">
+        <div class="lab" id="cont-lab">Continue</div>
+        <div class="cont" id="continue"></div>
+        <div id="libtable"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>
