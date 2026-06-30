@@ -5,8 +5,10 @@ const enc = encodeURIComponent
 const MIN = 60 * 1000
 const HOUR = 60 * MIN
 
+const hasResults = d => Array.isArray(d?.results) && d.results.length > 0
+
 export const searchNovels = q =>
-    cached(`search:${q.trim().toLowerCase()}`, 5 * MIN, () => apiGet(`/read/api/search?q=${enc(q)}`))
+    cached(`search:${q.trim().toLowerCase()}`, 5 * MIN, () => apiGet(`/read/api/search?q=${enc(q)}`), { accept: hasResults })
 
 export const getSeries = key =>
     cached(`series:${key}`, 6 * HOUR, () => apiGet(`/read/api/series/${enc(key)}`))
@@ -32,7 +34,7 @@ const discoverQuery = params => {
 
 export const discover = params => {
     const query = discoverQuery(params)
-    return cached(`discover:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`))
+    return cached(`discover:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: hasResults })
 }
 
 export const discoverTaxonomy = () =>

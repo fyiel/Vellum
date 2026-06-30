@@ -72,42 +72,44 @@ function put(key, rec) {
     idbSet(key, rec).then(maybeEvict)
 }
 
-async function load(key, ttlMs, loader, negTtlMs) {
+async function load(key, ttlMs, loader, negTtlMs, accept) {
     const v = await loader()
-    const ttl = v === null || v === undefined ? negTtlMs : ttlMs
+    const ttl = accept(v) ? ttlMs : negTtlMs
     if (ttl > 0) put(key, { v, exp: Date.now() + ttl, at: Date.now() })
 
     return v
 }
 
-function background(key, ttlMs, loader, negTtlMs) {
+function background(key, ttlMs, loader, negTtlMs, accept) {
     if (refreshing.has(key)) return
     refreshing.add(key)
-    load(key, ttlMs, loader, negTtlMs).catch(() => {}).finally(() => refreshing.delete(key))
+    load(key, ttlMs, loader, negTtlMs, accept).catch(() => {}).finally(() => refreshing.delete(key))
 }
 
-async function resolve(key, ttlMs, loader, swr, negTtlMs) {
+async function resolve(key, ttlMs, loader, swr, negTtlMs, accept) {
     const now = Date.now()
     const disk = await idbGet(key)
-    if (disk) {
+    // a stored value that no longer passes accept (eg an empty page cached while a source was down) is
+    // treated as a miss, so a transient outage never gets stuck for the full ttl
+    if (disk && accept(disk.v)) {
         mem.set(key, disk)
         if (disk.exp > now) return disk.v
-        if (swr) { background(key, ttlMs, loader, negTtlMs); return disk.v }
+        if (swr) { background(key, ttlMs, loader, negTtlMs, accept); return disk.v }
     }
 
-    return load(key, ttlMs, loader, negTtlMs)
+    return load(key, ttlMs, loader, negTtlMs, accept)
 }
 
 export function cached(key, ttlMs, loader, opts = {}) {
-    const { swr = true, negTtlMs = 0 } = opts
+    const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined } = opts
 
     const hot = mem.get(key)
-    if (hot && hot.exp > Date.now()) return Promise.resolve(hot.v)
+    if (hot && hot.exp > Date.now() && accept(hot.v)) return Promise.resolve(hot.v)
 
     const pending = inflight.get(key)
     if (pending) return pending
 
-    const p = resolve(key, ttlMs, loader, swr, negTtlMs).finally(() => inflight.delete(key))
+    const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept).finally(() => inflight.delete(key))
     inflight.set(key, p)
     return p
 }

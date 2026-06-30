@@ -151,7 +151,8 @@ async function loadTrending() {
     try {
         const data = await discover({ sort: 'trending', limit: LIMIT })
         trending = data.results || []
-        trendLoaded = true
+        // only latch it in when we actually got results, so an empty (a source blip) retries on revisit
+        trendLoaded = trending.length > 0
     } catch {
         trendError = true
     } finally {
