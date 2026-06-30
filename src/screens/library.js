@@ -1,6 +1,6 @@
 import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
-import { go, hashSlug } from '../lib/router.js'
+import { go } from '../lib/router.js'
 
 // the desktop library page. renders the continue strip and the sortable, filterable library table from
 // whatever sits in localStorage, then quietly checks each title for new chapters in the background
@@ -140,7 +140,7 @@ async function checkUpdates() {
 function openEntry(el) {
     const slug = el.dataset.slug
     if (!slug) return
-    go(`#/read/${hashSlug(slug)}/${el.dataset.n || 1}`)
+    go(`#/series/${encodeURIComponent(slug)}`)
 }
 
 function wire() {
