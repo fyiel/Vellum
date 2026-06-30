@@ -37,6 +37,12 @@ let results = []
 // active flips true once a search is in effect, a typed query or a filtered run. it drives the results
 // versus trending split in render
 let active = false
+// trending is the no search landing, discover sorted by trending. fetched once and held so coming back is
+// instant. trendLoaded guards the refetch, trendLoading paints the spinner, trendError the fallback
+let trending = []
+let trendLoaded = false
+let trendLoading = false
+let trendError = false
 const LIMIT = 30
 const dsort = { key: 'relevance', dir: 'desc' }
 const tokens = new Set()
@@ -145,6 +151,27 @@ function render() {
 
     wrap.innerHTML = list.map(rowHtml).join('')
     enrich(list)
+}
+
+// the no search landing. discover sorted by trending fills the same ranked list, fetched once and held so
+// revisiting is instant. the guards keep it from refetching on every render
+async function loadTrending() {
+    if (active || trendLoaded || trendLoading) return
+
+    trendLoading = true
+    trendError = false
+    render()
+    try {
+        const data = await discover({ sort: 'trending', limit: LIMIT })
+        trending = data.results || []
+        trendLoaded = true
+    } catch {
+        trendError = true
+    } finally {
+        trendLoading = false
+    }
+
+    if (!active) render()
 }
 
 // search routing. a typed query runs searchNovels, the merged novelupdates plus novelfire title search.
