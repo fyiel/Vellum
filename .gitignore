@@ -16,6 +16,9 @@ src-tauri/gen
 android
 ios
 
+# in dev scratch, never committed
+dev/
+
 # editor + os
 .DS_Store
 .vscode/*
