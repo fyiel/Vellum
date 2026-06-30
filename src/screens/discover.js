@@ -135,7 +135,14 @@ function render() {
         : 'Trending now <span class="ct">&middot; this week</span>'
 
     if (!active) {
-        wrap.innerHTML = `<div class="void">search every source to surface something new</div>`
+        if (!trendLoaded && !trendLoading && !trendError) { loadTrending(); return }
+        if (trending.length) {
+            $('#rescount').textContent = `${trending.length} result${trending.length === 1 ? '' : 's'}`
+            wrap.innerHTML = trending.map(rowHtml).join('')
+            enrich(trending)
+            return
+        }
+        wrap.innerHTML = `<div class="void">${trendLoading ? 'loading&hellip;' : trendError ? 'could not reach trending right now' : 'nothing trending right now'}</div>`
         $('#rescount').textContent = ''
         return
     }
