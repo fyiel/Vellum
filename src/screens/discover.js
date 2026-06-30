@@ -1,4 +1,4 @@
-import { searchNovels, getSeries } from '../lib/api.js'
+import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
 import { go } from '../lib/router.js'
 
 // the discover screen. a debounced search across every source renders a ranked list. the filter panel
@@ -9,15 +9,41 @@ const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
-// representative taxonomy. production would load the full set from the metadata provider
-const GENRES = ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Romance', 'Sci-fi', 'Slice of Life', 'Horror', 'Mystery', 'Thriller', 'Tragedy', 'Psychological', 'Supernatural', 'Historical', 'Martial Arts', 'Mecha', 'Sports', 'School Life', 'Isekai', 'LitRPG', 'Cultivation', 'Wuxia', 'Xianxia', 'Xuanhuan', 'Cyberpunk', 'Post-Apocalyptic', 'Dystopia', 'GameLit', 'Progression', 'Harem', 'Reverse Harem', 'Yuri', 'Josei', 'Seinen', 'Shoujo', 'Shounen', 'Military', 'Crime', 'Dark Fantasy', 'Urban Fantasy', 'High Fantasy', 'Steampunk', 'Space Opera', 'Superhero', 'Villainess']
-const TAGS = ['Weak to Strong', 'Overpowered Protagonist', 'Reincarnation', 'Transmigration', 'System', 'Dungeon', 'Demon Lord', 'Anti-Hero', 'Female Protagonist', 'Male Protagonist', 'Kingdom Building', 'Slow Burn', 'Fast-Paced', 'Revenge', 'Found Family', 'Academy', 'Necromancer', 'Summoner', 'Beast Companion', 'Crafting', 'Alchemy', 'Cooking', 'Merchant', 'Court Politics', 'War', 'Cunning Protagonist', 'Genius Protagonist', 'Tower Climbing', 'Regression', 'Time Loop', 'Multiple POV', 'Hidden Identity', 'Dragons', 'Elves', 'Gods', 'Mythology', 'Monster Tamer', 'Ruthless Protagonist', 'Cheats', 'Status Window', 'Level System', 'Guild', 'Magic Academy', 'Mind Games', 'Strategy', 'Tearjerker']
-const OPTIONS = GENRES.map(v => ({ v, k: 'genre' })).concat(TAGS.map(v => ({ v, k: 'tag' })))
+// the genre and tag vocabulary, loaded from the backend on first show. it returns the full novelupdates
+// taxonomy as { genres, tags } and we flatten that into the token field option list of { v, k }. until it
+// lands the dropdown stays empty
+let OPTIONS = []
+let taxoLoaded = false
+let taxoLoading = false
+
+async function loadTaxonomy() {
+    if (taxoLoaded || taxoLoading) return
+    taxoLoading = true
+    try {
+        const t = await discoverTaxonomy()
+        OPTIONS = (t.genres || []).map(v => ({ v, k: 'genre' })).concat((t.tags || []).map(v => ({ v, k: 'tag' })))
+        taxoLoaded = true
+        const input = $('#toksearch')
+        if (input && document.activeElement === input) input.dispatchEvent(new Event('input'))
+    } catch (e) {} finally {
+        taxoLoading = false
+    }
+}
 
 let wired = false
 let inited = false
 let query = ''
 let results = []
+// active flips true once a search is in effect, a typed query or a filtered run. it drives the results
+// versus trending split in render
+let active = false
+// trending is the no search landing, discover sorted by trending. fetched once and held so coming back is
+// instant. trendLoaded guards the refetch, trendLoading paints the spinner, trendError the fallback
+let trending = []
+let trendLoaded = false
+let trendLoading = false
+let trendError = false
+const LIMIT = 30
 const dsort = { key: 'relevance', dir: 'desc' }
 const tokens = new Set()
 
@@ -28,6 +54,36 @@ function currentFilters() {
     const seg = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
     const sources = new Set($$('#dsource .chip.on:not([data-all])').map(c => c.dataset.src))
     return { length: seg('length') || 'any', sources }
+}
+
+const segVal = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
+
+// true when there is something for the backend to filter on, a token or a panel segment off its default.
+// sort alone does not count, there is nothing to narrow without a query
+function hasFilters() {
+    return tokens.size > 0
+        || (segVal('status') && segVal('status') !== 'all')
+        || (segVal('minrating') && segVal('minrating') !== 'any')
+        || (segVal('length') && segVal('length') !== 'any')
+}
+
+// split the selected tokens back into genres and tags by their kind, then fold the panel segments and sort
+// into the payload discover wants. api.js drops the empty values so undefined and empty arrays fall away
+function buildDiscoverParams() {
+    const genres = [], tags = []
+    for (const v of tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
+    const status = segVal('status'), minRating = segVal('minrating'), length = segVal('length')
+    return {
+        q: query || undefined,
+        genres, tags,
+        status: status && status !== 'all' ? status : undefined,
+        minRating: minRating && minRating !== 'any' ? minRating : undefined,
+        length: length && length !== 'any' ? length : undefined,
+        sort: dsort.key,
+        order: dsort.dir,
+        page: 1,
+        limit: LIMIT
+    }
 }
 
 // relevance, rating and updated keep the backend order (or reverse it for ascending). the rest sort on
@@ -74,10 +130,19 @@ function enrich(list) {
 
 function render() {
     const wrap = $('#dlist')
-    $('#dlab').innerHTML = query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Trending now <span class="ct">&middot; this week</span>'
+    $('#dlab').innerHTML = active
+        ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Results <span class="ct">&middot; filtered</span>')
+        : 'Trending now <span class="ct">&middot; this week</span>'
 
-    if (!query) {
-        wrap.innerHTML = `<div class="void">search every source to surface something new</div>`
+    if (!active) {
+        if (!trendLoaded && !trendLoading && !trendError) { loadTrending(); return }
+        if (trending.length) {
+            $('#rescount').textContent = `${trending.length} result${trending.length === 1 ? '' : 's'}`
+            wrap.innerHTML = trending.map(rowHtml).join('')
+            enrich(trending)
+            return
+        }
+        wrap.innerHTML = `<div class="void">${trendLoading ? 'loading&hellip;' : trendError ? 'could not reach trending right now' : 'nothing trending right now'}</div>`
         $('#rescount').textContent = ''
         return
     }
@@ -89,19 +154,44 @@ function render() {
     list = sortResults(list)
 
     $('#rescount').textContent = `${list.length} result${list.length === 1 ? '' : 's'}`
-    if (!list.length) { wrap.innerHTML = `<div class="void">no results for ${esc(query)}</div>`; return }
+    if (!list.length) { wrap.innerHTML = `<div class="void">no results${query ? ` for ${esc(query)}` : ''}</div>`; return }
 
     wrap.innerHTML = list.map(rowHtml).join('')
     enrich(list)
 }
 
-async function runSearch() {
-    if (!query) { results = []; render(); return }
+// the no search landing. discover sorted by trending fills the same ranked list, fetched once and held so
+// revisiting is instant. the guards keep it from refetching on every render
+async function loadTrending() {
+    if (active || trendLoaded || trendLoading) return
 
+    trendLoading = true
+    trendError = false
+    render()
+    try {
+        const data = await discover({ sort: 'trending', limit: LIMIT })
+        trending = data.results || []
+        trendLoaded = true
+    } catch {
+        trendError = true
+    } finally {
+        trendLoading = false
+    }
+
+    if (!active) render()
+}
+
+// search routing. a typed query runs searchNovels, the merged novelupdates plus novelfire title search.
+// tokens or panel filters with no text run discover, which the backend routes to novelupdates. text wins
+// when both are present so the result stays predictable. nothing selected falls back to render's default
+async function runSearch() {
+    if (!query && !hasFilters()) { results = []; active = false; render(); return }
+
+    active = true
     const wrap = $('#dlist')
     wrap.innerHTML = `<div class="void">searching&hellip;</div>`
     try {
-        const data = await searchNovels(query)
+        const data = query ? await searchNovels(query) : await discover(buildDiscoverParams())
         results = data.results || []
         render()
     } catch (e) {
@@ -182,6 +272,8 @@ function resetAll() {
     chips.querySelector('[data-all]').classList.add('on')
     dsort.key = 'relevance'
     dsort.dir = 'desc'
+    // reset only touches the filters, a typed query still stands. so we stay active when text remains
+    active = !!query
     paintSort()
     updateCount()
     render()
@@ -241,6 +333,9 @@ function wire() {
     })
 
     wireTokens()
+    // apply runs the live filter state through runSearch, no title needed. empty with nothing picked just
+    // falls back to trending
+    $('#fapply').addEventListener('click', runSearch)
     $('#freset').addEventListener('click', resetAll)
     $('#dlist').addEventListener('click', e => {
         const r = e.target.closest('.rrow')
@@ -255,6 +350,7 @@ function wire() {
 // chip on the series screen can hand off a term here, which lands as a fresh search
 export function showDiscover() {
     wire()
+    loadTaxonomy()
 
     const seed = sessionStorage.getItem('vellum:discoverSeed')
     if (seed) {
@@ -267,4 +363,5 @@ export function showDiscover() {
     }
 
     if (!inited) { inited = true; render() }
+    loadTrending()
 }
