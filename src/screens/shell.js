@@ -69,6 +69,11 @@ export function mountShell() {
     if (wired) return
     wired = true
 
+    // traffic lights are a mac thing, hide the cluster anywhere else
+    const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '')
+    const sq = $('.sq')
+    if (sq && !mac) sq.style.display = 'none'
+
     $$('.sq .s').forEach(b => b.addEventListener('click', () => winAction(b.dataset.win)))
     $$('.ni').forEach(n => n.addEventListener('click', () => { const r = NAV_ROUTE[n.dataset.nav]; if (r) go(r) }))
 }
