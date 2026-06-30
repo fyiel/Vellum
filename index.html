@@ -20,7 +20,7 @@
       <span class="s yel" data-win="min" title="Minimize"></span>
       <span class="s grn" data-win="zoom" title="Zoom"></span>
     </div>
-    <span class="crumb"><b>Library</b></span>
+    <span class="crumb"><b id="crumb">Library</b></span>
     <span class="sp"></span>
   </div>
   <div class="body">
@@ -34,22 +34,65 @@
       <div class="grow"></div>
     </aside>
     <main class="main">
-      <div class="tool">
-        <div class="srch"><input id="filter" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Filter library&hellip;"></div>
-        <span class="sortlbl">Sort</span>
-        <div class="seg" id="seg">
-          <span data-sort="recent">Recent</span>
-          <span data-sort="title">Title</span>
-          <span data-sort="progress">Progress</span>
-          <span data-sort="unread">Unread</span>
-          <span class="dir" id="dir">&#9660;</span>
+
+      <!-- library -->
+      <div class="view" id="view-library">
+        <div class="tool">
+          <div class="srch"><input id="filter" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Filter library&hellip;"></div>
+          <span class="sortlbl">Sort</span>
+          <div class="seg" id="seg">
+            <span data-sort="recent">Recent</span>
+            <span data-sort="title">Title</span>
+            <span data-sort="progress">Progress</span>
+            <span data-sort="unread">Unread</span>
+            <span class="dir" id="dir">&#9660;</span>
+          </div>
+        </div>
+        <div class="scroll">
+          <div class="lab" id="cont-lab">Continue</div>
+          <div class="cont" id="continue"></div>
+          <div id="libtable"></div>
         </div>
       </div>
-      <div class="scroll">
-        <div class="lab" id="cont-lab">Continue</div>
-        <div class="cont" id="continue"></div>
-        <div id="libtable"></div>
+
+      <!-- discover -->
+      <div class="view disco" id="view-discover" hidden>
+        <div class="tool">
+          <div class="srch"><span class="pr">&#9906;</span><input id="dsearch" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Search every source&hellip;"></div>
+          <button class="fbtn open" id="ftoggle"><span class="chev">&#9662;</span>Filters<span class="fcount" id="fcount">0</span></button>
+        </div>
+        <div class="fpanel open" id="fpanel">
+          <div class="fpanel-in">
+            <div class="fsec"><div class="fk">Sort by</div><div class="fv"><div class="seg" id="dsort">
+              <span class="on" data-sort="relevance">Relevance</span><span data-sort="rating">Rating</span><span data-sort="chapters">Chapters</span><span data-sort="updated">Updated</span><span data-sort="newest">Newest</span><span data-sort="title">Title</span><span class="dir" id="ddir">&#9660;</span>
+            </div></div></div>
+            <div class="fsec"><div class="fk">Genre &amp; tags</div><div class="fv" style="align-items:flex-start"><div class="tokwrap"><div class="tokfield" id="tokfield"><input id="toksearch" placeholder="Search genres &amp; tags&hellip;" autocomplete="off"></div><div class="tokdrop" id="tokdrop"></div></div></div></div>
+            <div class="fsec"><div class="fk">Status</div><div class="fv"><div class="seg fseg" data-filter="status">
+              <span class="on" data-v="all">All</span><span data-v="ongoing">Ongoing</span><span data-v="complete">Complete</span><span data-v="hiatus">Hiatus</span>
+            </div></div></div>
+            <div class="fsec"><div class="fk">Min rating</div><div class="fv"><div class="seg fseg" data-filter="minrating">
+              <span class="on" data-v="any">Any</span><span data-v="3.5">3.5+</span><span data-v="4.0">4.0+</span><span data-v="4.5">4.5+</span>
+            </div></div></div>
+            <div class="fsec"><div class="fk">Length</div><div class="fv"><div class="seg fseg" data-filter="length">
+              <span class="on" data-v="any">Any</span><span data-v="short">Short</span><span data-v="medium">Medium</span><span data-v="long">Long</span><span data-v="epic">Epic</span>
+            </div></div></div>
+            <div class="fsec"><div class="fk">Source</div><div class="fv chips" id="dsource">
+              <span class="chip on" data-all>All</span><span class="chip" data-src="dm">Dreamy</span><span class="chip" data-src="dawn">Dawn</span><span class="chip" data-src="nf">Novelfire</span>
+            </div></div>
+            <div class="ffoot"><span class="rescount" id="rescount"></span><span class="sp"></span><button class="freset" id="freset">Reset all</button></div>
+          </div>
+        </div>
+        <div class="scroll">
+          <div class="lab" id="dlab">Trending now <span class="ct">&middot; this week</span></div>
+          <div id="dlist"></div>
+        </div>
       </div>
+
+      <!-- updates (placeholder until its design lands) -->
+      <div class="view" id="view-updates" hidden>
+        <div class="scroll"><div class="void">updates is on the way</div></div>
+      </div>
+
     </main>
   </div>
 </div>

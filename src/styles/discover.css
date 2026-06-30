@@ -1,0 +1,65 @@
+/* discover specific styles, transcribed from the handoff. the shell, tokens, sidebar, segmented
+   controls and shared row primitives come from the library stylesheet. anything that differs from the
+   library search box is scoped under .disco so it cannot leak back onto the library view */
+
+.den .srch .pr { color: var(--dim); font: 400 13px var(--mono); }
+.den .disco .srch { padding: 8px 12px; }
+.den .disco .srch input { font-size: 14px; }
+
+.den .fbtn { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--line2); background: var(--row); color: var(--text); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .fbtn .chev { font-family: var(--mono); color: var(--dim); transition: transform .15s; }
+.den .fbtn.open .chev { transform: rotate(180deg); color: var(--ac); }
+.den .fbtn .fcount { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; background: var(--ac); color: var(--bg); font: 600 10px var(--mono); }
+
+.den .fpanel { flex: none; background: var(--panel); border-bottom: 1px solid var(--line); }
+.den .fpanel:not(.open) { display: none; }
+.den .fpanel-in { padding: 4px 16px 10px; }
+.den .fsec { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.den .fk { font: 600 10px 'Archivo'; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+.den .fv { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.den .ffoot { display: flex; align-items: center; gap: 12px; padding: 12px 0 2px; }
+.den .ffoot .rescount { font: 400 12px var(--mono); color: var(--dim); }
+.den .ffoot .sp { flex: 1; }
+.den .freset { padding: 6px 12px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .freset:hover { color: var(--hi); border-color: var(--ac); }
+
+.den .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.den .chip { padding: 4px 10px; border: 1px solid var(--line2); font: 500 11px 'Archivo'; color: var(--dim); cursor: pointer; white-space: nowrap; }
+.den .chip:hover { color: var(--text); }
+.den .chip.on { background: var(--sel); color: var(--hi); border-color: var(--ac); box-shadow: inset 0 -2px 0 var(--ac); }
+
+/* searchable token multi select */
+.den .tokwrap { position: relative; width: 100%; max-width: 580px; }
+.den .tokfield { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 5px 7px; border: 1px solid var(--line2); background: var(--row); cursor: text; min-height: 34px; }
+.den .tok { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 9px; background: var(--sel); border: 1px solid var(--line2); font: 500 11px 'Archivo'; color: var(--hi); white-space: nowrap; }
+.den .tok .x { display: flex; align-items: center; justify-content: center; width: 15px; height: 15px; line-height: 1; color: var(--dim); font-family: var(--mono); font-size: 13px; cursor: pointer; }
+.den .tok .x:hover { color: var(--ac); }
+.den .tokfield input { flex: 1; min-width: 130px; background: transparent; border: none; outline: none; color: var(--hi); font: 400 12px 'Archivo'; padding: 3px 2px; }
+.den .tokfield input::placeholder { color: var(--dim); }
+.den .tokdrop { position: absolute; left: 0; right: 0; top: calc(100% + 3px); z-index: 30; background: var(--panel); border: 1px solid var(--line2); max-height: 248px; overflow-y: auto; display: none; box-shadow: 0 14px 30px -10px #000; }
+.den .tokdrop.open { display: block; }
+.den .topt { display: flex; align-items: center; gap: 9px; padding: 7px 11px; font: 400 12px 'Archivo'; color: var(--text); cursor: pointer; border-bottom: 1px solid var(--line); }
+.den .topt:hover { background: var(--sel); color: var(--hi); }
+.den .topt .kind { margin-left: auto; font: 400 9px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+
+/* trending / results header */
+.den .disco .lab { margin: 0 0 11px; display: flex; align-items: baseline; gap: 8px; }
+.den .disco .lab .ct { color: var(--dim); letter-spacing: .5px; }
+
+/* ranked result rows */
+.den .rrow { display: grid; grid-template-columns: 34px 48px minmax(0, 1fr) 88px 64px 52px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .rrow:hover { background: var(--rowh); }
+.den .rk { font: 600 17px var(--mono); color: var(--dim); text-align: right; }
+.den .rrow.top .rk { color: var(--ac); }
+.den .rrow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .disco .tt .au { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .rt { font: 400 12px var(--mono); color: var(--text); text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.den .rt .st { color: var(--ac); }
+.den .tr { font: 400 11px var(--mono); text-align: right; color: var(--dim); }
+.den .tr .up, .den .tr .nw { color: var(--ac); }
+
+.den.d-compact .rrow { padding: 6px 10px; }
+.den.d-compact .rrow .cv { width: 36px; height: 48px; }
+.den.d-dense .rrow { padding: 3px 10px; }
+.den.d-dense .rrow .cv { width: 28px; height: 38px; }
+.den.d-dense .rk { font-size: 15px; }

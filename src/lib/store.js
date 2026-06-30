@@ -29,7 +29,12 @@ export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, wi
 export const loadSettings = () => ({ ...SET_DEFAULT, ...lsGet(`${NS}:settings`, {}) })
 export const saveSettings = s => lsSet(`${NS}:settings`, s)
 
-// library page feel and sort. scheme and density are the design feel controls, sort is the table state
-export const LIB_UI_DEFAULT = { scheme: 'Graphite', density: 'comfortable', sortKey: 'recent', sortDir: 'desc' }
-export const loadLibUI = () => ({ ...LIB_UI_DEFAULT, ...lsGet(`${NS}:libui`, {}) })
-export const saveLibUI = u => lsSet(`${NS}:libui`, u)
+// feel controls, shared app wide across every browse screen. scheme and density apply as root classes
+export const FEEL_DEFAULT = { scheme: 'Graphite', density: 'comfortable' }
+export const loadFeel = () => ({ ...FEEL_DEFAULT, ...lsGet(`${NS}:feel`, {}) })
+export const saveFeel = f => lsSet(`${NS}:feel`, f)
+
+// library table sort, specific to the library screen
+export const LIB_SORT_DEFAULT = { sortKey: 'recent', sortDir: 'desc' }
+export const loadLibSort = () => ({ ...LIB_SORT_DEFAULT, ...lsGet(`${NS}:libsort`, {}) })
+export const saveLibSort = s => lsSet(`${NS}:libsort`, s)

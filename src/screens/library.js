@@ -1,4 +1,4 @@
-import { library, loadLibUI, saveLibUI } from '../lib/store.js'
+import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { getChapters } from '../lib/api.js'
 import { go, hashSlug } from '../lib/router.js'
 
@@ -10,9 +10,8 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
 const CONT_MAX = 4                 // most recent in progress titles surfaced in the continue strip
-const SCHEME_CLASS = { Graphite: '', Ink: 's-ink', Paper: 's-paper', Phosphor: 's-phosphor', Ember: 's-ember' }
 
-let ui = loadLibUI()
+let ui = loadLibSort()
 let filterQ = ''
 let wired = false
 const newCounts = new Map()        // slug to count of unread new chapters, filled by the updates pass
@@ -39,24 +38,6 @@ function relTime(ts) {
     if (w < 5) return `${Math.floor(w)}w`
     const mo = d / 30
     return mo < 12 ? `${Math.floor(mo)}mo` : `${Math.floor(d / 365)}y`
-}
-
-// scheme and density are classes on the den root. read the resolved bg back out so the window chrome
-// and overscroll match the active theme without hardcoding any colour here
-function applyFeel() {
-    const den = $('#den')
-    den.classList.remove('s-ink', 's-paper', 's-phosphor', 's-ember', 'd-compact', 'd-dense')
-    const sc = SCHEME_CLASS[ui.scheme] || ''
-    if (sc) den.classList.add(sc)
-    if (ui.density === 'compact') den.classList.add('d-compact')
-    if (ui.density === 'dense') den.classList.add('d-dense')
-
-    const bg = getComputedStyle(den).getPropertyValue('--bg').trim()
-    if (bg) {
-        document.documentElement.style.background = bg
-        const meta = $('meta[name=theme-color]')
-        if (meta) meta.content = bg
-    }
 }
 
 function sortEntries(list) {
@@ -141,7 +122,7 @@ function paintSort() {
 function setSort(key) {
     if (key === ui.sortKey) ui.sortDir = ui.sortDir === 'asc' ? 'desc' : 'asc'
     else { ui.sortKey = key; ui.sortDir = 'desc' }
-    saveLibUI(ui)
+    saveLibSort(ui)
     paintSort()
     render()
 }
@@ -177,24 +158,13 @@ function openEntry(el) {
     go(`#/read/${hashSlug(slug)}/${el.dataset.n || 1}`)
 }
 
-async function winAction(action) {
-    if (!window.__TAURI_INTERNALS__) return
-    try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        const w = getCurrentWindow()
-        if (action === 'close') w.close()
-        if (action === 'min') w.minimize()
-        if (action === 'zoom') w.toggleMaximize()
-    } catch {}
-}
-
 function wire() {
     if (wired) return
     wired = true
 
     $('#seg').addEventListener('click', e => {
         const dir = e.target.closest('.dir')
-        if (dir) { ui.sortDir = ui.sortDir === 'asc' ? 'desc' : 'asc'; saveLibUI(ui); paintSort(); render(); return }
+        if (dir) { ui.sortDir = ui.sortDir === 'asc' ? 'desc' : 'asc'; saveLibSort(ui); paintSort(); render(); return }
         const s = e.target.closest('span[data-sort]')
         if (s) setSort(s.dataset.sort)
     })
@@ -206,24 +176,15 @@ function wire() {
         t = setTimeout(() => { filterQ = v; render() }, 200)
     })
 
-    $$('.ni').forEach(n => n.addEventListener('click', () => {
-        $$('.ni').forEach(o => o.classList.toggle('on', o === n))
-        if (n.dataset.nav === 'library') render()
-        else $('#libtable').innerHTML = `<div class="void">${esc(n.dataset.nav)} is on the way</div>`
-    }))
-
     $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) openEntry(t) })
     $('#libtable').addEventListener('click', e => { const r = e.target.closest('.trow'); if (r) openEntry(r) })
-
-    $$('.sq .s').forEach(b => b.addEventListener('click', () => winAction(b.dataset.win)))
 
     paintSort()
 }
 
-// entry point, called whenever the home route is shown
+// entry point, called whenever the library route is shown. the shell handles the feel
 export function showLibrary() {
     wire()
-    applyFeel()
     render()
     checkUpdates()
 }

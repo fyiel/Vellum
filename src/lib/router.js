@@ -15,6 +15,9 @@ export function parseHash() {
     const series = h.match(/^#\/series\/(.+)$/)
     if (series) return { name: 'series', key: series[1] }
 
+    if (h.startsWith('#/discover')) return { name: 'discover' }
+    if (h.startsWith('#/updates')) return { name: 'updates' }
+
     return { name: 'home' }
 }
 

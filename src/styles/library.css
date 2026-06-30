@@ -39,6 +39,8 @@ body { background: #15161a; overflow: hidden; }
 .den .grow { flex: 1; }
 
 .den .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.den .view { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.den .view[hidden] { display: none; }
 .den .tool { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .den .srch { flex: 1; display: flex; align-items: center; gap: 9px; background: var(--row); border: 1px solid var(--line2); padding: 7px 11px; }
 .den .srch input { flex: 1; background: transparent; border: none; outline: none; color: var(--hi); font: 400 13px 'Archivo'; }
