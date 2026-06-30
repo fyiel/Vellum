@@ -286,6 +286,31 @@ function wire() {
     window.addEventListener('resize', checkSynOverflow)
 }
 
+// the chapter feed streams in after the info pane is already up. the guard stops a slow fetch from
+// painting over a newer navigation, and we backfill cur so follow and continue keep working
+async function loadChapters(slug, mine) {
+    let chapters = []
+    try { chapters = (await getChapters(slug))?.chapters || [] } catch {}
+    if (mine !== req) return
+
+    const count = chapters.length
+    cur.chapters = chapters
+    cur.count = count
+
+    $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
+
+    const stat = $('#chstat')
+    if (stat) {
+        stat.textContent = count
+        stat.classList.add('copyable')
+        stat.title = 'Click to copy'
+    }
+
+    // open anchored at the bottom, the start of the story, so the reader scrolls up toward new chapters
+    const sc = $('.chscroll')
+    if (sc) sc.scrollTop = sc.scrollHeight
+}
+
 // entry point, called whenever the series route is shown. origin is the browse screen we came from
 export async function showSeries(key, origin) {
     wire()
@@ -300,25 +325,19 @@ export async function showSeries(key, origin) {
     if (mine !== req) return
     if (!series) { info.innerHTML = `<div class="void">series not found</div>`; return }
 
+    // paint the info pane the second the metadata lands, a novel with thousands of chapters never blocks it
     const slug = series.nfSlug || key
-    let chapters = []
-    try { chapters = (await getChapters(slug))?.chapters || [] } catch {}
-    if (mine !== req) return
-
-    const count = chapters.length || series.totalChapters || 0
-    cur = { key, slug, series, chapters, count }
+    cur = { key, slug, series, chapters: [], count: null }
 
     setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => back())
-    info.innerHTML = infoHtml(series, slug, count)
-    chaps.innerHTML = chaptersHtml(slug, chapters, count)
-
-    // open anchored at the bottom, the start of the story, so the reader scrolls up toward new chapters
-    const sc = $('.chscroll')
-    if (sc) sc.scrollTop = sc.scrollHeight
+    info.innerHTML = infoHtml(series, slug, null)
+    chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
 
     checkSynOverflow()
     if (document.fonts?.ready) document.fonts.ready.then(() => { if (mine === req) checkSynOverflow() })
 
     const next = posGet(slug)?.n
     if (next != null) prefetchChapter(slug, next)
+
+    loadChapters(slug, mine)
 }
