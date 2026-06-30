@@ -333,6 +333,9 @@ function wire() {
     })
 
     wireTokens()
+    // apply runs the live filter state through runSearch, no title needed. empty with nothing picked just
+    // falls back to trending
+    $('#fapply').addEventListener('click', runSearch)
     $('#freset').addEventListener('click', resetAll)
     $('#dlist').addEventListener('click', e => {
         const r = e.target.closest('.rrow')
