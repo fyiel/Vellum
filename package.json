@@ -15,6 +15,7 @@
     "mobile:sync": "vite build && cap sync",
     "mobile:add:android": "cap add android",
     "mobile:add:ios": "cap add ios",
+    "ios:build": "vite build && cap sync ios && cap build ios --scheme App",
     "cap": "cap"
   },
   "devDependencies": {
