@@ -22,6 +22,7 @@ import { showReader, closeReader } from './screens/reader.js'
 const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hidden = v.id !== `view-${name}` })
 
 await setupNative()
+installCoverFallback()
 
 let origin = 'library'
 

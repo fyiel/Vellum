@@ -1,6 +1,7 @@
 import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
 import { go } from '../lib/router.js'
+import { coverImg } from '../lib/cover.js'
 
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
@@ -50,13 +51,12 @@ function sortEntries(list) {
     })
 }
 
-const cover = (url, ph) =>
-    url ? `<img src="${esc(url)}" alt="" loading="lazy">` : (ph ? `<span>${ph}</span>` : '')
+const cover = (e, ph) => coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>` : '')
 
 const contTile = e => {
     const pct = pctOf(e)
     return `<div class="ctile" data-slug="${esc(e.slug)}" data-n="${resumeN(e)}">
-      <div class="cv">${cover(e.cover, 'COV')}</div>
+      <div class="cv">${cover(e, 'COV')}</div>
       <div class="cbd">
         <div class="ti">${esc(e.title)}</div>
         <div class="mt">${read(e)} / ${total(e)}<span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
@@ -74,7 +74,7 @@ function updCell(e) {
 const row = e => {
     const pct = pctOf(e)
     return `<div class="trow" data-slug="${esc(e.slug)}" data-n="${resumeN(e)}">
-      <span class="cv">${cover(e.cover, '')}</span>
+      <span class="cv">${cover(e, '')}</span>
       <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(e.author || '')}</div></div>
       <div class="pcell"><span class="bar"><span style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>
       <span class="chp">${read(e)}/${total(e)}</span>

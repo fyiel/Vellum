@@ -1,4 +1,5 @@
 import { buildFeed, setRead, markAll } from '../lib/updates.js'
+import { coverImg } from '../lib/cover.js'
 import { go, hashSlug } from '../lib/router.js'
 
 const $ = (s, el = document) => el.querySelector(s)
@@ -39,7 +40,7 @@ function rowHtml(u) {
     const chips = u.newNums.slice(0, CHIP_MAX).map(n => `<a class="uchip" data-n="${n}">Ch ${n}</a>`).join('')
     const more = u.newNums.length > CHIP_MAX ? `<span class="umore">+${u.newNums.length - CHIP_MAX}</span>` : ''
     const badge = u.read ? '' : `<span class="unew">+${u.newCount} new</span>`
-    const cover = u.cover ? `<img src="${esc(u.cover)}" loading="lazy" alt="">` : ''
+    const cover = coverImg(u.cover, u.title)
     return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-new="${u.newCount}">
       <span class="cv">${cover}</span>
       <div class="utt"><div class="n">${esc(u.title)}</div><div class="uch">${badge}${chips}${more}</div></div>

@@ -1,5 +1,6 @@
 import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
 import { go } from '../lib/router.js'
+import { coverImg } from '../lib/cover.js'
 
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
@@ -85,7 +86,7 @@ const metaInit = r => [r.sourceName, r.year].filter(Boolean).join(' · ')
 function rowHtml(r, i) {
     const rank = i + 1
     const top = rank <= 3 ? ' top' : ''
-    const cover = r.cover ? `<img src="${esc(r.cover)}" loading="lazy" alt="">` : ''
+    const cover = coverImg(r.cover, r.title)
     return `<div class="rrow${top}" data-key="${esc(r.key)}">
       <span class="rk">${rank}</span>
       <span class="cv">${cover}</span>

@@ -2,6 +2,7 @@ import { getSeries, getChapters, prefetchChapter } from '../lib/api.js'
 import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
+import { coverImg } from '../lib/cover.js'
 
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
@@ -80,7 +81,7 @@ function statsHtml(s, slug, count) {
 }
 
 function infoHtml(s, slug, count) {
-    const cover = s.cover ? `<img src="${esc(s.cover)}" alt="" loading="lazy">` : `<span class="g">Cover</span>`
+    const cover = coverImg(s.cover, s.title) || `<span class="g">Cover</span>`
     const meta = [s.author, s.year, s.status || s.nfStatus].filter(Boolean).join(' · ')
     const pos = posGet(slug)
     const cont = pos ? `Continue &middot; Ch ${esc(pos.n)}` : 'Start reading'
