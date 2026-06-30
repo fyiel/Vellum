@@ -18,6 +18,7 @@ import { showDiscover } from './screens/discover.js'
 import { showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
 import { showReader, closeReader } from './screens/reader.js'
+import { installCoverFallback } from './lib/cover.js'
 
 const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hidden = v.id !== `view-${name}` })
 
