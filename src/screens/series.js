@@ -103,7 +103,7 @@ function infoHtml(s, slug, count) {
       ${taxHtml('Tags', s.tags, true)}
       <div class="dactions">
         <button class="btn primary" id="contbtn">${cont}</button>
-        <div class="brow"><button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button><button class="btn">Add to list</button></div>
+        <button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button>
       </div>
       ${synopsisHtml(s)}
       ${statsHtml(s, slug, count)}`
