@@ -251,8 +251,20 @@ function wire() {
     updateCount()
 }
 
-// entry point, called whenever the discover route is shown. the shell handles the feel
+// entry point, called whenever the discover route is shown. the shell handles the feel. a genre or tag
+// chip on the series screen can hand off a term here, which lands as a fresh search
 export function showDiscover() {
     wire()
+
+    const seed = sessionStorage.getItem('vellum:discoverSeed')
+    if (seed) {
+        sessionStorage.removeItem('vellum:discoverSeed')
+        $('#dsearch').value = seed
+        query = seed
+        inited = true
+        runSearch()
+        return
+    }
+
     if (!inited) { inited = true; render() }
 }
