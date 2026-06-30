@@ -79,8 +79,12 @@ function sourceRowHtml(s) {
 // only the stats the data actually carries get a row, never a blank or a crash
 function statsHtml(s, slug, count) {
     const status = s.status || s.nfStatus || null
+    // count rides in late with the chapter feed so the row holds a placeholder we fill on arrival
+    const chval = count != null
+        ? `<span class="v copyable" id="chstat" title="Click to copy">${count}</span>`
+        : `<span class="v" id="chstat">&hellip;</span>`
     const rows = [
-        count ? `<div class="drow"><span class="k">Chapters</span><span class="v copyable" title="Click to copy">${count}</span></div>` : '',
+        `<div class="drow"><span class="k">Chapters</span>${chval}</div>`,
         status ? `<div class="drow"><span class="k">Status</span><span class="v copyable" title="Click to copy">${esc(status)}</span></div>` : '',
         sourceRowHtml(s),
     ].filter(Boolean).join('')
