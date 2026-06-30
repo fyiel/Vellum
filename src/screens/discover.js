@@ -360,4 +360,5 @@ export function showDiscover() {
     }
 
     if (!inited) { inited = true; render() }
+    loadTrending()
 }
