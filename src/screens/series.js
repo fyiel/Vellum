@@ -79,8 +79,12 @@ function sourceRowHtml(s) {
 // only the stats the data actually carries get a row, never a blank or a crash
 function statsHtml(s, slug, count) {
     const status = s.status || s.nfStatus || null
+    // count rides in late with the chapter feed so the row holds a placeholder we fill on arrival
+    const chval = count != null
+        ? `<span class="v copyable" id="chstat" title="Click to copy">${count}</span>`
+        : `<span class="v" id="chstat">&hellip;</span>`
     const rows = [
-        count ? `<div class="drow"><span class="k">Chapters</span><span class="v copyable" title="Click to copy">${count}</span></div>` : '',
+        `<div class="drow"><span class="k">Chapters</span>${chval}</div>`,
         status ? `<div class="drow"><span class="k">Status</span><span class="v copyable" title="Click to copy">${esc(status)}</span></div>` : '',
         sourceRowHtml(s),
     ].filter(Boolean).join('')
@@ -103,7 +107,7 @@ function infoHtml(s, slug, count) {
       ${taxHtml('Tags', s.tags, true)}
       <div class="dactions">
         <button class="btn primary" id="contbtn">${cont}</button>
-        <div class="brow"><button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button><button class="btn">Add to list</button></div>
+        <button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button>
       </div>
       ${synopsisHtml(s)}
       ${statsHtml(s, slug, count)}`
@@ -282,6 +286,31 @@ function wire() {
     window.addEventListener('resize', checkSynOverflow)
 }
 
+// the chapter feed streams in after the info pane is already up. the guard stops a slow fetch from
+// painting over a newer navigation, and we backfill cur so follow and continue keep working
+async function loadChapters(slug, mine) {
+    let chapters = []
+    try { chapters = (await getChapters(slug))?.chapters || [] } catch {}
+    if (mine !== req) return
+
+    const count = chapters.length
+    cur.chapters = chapters
+    cur.count = count
+
+    $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
+
+    const stat = $('#chstat')
+    if (stat) {
+        stat.textContent = count
+        stat.classList.add('copyable')
+        stat.title = 'Click to copy'
+    }
+
+    // open anchored at the bottom, the start of the story, so the reader scrolls up toward new chapters
+    const sc = $('.chscroll')
+    if (sc) sc.scrollTop = sc.scrollHeight
+}
+
 // entry point, called whenever the series route is shown. origin is the browse screen we came from
 export async function showSeries(key, origin) {
     wire()
@@ -296,25 +325,19 @@ export async function showSeries(key, origin) {
     if (mine !== req) return
     if (!series) { info.innerHTML = `<div class="void">series not found</div>`; return }
 
+    // paint the info pane the second the metadata lands, a novel with thousands of chapters never blocks it
     const slug = series.nfSlug || key
-    let chapters = []
-    try { chapters = (await getChapters(slug))?.chapters || [] } catch {}
-    if (mine !== req) return
-
-    const count = chapters.length || series.totalChapters || 0
-    cur = { key, slug, series, chapters, count }
+    cur = { key, slug, series, chapters: [], count: null }
 
     setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => back())
-    info.innerHTML = infoHtml(series, slug, count)
-    chaps.innerHTML = chaptersHtml(slug, chapters, count)
-
-    // open anchored at the bottom, the start of the story, so the reader scrolls up toward new chapters
-    const sc = $('.chscroll')
-    if (sc) sc.scrollTop = sc.scrollHeight
+    info.innerHTML = infoHtml(series, slug, null)
+    chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
 
     checkSynOverflow()
     if (document.fonts?.ready) document.fonts.ready.then(() => { if (mine === req) checkSynOverflow() })
 
     const next = posGet(slug)?.n
     if (next != null) prefetchChapter(slug, next)
+
+    loadChapters(slug, mine)
 }
