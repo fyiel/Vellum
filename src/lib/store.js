@@ -38,3 +38,8 @@ export const saveFeel = f => lsSet(`${NS}:feel`, f)
 export const LIB_SORT_DEFAULT = { sortKey: 'recent', sortDir: 'desc' }
 export const loadLibSort = () => ({ ...LIB_SORT_DEFAULT, ...lsGet(`${NS}:libsort`, {}) })
 export const saveLibSort = s => lsSet(`${NS}:libsort`, s)
+
+// updates ledger: per slug, when an update was first seen and whether it has been marked read. lets the
+// updates feed keep stable buckets and a stable read state across sessions
+export const loadUpdLedger = () => lsGet(`${NS}:updates`, {})
+export const saveUpdLedger = l => lsSet(`${NS}:updates`, l)

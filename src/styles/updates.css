@@ -1,0 +1,33 @@
+/* updates specific styles, transcribed from the handoff. the shell, tokens, sidebar and segmented
+   control come from the shared stylesheet. the section label margin is scoped under .upd so it cannot
+   shift the labels on the other screens */
+
+.den .markall { padding: 7px 13px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .markall:hover { color: var(--hi); border-color: var(--ac); }
+
+.den .upd .lab { margin: 18px 0 9px; display: flex; align-items: baseline; gap: 8px; }
+.den .upd .lab .ct { color: var(--dim); letter-spacing: .5px; }
+
+.den .urow { display: grid; grid-template-columns: 42px minmax(0, 1fr) 64px 28px; align-items: center; gap: 14px; padding: 11px 12px 11px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .urow:hover { background: var(--rowh); }
+.den .urow.unread { box-shadow: inset 2px 0 0 var(--ac); }
+.den .urow.read { opacity: .5; }
+.den .urow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .utt { min-width: 0; }
+.den .utt .n { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .uch { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.den .unew { font: 600 10px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; margin-right: 2px; }
+.den .uchip { padding: 2px 7px; border: 1px solid var(--line2); font: 400 11px var(--mono); color: var(--text); white-space: nowrap; }
+.den .uchip:hover { border-color: var(--ac); color: var(--hi); }
+.den .umore { font: 400 11px var(--mono); color: var(--dim); }
+.den .utime { font: 400 11px var(--mono); color: var(--dim); text-align: right; }
+.den .umark { width: 24px; height: 24px; border: 1px solid var(--line2); background: transparent; color: var(--dim); display: grid; place-items: center; font-size: 12px; cursor: pointer; }
+.den .umark:hover { color: var(--ac); border-color: var(--ac); }
+.den .urow.read .umark { color: var(--ac); border-color: var(--line2); }
+.den.flt-unread .urow.read { display: none; }
+
+.den.d-compact .urow { padding: 8px 10px; }
+.den.d-compact .urow .cv { width: 36px; height: 48px; }
+.den.d-dense .urow { padding: 5px 10px; }
+.den.d-dense .urow .cv { width: 28px; height: 38px; }
+.den.d-dense .uch { display: none; }

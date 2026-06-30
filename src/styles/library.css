@@ -36,6 +36,7 @@ body { background: #15161a; overflow: hidden; }
 .den .ni .c { margin-left: auto; color: var(--dim); font: 400 11px var(--mono); }
 .den .ni.on { background: var(--sel); color: var(--hi); }
 .den .ni.on .ix { color: var(--ac); }
+.den .ni.on .c { color: var(--ac); }
 .den .grow { flex: 1; }
 
 .den .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

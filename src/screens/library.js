@@ -1,5 +1,5 @@
 import { library, loadLibSort, saveLibSort } from '../lib/store.js'
-import { getChapters } from '../lib/api.js'
+import { buildFeed, unreadTotal } from '../lib/updates.js'
 import { go, hashSlug } from '../lib/router.js'
 
 // the desktop library page. renders the continue strip and the sortable, filterable library table from
@@ -130,26 +130,11 @@ function setSort(key) {
 // check every library title for chapters past what was known when last read. cached and stale while
 // revalidate so this is cheap on repeat visits, and it updates the row and the sidebar count in place
 async function checkUpdates() {
-    const all = library()
-    let totalNew = 0
-    for (const e of all) {
-        try {
-            const data = await getChapters(e.slug)
-            const latest = data?.chapters?.length ?? 0
-            const delta = Math.max(0, latest - total(e))
-            if (delta > 0) {
-                newCounts.set(e.slug, delta)
-                totalNew += delta
-                paintUpdCell(e.slug, delta)
-            }
-        } catch {}
-    }
-    $('#count-updates').textContent = totalNew ? String(totalNew) : ''
-}
-
-function paintUpdCell(slug, n) {
-    const r = $$('#libtable .trow').find(el => el.dataset.slug === slug)
-    if (r) r.querySelector('.upd').outerHTML = `<span class="upd"><span class="new">+${n}</span></span>`
+    const feed = await buildFeed()
+    newCounts.clear()
+    for (const u of feed) if (!u.read && u.newCount > 0) newCounts.set(u.slug, u.newCount)
+    $('#count-updates').textContent = unreadTotal(feed) ? String(unreadTotal(feed)) : ''
+    render()
 }
 
 function openEntry(el) {
