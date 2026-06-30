@@ -2,21 +2,17 @@ import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
 import { go } from '../lib/router.js'
 
-// the desktop library page. renders the continue strip and the sortable, filterable library table from
-// whatever sits in localStorage, then quietly checks each title for new chapters in the background
-
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
-const CONT_MAX = 4                 // most recent in progress titles surfaced in the continue strip
+const CONT_MAX = 4
 
 let ui = loadLibSort()
 let filterQ = ''
 let wired = false
-const newCounts = new Map()        // slug to count of unread new chapters, filled by the updates pass
+const newCounts = new Map()
 
-// derived view of a library entry
 const read = e => e.readCount || 0
 const total = e => e.total || 0
 const pctOf = e => total(e) ? Math.min(100, Math.round((read(e) / total(e)) * 100)) : 0
@@ -113,7 +109,6 @@ function render() {
     else table.innerHTML = rows.map(row).join('')
 }
 
-// paint the active sort cell and the direction glyph from current state
 function paintSort() {
     $$('#seg span[data-sort]').forEach(s => s.classList.toggle('on', s.dataset.sort === ui.sortKey))
     $('#dir').textContent = ui.sortDir === 'asc' ? '▲' : '▼'
@@ -127,8 +122,6 @@ function setSort(key) {
     render()
 }
 
-// check every library title for chapters past what was known when last read. cached and stale while
-// revalidate so this is cheap on repeat visits, and it updates the row and the sidebar count in place
 async function checkUpdates() {
     const feed = await buildFeed()
     newCounts.clear()
@@ -167,7 +160,6 @@ function wire() {
     paintSort()
 }
 
-// entry point, called whenever the library route is shown. the shell handles the feel
 export function showLibrary() {
     wire()
     render()

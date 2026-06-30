@@ -3,10 +3,6 @@ import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 
-// the series detail screen. a fixed info column and a fluid chapter column, both scrolling on their own.
-// it reads the series key off the route, pulls getSeries and getChapters, paints the design and wires
-// every interaction. synopsis expand, tag cloud, chapter search and order, follow, source picker, copy
-
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -14,21 +10,16 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
 
 let wired = false
-let cur = null            // { key, slug, series, chapters, count }
-let req = 0               // guards against a slow fetch painting over a newer navigation
+let cur = null
+let req = 0
 
-// follow lives in the shared library store, keyed by the same slug the reader and updates use
 const followed = slug => library().some(e => e.slug === slug)
 
-// the chapter list shows highest numbers at the top and chapter one at the bottom
 const byDesc = (a, b) => b.n - a.n
 
-// source data only rides along on the aggregator keys, so normalise loosely and degrade to one name
 const srcName = x => typeof x === 'string' ? x : (x.name || x.sourceName || x.source || '')
 const srcCount = x => typeof x === 'string' ? null : (x.chapterCount ?? x.chapters ?? x.count ?? null)
 const srcOff = x => typeof x === 'string' ? false : !(x.available ?? x.readable ?? true)
-
-// info column
 
 function ratingHtml(s) {
     if (typeof s.rating !== 'number') return ''
@@ -47,11 +38,9 @@ function taxHtml(label, items, cloud) {
 
 function synopsisHtml(s) {
     if (!s.description) return ''
-    // the clamped box needs a block parent so the line clamp survives the info column flex layout
     return `<div class="seclab">Synopsis</div><div class="synhost"><div class="dsyn clamp" id="syn">${esc(s.description)}</div></div><div class="dmore" id="synmore" style="display:none">Show more</div>`
 }
 
-// the source row is a flyout when two or more sources can be chosen, otherwise a plain copyable name
 function sourceRowHtml(s) {
     const sources = Array.isArray(s.sources) ? s.sources : []
     const name = s.sourceName || (sources[0] && srcName(sources[0])) || 'Unknown'
@@ -76,10 +65,8 @@ function sourceRowHtml(s) {
     </span></div>`
 }
 
-// only the stats the data actually carries get a row, never a blank or a crash
 function statsHtml(s, slug, count) {
     const status = s.status || s.nfStatus || null
-    // count rides in late with the chapter feed so the row holds a placeholder we fill on arrival
     const chval = count != null
         ? `<span class="v copyable" id="chstat" title="Click to copy">${count}</span>`
         : `<span class="v" id="chstat">&hellip;</span>`
@@ -113,8 +100,6 @@ function infoHtml(s, slug, count) {
       ${statsHtml(s, slug, count)}`
 }
 
-// chapters column
-
 function chrow(c, read, curN) {
     const cls = ['chrow', read.has(c.n) && 'read', c.n === curN && 'cur'].filter(Boolean).join(' ')
     return `<div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>`
@@ -133,8 +118,6 @@ function chaptersHtml(slug, chapters, count) {
       <div class="chhead">Chapter list <span class="ct">&middot; ${count}</span></div>
       <div class="chscroll"><div class="chlist" id="chlist">${list}</div></div>`
 }
-
-// behaviour
 
 function checkSynOverflow() {
     const syn = $('#syn'), more = $('#synmore')
@@ -202,8 +185,6 @@ function copyValue(el) {
     }, 900)
 }
 
-// pick an available source, refresh the dot, check and name, then close. switching the actual chapter
-// feed needs a per source slug the metadata does not expose yet, so this updates the chosen label
 function selectSource(opt) {
     if (opt.classList.contains('off')) return
 
@@ -281,13 +262,10 @@ function wire() {
 
     $('#schapters').addEventListener('input', e => { if (e.target.id === 'chsearch') filterChapters(e.target.value) })
 
-    // a click anywhere else closes the source flyout
     document.addEventListener('click', () => $('#srcwrap')?.classList.remove('open'))
     window.addEventListener('resize', checkSynOverflow)
 }
 
-// the chapter feed streams in after the info pane is already up. the guard stops a slow fetch from
-// painting over a newer navigation, and we backfill cur so follow and continue keep working
 async function loadChapters(slug, mine) {
     let chapters = []
     try { chapters = (await getChapters(slug))?.chapters || [] } catch {}
@@ -306,12 +284,10 @@ async function loadChapters(slug, mine) {
         stat.title = 'Click to copy'
     }
 
-    // open anchored at the bottom, the start of the story, so the reader scrolls up toward new chapters
     const sc = $('.chscroll')
     if (sc) sc.scrollTop = sc.scrollHeight
 }
 
-// entry point, called whenever the series route is shown. origin is the browse screen we came from
 export async function showSeries(key, origin) {
     wire()
     const mine = ++req
@@ -325,7 +301,6 @@ export async function showSeries(key, origin) {
     if (mine !== req) return
     if (!series) { info.innerHTML = `<div class="void">series not found</div>`; return }
 
-    // paint the info pane the second the metadata lands, a novel with thousands of chapters never blocks it
     const slug = series.nfSlug || key
     cur = { key, slug, series, chapters: [], count: null }
 

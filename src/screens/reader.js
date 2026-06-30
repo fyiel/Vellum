@@ -2,11 +2,6 @@ import { getChapter, getChapters, getSeries, prefetchChapter } from '../lib/api.
 import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, readSet, saveRead, posGet, posSet, loadSettings, saveSettings, SET_DEFAULT } from '../lib/store.js'
 
-// the reader screen. a focused full bleed overlay that paints one chapter of prose and walks prev or next
-// through the chapter list. it restores the saved spot, marks chapters read, keeps the library continue
-// strip current and prefetches the next chapter so the jump feels instant. matches the beta reader at
-// pumg.fyi/read. display settings, the chapter drawer and chrome auto hide all live here
-
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -15,13 +10,12 @@ const WIDTHS = { narrow: '34em', normal: '40em', wide: '46em' }
 const THEME_BG = { dark: '#181818', black: '#000000', sepia: '#f4ecd8', light: '#fbfbfd' }
 
 let wired = false
-let req = 0                  // guards against a slow fetch painting over a newer navigation
+let req = 0
 let chromeHidden = false
 let settings = loadSettings()
 const cur = { slug: null, n: null, chapters: [], idx: -1, series: null }
 const dw = { lo: 0, hi: 0, q: '' }
 
-// display settings paint as data attr and css vars on the overlay, theme colour follows for mobile chrome
 const applySettings = () => {
     const r = $('#view-read')
     r.dataset.theme = settings.theme
@@ -33,8 +27,6 @@ const applySettings = () => {
     const meta = $('meta[name=theme-color]')
     if (meta) meta.content = THEME_BG[settings.theme] || THEME_BG.black
 }
-
-// progress, position and read state
 
 const scroller = () => $('#view-read')
 const chapterProgress = () => {
@@ -64,7 +56,6 @@ const markRead = n => {
     return true
 }
 
-// keep the library entry current so the continue strip resumes here. series metadata fills in once hydrated
 const touchLib = () => {
     const s = cur.series
     const have = library().find(e => e.slug === cur.slug)
@@ -78,8 +69,6 @@ const touchLib = () => {
         readCount: readSet(cur.slug).size,
     })
 }
-
-// navigation
 
 const goChapter = n => {
     posSave()
@@ -102,14 +91,10 @@ const exitReader = () => {
     back()
 }
 
-// chrome auto hide
-
 const setChrome = hide => {
     chromeHidden = hide
     scroller().classList.toggle('hide-chrome', hide)
 }
-
-// render
 
 const errEmpty = e => `<div class="empty">(x_x)\n\n${esc(e.message)}</div>`
 
@@ -147,7 +132,6 @@ const renderFoot = () => {
     $('#rfoot-back').onclick = exitReader
 }
 
-// deep links land here with only a slug, so pull series metadata in the background to fill title and cover
 const hydrateSeries = async slug => {
     try {
         const key = slug.includes(':') ? slug : 'nf:' + slug
@@ -165,7 +149,6 @@ const fetchChapters = async slug => {
     return chapters || []
 }
 
-// entry point, called whenever the read route is shown
 export async function showReader(slug, n) {
     wire()
     applySettings()
@@ -196,7 +179,6 @@ export async function showReader(slug, n) {
     renderChapter(ch, entry)
     renderFoot()
 
-    // restore the saved spot inside this chapter, otherwise start at the top, then persist where we landed
     const pos = posGet(slug)
     requestAnimationFrame(() => {
         if (mine !== req) return
@@ -212,8 +194,6 @@ export async function showReader(slug, n) {
     if (next) prefetchChapter(slug, next.n)
     if (!cur.series) hydrateSeries(slug)
 }
-
-// chapter drawer, jump anywhere without leaving the reader
 
 const openDrawer = () => {
     if (!cur.chapters.length) return
@@ -268,8 +248,6 @@ function renderDrawer() {
     })
 }
 
-// display settings sheet
-
 const openSheet = () => {
     syncSheet()
     $('#sheet').classList.add('open')
@@ -294,8 +272,6 @@ const commit = () => {
     syncSheet()
     updateProgress()
 }
-
-// one time wiring of every reader control and the scroll engine
 
 const onScrollIdle = () => {
     if (scroller().hidden || cur.n == null) return
@@ -328,7 +304,6 @@ function wire() {
         commit()
     }
 
-    // tap anywhere that is not a link toggles the chrome, a real scroll handles the rest
     r.addEventListener('click', e => {
         if (e.target.closest('a, button')) return
         if (String(window.getSelection?.() ?? '')) return
@@ -351,7 +326,6 @@ function wire() {
         idleTimer = setTimeout(onScrollIdle, 300)
     }, { passive: true })
 
-    // arrows jump chapters, escape leaves, native scroll does the reading
     window.addEventListener('keydown', e => {
         if (r.hidden || cur.n == null || e.target.closest('input')) return
         if (e.key === 'ArrowRight') jumpBy(1)

@@ -1,21 +1,12 @@
-// persistent request cache. fast means we never wait for what we already have. an in memory layer
-// answers instantly inside a session, indexeddb keeps the data across launches so a reopened chapter
-// or series paints with no network at all. every entry carries a ttl. a stale entry still serves
-// right away while a fresh copy loads in the background, and concurrent callers share one load
-
 const DB = 'vellum'
 const STORE = 'cache'
-const MEM_MAX = 300        // entries kept hot in memory before the oldest fall back to disk only
-const DISK_MAX = 800       // entries kept on disk before the oldest get swept
+const MEM_MAX = 300
+const DISK_MAX = 800
 
-// memory L1, insertion ordered so the oldest is always the first key
 const mem = new Map()
-// shared loads so fast typing or a racing prefetch hits the network once
 const inflight = new Map()
-// background revalidations in progress, so a stale key is not refreshed twice at once
 const refreshing = new Set()
 
-// indexeddb, opened once and reused. if it is unavailable we silently run memory only
 let dbp
 function db() {
     if (dbp) return dbp
@@ -56,8 +47,6 @@ function idbCount(d) {
     })
 }
 
-// sweep the oldest entries by write time once the store grows past its cap. throttled so a burst of
-// writes only triggers one pass
 let evictScheduled = false
 function maybeEvict() {
     if (evictScheduled) return
@@ -91,7 +80,6 @@ async function load(key, ttlMs, loader, negTtlMs) {
     return v
 }
 
-// refresh a stale entry without blocking the caller that already got the stale value
 function background(key, ttlMs, loader, negTtlMs) {
     if (refreshing.has(key)) return
     refreshing.add(key)
@@ -110,9 +98,6 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs) {
     return load(key, ttlMs, loader, negTtlMs)
 }
 
-// the one entry point. returns the cached value when fresh, a stale value while it revalidates, or
-// awaits the loader on a cold miss. a loader that throws propagates so the caller can show a retry,
-// and nothing gets cached. negTtlMs briefly caches an empty result so a dead source is not re hammered
 export function cached(key, ttlMs, loader, opts = {}) {
     const { swr = true, negTtlMs = 0 } = opts
 
@@ -127,13 +112,11 @@ export function cached(key, ttlMs, loader, opts = {}) {
     return p
 }
 
-// a fresh in memory hit without touching disk, for code that wants to decide synchronously
 export function peek(key) {
     const hot = mem.get(key)
     return hot && hot.exp > Date.now() ? hot.v : undefined
 }
 
-// wipe everything, for a future clear cache control
 export async function clear() {
     mem.clear()
     const d = await db()

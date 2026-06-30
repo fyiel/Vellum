@@ -1,7 +1,3 @@
-/* updates specific styles, transcribed from the handoff. the shell, tokens, sidebar and segmented
-   control come from the shared stylesheet. the section label margin is scoped under .upd so it cannot
-   shift the labels on the other screens */
-
 .den .markall { padding: 7px 13px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
 .den .markall:hover { color: var(--hi); border-color: var(--ac); }
 

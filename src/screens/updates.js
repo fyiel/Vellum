@@ -1,9 +1,6 @@
 import { buildFeed, setRead, markAll } from '../lib/updates.js'
 import { go, hashSlug } from '../lib/router.js'
 
-// the updates screen. the new chapter feed grouped into time buckets, with an all or unread filter, a
-// per row mark control, a mark all, and a live unread count written into the sidebar
-
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -66,8 +63,6 @@ function render() {
     $('#ufeed').innerHTML = html || `<div class="void">no new chapters. you are all caught up</div>`
 }
 
-// recompute the live unread count, then apply the unread filter by hiding read rows and any section that
-// has nothing unread left in it
 function refresh() {
     let n = 0
     $$('#ufeed .urow:not(.read)').forEach(r => { n += parseInt(r.dataset.new || '0', 10) })
@@ -126,7 +121,6 @@ function wire() {
     })
 }
 
-// entry point, called whenever the updates route is shown. the shell handles the feel
 export async function showUpdates() {
     wire()
     $('#ufeed').innerHTML = `<div class="void">checking for new chapters&hellip;</div>`

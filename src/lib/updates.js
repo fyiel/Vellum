@@ -1,11 +1,6 @@
 import { library, loadUpdLedger, saveUpdLedger } from './store.js'
 import { getChapters } from './api.js'
 
-// the new chapter feed, shared by the updates screen and the library sidebar count so both agree. for
-// each followed novel the live chapter count is compared to the user baseline (the total known when last
-// read). anything past the baseline is new. the ledger remembers when each update was first seen and
-// whether it was marked read, so read items linger in the feed and the unread total stays stable
-
 export async function buildFeed() {
     const lib = library()
     const ledger = loadUpdLedger()
@@ -18,7 +13,6 @@ export async function buildFeed() {
         const latest = chapters ? chapters.length : 0
         const base = e.total || 0
 
-        // nothing new, drop any stale ledger entry so it does not haunt the feed
         if (!chapters || latest <= base) {
             if (ledger[e.slug]) delete ledger[e.slug]
             continue

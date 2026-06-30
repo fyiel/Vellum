@@ -1,9 +1,6 @@
 import { go } from '../lib/router.js'
 import { loadFeel } from '../lib/store.js'
 
-// the shared shell every browse screen sits in. title bar, sidebar, the feel controls and the window
-// controls all live here once. each screen just swaps its own view into the main column
-
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 
@@ -11,8 +8,6 @@ const SCHEME_CLASS = { Graphite: '', Ink: 's-ink', Paper: 's-paper', Phosphor: '
 const NAV_ROUTE = { library: '#/', discover: '#/discover', updates: '#/updates' }
 let wired = false
 
-// scheme and density are classes on the den root. read the resolved bg back out so the window chrome
-// matches the active theme without hardcoding any colour here
 export function applyFeel() {
     const den = $('#den')
     const f = loadFeel()
@@ -30,7 +25,6 @@ export function applyFeel() {
     }
 }
 
-// rebuild the whole crumb so a series breadcrumb is wiped clean when a browse screen takes over again
 export const setCrumb = text => {
     const c = $('.crumb')
     if (!c) return
@@ -39,7 +33,6 @@ export const setCrumb = text => {
     c.firstElementChild.textContent = text
 }
 
-// the series screen owns a richer crumb, a back chevron then origin, a separator and the series title
 export function setSeriesCrumb(origin, title, onBack) {
     const c = $('.crumb')
     if (!c) return
@@ -63,13 +56,11 @@ async function winAction(action) {
     } catch {}
 }
 
-// applies the feel every route and wires the chrome once
 export function mountShell() {
     applyFeel()
     if (wired) return
     wired = true
 
-    // traffic lights are a mac thing, hide the cluster anywhere else
     const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '')
     const sq = $('.sq')
     if (sq && !mac) sq.style.display = 'none'

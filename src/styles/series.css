@@ -1,24 +1,15 @@
-/* the series detail screen, transcribed from the handoff. the shell, tokens, sidebar, segmented
-   controls and the shared search box come from the library stylesheet. everything here is the three
-   pane info plus chapters layout, the genre and tag clouds, the synopsis, the copy stats, the follow
-   row and the source flyout, plus the chapter list. zero radius, 1px hairlines, exact design values */
-
-/* the series view replaces the column main with a row of two independently scrolling panes */
 .den .view.sdet { flex-direction: row; }
 
-/* desktop selection policy. nothing selects except the title, the synopsis and inputs */
 .den #view-series { user-select: none; -webkit-user-select: none; }
 .den #view-series .dtitle, .den #view-series .dsyn { user-select: text; -webkit-user-select: text; }
 .den #view-series input { user-select: text; -webkit-user-select: text; }
 
-/* the series breadcrumb in the shared title bar: back chevron, origin, separator, title */
 .den .crumb.crumb-series { display: flex; align-items: center; gap: 8px; font: 500 12px 'Archivo'; color: var(--dim); letter-spacing: normal; text-transform: none; }
 .den .crumb-series .back { color: var(--dim); cursor: pointer; font-size: 16px; }
 .den .crumb-series .back:hover { color: var(--ac); }
 .den .crumb-series .sl { color: var(--line2); }
 .den .crumb-series b { color: var(--text); font-weight: 600; }
 
-/* info column */
 .den .info { width: 344px; flex: none; border-right: 1px solid var(--line); overflow-y: auto; padding: 22px 20px; display: flex; flex-direction: column; gap: 16px; }
 .den .cover-lg { width: 148px; height: 198px; flex: none; background: var(--bg); border: 1px solid var(--line2); position: relative; display: flex; align-items: flex-end; padding: 8px; overflow: hidden; }
 .den .cover-lg .g { position: absolute; top: 8px; left: 9px; font: 500 9px var(--mono); color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
@@ -63,7 +54,6 @@
 .den .drow .k { color: var(--dim); text-transform: uppercase; letter-spacing: .6px; font: 600 10px 'Archivo'; }
 .den .drow .v { color: var(--text); font: 400 12px var(--mono); }
 
-/* source name and the swap button sit side by side, the flyout pops to the left */
 .den .srcwrap { position: relative; display: inline-flex; align-items: center; gap: 8px; }
 .den .srcname { cursor: pointer; }
 .den .srcname:hover { color: var(--hi); }
@@ -91,7 +81,6 @@
 .den .srcopt.off .snm { color: var(--dim); }
 .den .srcopt.off .smeta { color: #ff5f57; text-transform: uppercase; letter-spacing: .5px; }
 
-/* click any stat value to copy it, with a felt flash */
 .den .copyable { cursor: pointer; position: relative; }
 .den .copyable:hover { color: var(--hi); }
 .den .copyable::after { content: '\2398'; margin-left: 7px; color: var(--dim); font-size: 10px; opacity: 0; transition: opacity .12s; }
@@ -99,17 +88,13 @@
 .den .copyable.copied { color: var(--ac); }
 .den .copyable.copied::after { opacity: 0; }
 
-/* chapters column */
 .den .chapters { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .den .chtool { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .den .chhead { flex: none; display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 8px; font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
 .den .chhead .ct { color: var(--dim); letter-spacing: .5px; }
-/* the chapter list scroller. keep momentum and overscroll inside the pane and contain layout and paint
-   so thousands of rows do not thrash the rest of the page. overflow-anchor stays on so the bottom
-   anchored position holds while offscreen rows resolve their real height */
+
 .den .chscroll { flex: 1; overflow-y: auto; padding: 0 16px 16px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; overflow-anchor: auto; contain: layout paint; }
-/* skip painting and laying out offscreen rows. the intrinsic size tracks the real row height per
-   density so scrollHeight and the bottom anchor stay honest, and auto remembers each rendered size */
+
 .den .chrow { display: grid; grid-template-columns: 58px minmax(0, 1fr) 74px 14px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 38px; }
 .den .chrow:hover { background: var(--rowh); }
 .den .chrow.read .cht, .den .chrow.read .chn { color: var(--dim); }
@@ -123,7 +108,6 @@
 .den .chrow.read .chdot { background: var(--dim); border-color: var(--dim); }
 .den .chrow.cur .chdot { background: var(--ac); border-color: var(--ac); }
 
-/* density tweaks carry through to the chapter rows and the info gap */
 .den.d-compact .chrow { padding: 7px 10px; contain-intrinsic-size: auto 34px; }
 .den.d-dense .chrow { padding: 4px 10px; contain-intrinsic-size: auto 28px; }
 .den.d-dense .chd { display: none; }

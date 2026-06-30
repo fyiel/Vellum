@@ -1,7 +1,3 @@
-/* the desktop library design, transcribed from the handoff. palette and density live as classes on
-   .den so swapping a class swaps the whole feel. only additions over the spec are interaction cursors
-   and real cover art filling the placeholder boxes */
-
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: #15161a; overflow: hidden; }
@@ -80,10 +76,8 @@ body { background: #15161a; overflow: hidden; }
 .den .upd .new { color: var(--ac); }
 .den .done { color: var(--dim); }
 
-/* real cover art fills the placeholder boxes when we have it */
 .den .cv img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
-/* empty state when nothing has been read yet */
 .den .void { color: var(--dim); font: 400 13px 'Archivo'; padding: 40px 4px; text-align: center; }
 
 .den.d-compact .trow { padding: 6px 10px; }

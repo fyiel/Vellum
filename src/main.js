@@ -1,4 +1,3 @@
-// fonts bundled locally so the desktop build needs no network to render. archivo for ui, plex mono for data
 import '@fontsource/archivo/400.css'
 import '@fontsource/archivo/500.css'
 import '@fontsource/archivo/600.css'
@@ -20,14 +19,10 @@ import { showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
 import { showReader } from './screens/reader.js'
 
-// swap which view fills the main column
 const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hidden = v.id !== `view-${name}` })
 
-// boot. pick the platform transport, then route. every browse screen sits in the shared shell, the
-// reader and series screens get their own shells as their designs land
 await setupNative()
 
-// remembers which browse screen launched a series so its crumb and active nav point back to the origin
 let origin = 'library'
 
 startRouter(route => {

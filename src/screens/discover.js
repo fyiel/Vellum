@@ -1,17 +1,10 @@
 import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
 import { go } from '../lib/router.js'
 
-// the discover screen. a debounced search across every source renders a ranked list. the filter panel
-// holds sort, a searchable genre and tag multi select, status, rating, length and source controls. the
-// rows enrich themselves in the background with author, genre and rating pulled from the cached series
-
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 
-// the genre and tag vocabulary, loaded from the backend on first show. it returns the full novelupdates
-// taxonomy as { genres, tags } and we flatten that into the token field option list of { v, k }. until it
-// lands the dropdown stays empty
 let OPTIONS = []
 let taxoLoaded = false
 let taxoLoading = false
@@ -34,11 +27,7 @@ let wired = false
 let inited = false
 let query = ''
 let results = []
-// active flips true once a search is in effect, a typed query or a filtered run. it drives the results
-// versus trending split in render
 let active = false
-// trending is the no search landing, discover sorted by trending. fetched once and held so coming back is
-// instant. trendLoaded guards the refetch, trendLoading paints the spinner, trendError the fallback
 let trending = []
 let trendLoaded = false
 let trendLoading = false
@@ -47,7 +36,6 @@ const LIMIT = 30
 const dsort = { key: 'relevance', dir: 'desc' }
 const tokens = new Set()
 
-// length is the one extra filter we can derive locally, straight off the chapter count
 const lengthBucket = ch => ch < 100 ? 'short' : ch < 300 ? 'medium' : ch < 800 ? 'long' : 'epic'
 
 function currentFilters() {
@@ -58,8 +46,6 @@ function currentFilters() {
 
 const segVal = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
 
-// true when there is something for the backend to filter on, a token or a panel segment off its default.
-// sort alone does not count, there is nothing to narrow without a query
 function hasFilters() {
     return tokens.size > 0
         || (segVal('status') && segVal('status') !== 'all')
@@ -67,8 +53,6 @@ function hasFilters() {
         || (segVal('length') && segVal('length') !== 'any')
 }
 
-// split the selected tokens back into genres and tags by their kind, then fold the panel segments and sort
-// into the payload discover wants. api.js drops the empty values so undefined and empty arrays fall away
 function buildDiscoverParams() {
     const genres = [], tags = []
     for (const v of tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
@@ -86,8 +70,6 @@ function buildDiscoverParams() {
     }
 }
 
-// relevance, rating and updated keep the backend order (or reverse it for ascending). the rest sort on
-// a field the search payload actually carries
 function sortResults(list) {
     const dir = dsort.dir === 'asc' ? 1 : -1
     const by = { chapters: r => r.chapters || 0, title: r => (r.title || '').toLowerCase(), newest: r => r.year || 0 }[dsort.key]
@@ -114,7 +96,6 @@ function rowHtml(r, i) {
     </div>`
 }
 
-// fill author, lead genre and rating from the cached series detail, top results only, no jank if it fails
 function enrich(list) {
     list.slice(0, 10).forEach(r => {
         getSeries(r.key).then(s => {
@@ -160,8 +141,6 @@ function render() {
     enrich(list)
 }
 
-// the no search landing. discover sorted by trending fills the same ranked list, fetched once and held so
-// revisiting is instant. the guards keep it from refetching on every render
 async function loadTrending() {
     if (active || trendLoaded || trendLoading) return
 
@@ -181,9 +160,6 @@ async function loadTrending() {
     if (!active) render()
 }
 
-// search routing. a typed query runs searchNovels, the merged novelupdates plus novelfire title search.
-// tokens or panel filters with no text run discover, which the backend routes to novelupdates. text wins
-// when both are present so the result stays predictable. nothing selected falls back to render's default
 async function runSearch() {
     if (!query && !hasFilters()) { results = []; active = false; render(); return }
 
@@ -206,7 +182,6 @@ function paintSort() {
     $('#ddir').textContent = dsort.dir === 'asc' ? '▲' : '▼'
 }
 
-// the badge counts selected tokens, specific source chips and any segment off its default first option
 function updateCount() {
     let n = tokens.size + $$('#dsource .chip.on:not([data-all])').length
     $$('.fseg').forEach(seg => {
@@ -272,7 +247,6 @@ function resetAll() {
     chips.querySelector('[data-all]').classList.add('on')
     dsort.key = 'relevance'
     dsort.dir = 'desc'
-    // reset only touches the filters, a typed query still stands. so we stay active when text remains
     active = !!query
     paintSort()
     updateCount()
@@ -333,8 +307,6 @@ function wire() {
     })
 
     wireTokens()
-    // apply runs the live filter state through runSearch, no title needed. empty with nothing picked just
-    // falls back to trending
     $('#fapply').addEventListener('click', runSearch)
     $('#freset').addEventListener('click', resetAll)
     $('#dlist').addEventListener('click', e => {
@@ -346,8 +318,6 @@ function wire() {
     updateCount()
 }
 
-// entry point, called whenever the discover route is shown. the shell handles the feel. a genre or tag
-// chip on the series screen can hand off a term here, which lands as a fresh search
 export function showDiscover() {
     wire()
     loadTaxonomy()
