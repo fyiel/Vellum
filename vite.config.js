@@ -1,12 +1,9 @@
 import { defineConfig } from 'vite'
 
-// the hosted beta backend has no CORS headers, so in browser dev we proxy the api through vite.
-// native shells (tauri, capacitor) make requests off the main thread and never hit this proxy.
-// same env var the client reads in http.js, so one knob points the whole app at a backend
 const API_TARGET = process.env.VITE_API_HOST ?? 'https://pumg.fyi'
 
 export default defineConfig({
-  // tauri and capacitor both serve the bundle from their origin root, so absolute asset paths are fine
+
   clearScreen: false,
   server: {
     port: 5173,
