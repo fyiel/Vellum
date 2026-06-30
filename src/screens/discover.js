@@ -1,4 +1,4 @@
-import { searchNovels, getSeries, discoverTaxonomy } from '../lib/api.js'
+import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
 import { go } from '../lib/router.js'
 
 // the discover screen. a debounced search across every source renders a ranked list. the filter panel
@@ -34,6 +34,10 @@ let wired = false
 let inited = false
 let query = ''
 let results = []
+// active flips true once a search is in effect, a typed query or a filtered run. it drives the results
+// versus trending split in render
+let active = false
+const LIMIT = 30
 const dsort = { key: 'relevance', dir: 'desc' }
 const tokens = new Set()
 
@@ -44,6 +48,36 @@ function currentFilters() {
     const seg = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
     const sources = new Set($$('#dsource .chip.on:not([data-all])').map(c => c.dataset.src))
     return { length: seg('length') || 'any', sources }
+}
+
+const segVal = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
+
+// true when there is something for the backend to filter on, a token or a panel segment off its default.
+// sort alone does not count, there is nothing to narrow without a query
+function hasFilters() {
+    return tokens.size > 0
+        || (segVal('status') && segVal('status') !== 'all')
+        || (segVal('minrating') && segVal('minrating') !== 'any')
+        || (segVal('length') && segVal('length') !== 'any')
+}
+
+// split the selected tokens back into genres and tags by their kind, then fold the panel segments and sort
+// into the payload discover wants. api.js drops the empty values so undefined and empty arrays fall away
+function buildDiscoverParams() {
+    const genres = [], tags = []
+    for (const v of tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
+    const status = segVal('status'), minRating = segVal('minrating'), length = segVal('length')
+    return {
+        q: query || undefined,
+        genres, tags,
+        status: status && status !== 'all' ? status : undefined,
+        minRating: minRating && minRating !== 'any' ? minRating : undefined,
+        length: length && length !== 'any' ? length : undefined,
+        sort: dsort.key,
+        order: dsort.dir,
+        page: 1,
+        limit: LIMIT
+    }
 }
 
 // relevance, rating and updated keep the backend order (or reverse it for ascending). the rest sort on
@@ -90,9 +124,11 @@ function enrich(list) {
 
 function render() {
     const wrap = $('#dlist')
-    $('#dlab').innerHTML = query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Trending now <span class="ct">&middot; this week</span>'
+    $('#dlab').innerHTML = active
+        ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Results <span class="ct">&middot; filtered</span>')
+        : 'Trending now <span class="ct">&middot; this week</span>'
 
-    if (!query) {
+    if (!active) {
         wrap.innerHTML = `<div class="void">search every source to surface something new</div>`
         $('#rescount').textContent = ''
         return
@@ -105,19 +141,23 @@ function render() {
     list = sortResults(list)
 
     $('#rescount').textContent = `${list.length} result${list.length === 1 ? '' : 's'}`
-    if (!list.length) { wrap.innerHTML = `<div class="void">no results for ${esc(query)}</div>`; return }
+    if (!list.length) { wrap.innerHTML = `<div class="void">no results${query ? ` for ${esc(query)}` : ''}</div>`; return }
 
     wrap.innerHTML = list.map(rowHtml).join('')
     enrich(list)
 }
 
+// search routing. a typed query runs searchNovels, the merged novelupdates plus novelfire title search.
+// tokens or panel filters with no text run discover, which the backend routes to novelupdates. text wins
+// when both are present so the result stays predictable. nothing selected falls back to render's default
 async function runSearch() {
-    if (!query) { results = []; render(); return }
+    if (!query && !hasFilters()) { results = []; active = false; render(); return }
 
+    active = true
     const wrap = $('#dlist')
     wrap.innerHTML = `<div class="void">searching&hellip;</div>`
     try {
-        const data = await searchNovels(query)
+        const data = query ? await searchNovels(query) : await discover(buildDiscoverParams())
         results = data.results || []
         render()
     } catch (e) {
@@ -198,6 +238,8 @@ function resetAll() {
     chips.querySelector('[data-all]').classList.add('on')
     dsort.key = 'relevance'
     dsort.dir = 'desc'
+    // reset only touches the filters, a typed query still stands. so we stay active when text remains
+    active = !!query
     paintSort()
     updateCount()
     render()
