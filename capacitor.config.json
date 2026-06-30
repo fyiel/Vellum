@@ -1,0 +1,10 @@
+{
+  "appId": "com.pumg.vellum",
+  "appName": "Vellum",
+  "webDir": "dist",
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}
