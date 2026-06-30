@@ -1,0 +1,125 @@
+/* the series detail screen, transcribed from the handoff. the shell, tokens, sidebar, segmented
+   controls and the shared search box come from the library stylesheet. everything here is the three
+   pane info plus chapters layout, the genre and tag clouds, the synopsis, the copy stats, the follow
+   row and the source flyout, plus the chapter list. zero radius, 1px hairlines, exact design values */
+
+/* the series view replaces the column main with a row of two independently scrolling panes */
+.den .view.sdet { flex-direction: row; }
+
+/* desktop selection policy. nothing selects except the title, the synopsis and inputs */
+.den #view-series { user-select: none; -webkit-user-select: none; }
+.den #view-series .dtitle, .den #view-series .dsyn { user-select: text; -webkit-user-select: text; }
+.den #view-series input { user-select: text; -webkit-user-select: text; }
+
+/* the series breadcrumb in the shared title bar: back chevron, origin, separator, title */
+.den .crumb.crumb-series { display: flex; align-items: center; gap: 8px; font: 500 12px 'Archivo'; color: var(--dim); letter-spacing: normal; text-transform: none; }
+.den .crumb-series .back { color: var(--dim); cursor: pointer; font-size: 16px; }
+.den .crumb-series .back:hover { color: var(--ac); }
+.den .crumb-series .sl { color: var(--line2); }
+.den .crumb-series b { color: var(--text); font-weight: 600; }
+
+/* info column */
+.den .info { width: 344px; flex: none; border-right: 1px solid var(--line); overflow-y: auto; padding: 22px 20px; display: flex; flex-direction: column; gap: 16px; }
+.den .cover-lg { width: 148px; height: 198px; flex: none; background: var(--bg); border: 1px solid var(--line2); position: relative; display: flex; align-items: flex-end; padding: 8px; overflow: hidden; }
+.den .cover-lg .g { position: absolute; top: 8px; left: 9px; font: 500 9px var(--mono); color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+.den .cover-lg img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.den .dtitle { font: 700 23px/1.12 'Archivo'; color: var(--hi); letter-spacing: -.3px; }
+.den .dmeta { font: 400 12px var(--mono); color: var(--dim); margin-top: -6px; }
+.den .drating { display: flex; align-items: center; gap: 8px; font: 400 13px var(--mono); color: var(--text); }
+.den .drating .st { color: var(--ac); }
+.den .drating .sub { color: var(--dim); font-size: 11px; }
+.den .trend { margin-left: auto; font: 600 10px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; }
+
+.den .dgenres { display: flex; flex-wrap: wrap; gap: 6px; }
+.den .gchip { padding: 3px 9px; border: 1px solid var(--line2); font: 500 11px 'Archivo'; color: var(--text); cursor: pointer; }
+.den .gchip:hover { border-color: var(--ac); color: var(--hi); }
+.den .gchip.genre { border-color: var(--ac); color: var(--hi); }
+
+.den .taxblock { display: flex; flex-direction: column; gap: 7px; }
+.den .taxhd { display: flex; align-items: baseline; gap: 8px; }
+.den .taxhd .ct { color: var(--dim); font: 400 10px var(--mono); }
+.den .taxhd .all { margin-left: auto; font: 600 10px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .taxhd .all:hover { text-decoration: underline; }
+.den .cloud { position: relative; display: flex; flex-wrap: wrap; gap: 6px; overflow: hidden; transition: max-height .2s; }
+.den .cloud.clamp { max-height: 58px; }
+.den .cloud.clamp::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 20px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
+
+.den .dactions { display: flex; flex-direction: column; gap: 8px; }
+.den .brow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.den .btn { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 12px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 12px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .btn:hover { border-color: var(--ac); color: var(--hi); }
+.den .btn.primary { background: var(--ac); border-color: var(--ac); color: var(--bg); }
+.den .btn.primary:hover { filter: brightness(1.07); color: var(--bg); }
+.den .btn.on { border-color: var(--ac); color: var(--ac); }
+.den .seclab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+
+.den .synhost { margin-top: -8px; }
+.den .dsyn { font: 400 13px/1.62 'Archivo'; color: var(--text); }
+.den .dsyn.clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.den .dmore { font: 600 11px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; cursor: pointer; margin-top: -6px; }
+
+.den .dstats { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.den .drow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.den .drow .k { color: var(--dim); text-transform: uppercase; letter-spacing: .6px; font: 600 10px 'Archivo'; }
+.den .drow .v { color: var(--text); font: 400 12px var(--mono); }
+
+/* source name and the swap button sit side by side, the flyout pops to the left */
+.den .srcwrap { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.den .srcname { cursor: pointer; }
+.den .srcname:hover { color: var(--hi); }
+.den .swbtn { display: inline-flex; align-items: center; justify-content: center; width: 23px; height: 18px; flex: none; border: 1px solid var(--line2); background: var(--row); cursor: pointer; }
+.den .swbtn .swico { color: var(--ac); font-family: var(--mono); font-size: 12px; line-height: 1; transition: transform .15s; }
+.den .swbtn:hover { border-color: var(--ac); }
+.den .srcwrap.open .swbtn { border-color: var(--ac); background: var(--sel); }
+.den .srcwrap.open .swico { transform: rotate(90deg); }
+.den .srcmenu { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); z-index: 30; min-width: 158px; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 8px 24px -6px #000a; display: none; flex-direction: column; }
+.den .srcwrap.open .srcmenu { display: flex; }
+.den .srcmenu::before { content: ''; position: absolute; left: 100%; top: 50%; transform: translateY(-50%); border: 5px solid transparent; border-left-color: var(--line2); }
+.den .smhd { font: 600 9px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; padding: 8px 11px 6px; border-bottom: 1px solid var(--line); }
+.den .srcopt { display: flex; align-items: center; gap: 9px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.den .srcopt:last-child { border-bottom: none; }
+.den .srcopt:hover { background: var(--rowh); }
+.den .srcopt .dot { width: 7px; height: 7px; flex: none; border: 1px solid var(--line2); border-radius: 50%; }
+.den .srcopt .snm { font: 500 12px 'Archivo'; color: var(--text); flex: 1; }
+.den .srcopt .smeta { font: 400 10px var(--mono); color: var(--dim); }
+.den .srcopt.cur .dot { background: var(--ac); border-color: var(--ac); }
+.den .srcopt.cur .snm { color: var(--hi); }
+.den .srcopt.cur .ck { color: var(--ac); font-size: 12px; }
+.den .srcopt.off { cursor: not-allowed; opacity: .85; }
+.den .srcopt.off:hover { background: transparent; }
+.den .srcopt.off .dot { background: #ff5f57; border-color: #ff5f57; }
+.den .srcopt.off .snm { color: var(--dim); }
+.den .srcopt.off .smeta { color: #ff5f57; text-transform: uppercase; letter-spacing: .5px; }
+
+/* click any stat value to copy it, with a felt flash */
+.den .copyable { cursor: pointer; position: relative; }
+.den .copyable:hover { color: var(--hi); }
+.den .copyable::after { content: '\2398'; margin-left: 7px; color: var(--dim); font-size: 10px; opacity: 0; transition: opacity .12s; }
+.den .copyable:hover::after { opacity: 1; }
+.den .copyable.copied { color: var(--ac); }
+.den .copyable.copied::after { opacity: 0; }
+
+/* chapters column */
+.den .chapters { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.den .chtool { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.den .chhead { flex: none; display: flex; align-items: baseline; gap: 8px; padding: 12px 16px 8px; font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+.den .chhead .ct { color: var(--dim); letter-spacing: .5px; }
+.den .chscroll { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
+.den .chrow { display: grid; grid-template-columns: 58px minmax(0, 1fr) 74px 14px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .chrow:hover { background: var(--rowh); }
+.den .chrow.read .cht, .den .chrow.read .chn { color: var(--dim); }
+.den .chrow.cur { background: var(--sel); box-shadow: inset 2px 0 0 var(--ac); }
+.den .chrow.cur .cht { color: var(--hi); }
+.den .chn { font: 400 12px var(--mono); color: var(--dim); text-align: right; }
+.den .chrow.cur .chn { color: var(--ac); }
+.den .cht { font: 500 13px 'Archivo'; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .chd { font: 400 11px var(--mono); color: var(--dim); text-align: right; }
+.den .chdot { width: 7px; height: 7px; border: 1px solid var(--line2); justify-self: center; }
+.den .chrow.read .chdot { background: var(--dim); border-color: var(--dim); }
+.den .chrow.cur .chdot { background: var(--ac); border-color: var(--ac); }
+
+/* density tweaks carry through to the chapter rows and the info gap */
+.den.d-compact .chrow { padding: 7px 10px; }
+.den.d-dense .chrow { padding: 4px 10px; }
+.den.d-dense .chd { display: none; }
+.den.d-dense .info { gap: 12px; }
