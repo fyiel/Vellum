@@ -19,6 +19,11 @@ ios
 # in dev scratch, never committed
 dev/
 
+# arch package build artifacts
+packaging/arch/pkg/
+packaging/arch/src/
+packaging/arch/*.pkg.tar.*
+
 # editor + os
 .DS_Store
 .vscode/*

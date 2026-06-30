@@ -1,0 +1,34 @@
+# a thin arch package around the prebuilt tauri binary. tauri bakes the whole frontend into the executable
+# so /usr/bin/vellum is self contained. build the binary first from the repo root
+#   npm install && npm run build && npm run desktop:build:linux
+# (a plain `cargo build --release --manifest-path src-tauri/Cargo.toml` works too, the appimage step is not
+# needed for this package) then from this directory
+#   makepkg -si
+pkgname=vellum
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='a reading app that feels native everywhere'
+arch=('x86_64')
+url='https://pumg.fyi'
+license=('custom')
+depends=('webkit2gtk-4.1' 'gtk3')
+# our binary is prebuilt and already stripped, dont let makepkg poke at it
+options=('!strip' '!debug')
+
+_root="$startdir/../.."
+
+prepare() {
+    if [ ! -f "$_root/src-tauri/target/release/vellum" ]; then
+        echo "build the binary first, see the header of this PKGBUILD" >&2
+        return 1
+    fi
+}
+
+package() {
+    install -Dm755 "$_root/src-tauri/target/release/vellum" "$pkgdir/usr/bin/vellum"
+    install -Dm644 "$startdir/vellum.desktop"               "$pkgdir/usr/share/applications/vellum.desktop"
+    install -Dm644 "$_root/src-tauri/icons/32x32.png"       "$pkgdir/usr/share/icons/hicolor/32x32/apps/vellum.png"
+    install -Dm644 "$_root/src-tauri/icons/128x128.png"     "$pkgdir/usr/share/icons/hicolor/128x128/apps/vellum.png"
+    install -Dm644 "$_root/src-tauri/icons/128x128@2x.png"  "$pkgdir/usr/share/icons/hicolor/256x256/apps/vellum.png"
+    install -Dm644 "$_root/src-tauri/icons/icon.png"        "$pkgdir/usr/share/icons/hicolor/512x512/apps/vellum.png"
+}

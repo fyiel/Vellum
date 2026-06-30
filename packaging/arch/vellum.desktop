@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Vellum
+Comment=a reading app that feels native everywhere
+Exec=vellum
+Icon=vellum
+Terminal=false
+Categories=Office;Viewer;
+StartupWMClass=vellum
