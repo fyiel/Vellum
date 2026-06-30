@@ -105,6 +105,61 @@
         <section class="chapters" id="schapters"></section>
       </div>
 
+      <!-- reader -->
+      <div class="view" id="view-read" hidden>
+        <div class="rprogbar" id="rprogbar"></div>
+        <div class="reader-chrome reader-top">
+          <button class="riconbtn" id="r-back" title="Back">&lsaquo;</button>
+          <span class="rtitle" id="r-title"></span>
+          <button class="riconbtn" id="r-list" title="Chapters">&#9776;</button>
+          <button class="riconbtn" id="r-settings" title="Display">Aa</button>
+        </div>
+        <article class="reader-prose" id="reader-prose"></article>
+        <div class="reader-foot" id="reader-foot"></div>
+        <div class="reader-chrome reader-bottom">
+          <span class="rprog" id="r-pos"></span>
+        </div>
+
+        <!-- chapter drawer -->
+        <div class="sheet-backdrop" id="drawer-backdrop"></div>
+        <div class="sheet drawer" id="drawer">
+          <div class="grip"></div>
+          <div class="drawer-head"><input id="dw-q" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Jump to chapter&hellip;"></div>
+          <div class="drawer-list" id="drawer-list"></div>
+        </div>
+
+        <!-- display settings -->
+        <div class="sheet-backdrop" id="sheet-backdrop"></div>
+        <div class="sheet" id="sheet">
+          <div class="grip"></div>
+          <div class="set-row">
+            <span class="set-label">Theme</span>
+            <div class="swatches" id="set-theme">
+              <button class="swatch" data-theme="dark" style="background:#181818" title="Dark"></button>
+              <button class="swatch" data-theme="black" style="background:#000" title="OLED"></button>
+              <button class="swatch" data-theme="sepia" style="background:#f4ecd8" title="Sepia"></button>
+              <button class="swatch" data-theme="light" style="background:#fbfbfd" title="Light"></button>
+            </div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Font</span>
+            <div class="seg" id="set-font"><button data-font="serif">Serif</button><button data-font="sans">Sans</button></div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Size</span>
+            <div class="seg" id="set-size"><button data-size="-">A&minus;</button><button data-size="reset">Reset</button><button data-size="+">A+</button></div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Width</span>
+            <div class="seg" id="set-width"><button data-width="narrow">Narrow</button><button data-width="normal">Normal</button><button data-width="wide">Wide</button></div>
+          </div>
+          <div class="set-row">
+            <span class="set-label">Spacing</span>
+            <div class="seg" id="set-lh"><button data-lh="1.3">Tight</button><button data-lh="1.5">Normal</button><button data-lh="1.8">Loose</button></div>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 </div>
