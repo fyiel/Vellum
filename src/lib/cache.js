@@ -2,6 +2,8 @@ const DB = 'vellum'
 const STORE = 'cache'
 const MEM_MAX = 300
 const DISK_MAX = 800
+const VER = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'
+const vkey = k => `${VER}|${k}`
 
 const mem = new Map()
 const inflight = new Map()
@@ -103,8 +105,9 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept) {
     return load(key, ttlMs, loader, negTtlMs, accept)
 }
 
-export function cached(key, ttlMs, loader, opts = {}) {
+export function cached(rawKey, ttlMs, loader, opts = {}) {
     const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined } = opts
+    const key = vkey(rawKey)
 
     const hot = mem.get(key)
     if (hot && hot.exp > Date.now() && accept(hot.v)) return Promise.resolve(hot.v)
@@ -117,8 +120,8 @@ export function cached(key, ttlMs, loader, opts = {}) {
     return p
 }
 
-export function peek(key) {
-    const hot = mem.get(key)
+export function peek(rawKey) {
+    const hot = mem.get(vkey(rawKey))
     return hot && hot.exp > Date.now() ? hot.v : undefined
 }
 
