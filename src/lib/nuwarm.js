@@ -10,6 +10,7 @@ export async function warmNuClearance() {
     warmed = true
     try {
         const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow')
+        const { invoke } = await import('@tauri-apps/api/core')
         const old = await WebviewWindow.getByLabel('nuwarm')
         if (old) await old.close().catch(() => {})
 
@@ -22,8 +23,10 @@ export async function warmNuClearance() {
             height: 900,
         })
 
-        // give cloudflare time to clear, then retire the warm webview and retry any nu covers on screen
+        // give cloudflare time to clear, read the clearance into native state, retire the warm webview and
+        // retry any nu covers on screen through the nucover proxy
         setTimeout(async () => {
+            try { await invoke('nu_refresh', { ua: navigator.userAgent }) } catch {}
             await w.close().catch(() => {})
             retryNuCovers()
         }, 18000)
