@@ -13,25 +13,31 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
     let handle = app.clone();
     // cookies_for_url pumps the gtk loop so it has to run on the main thread
     let _ = app.run_on_main_thread(move || {
-        let value = handle
+        // read the exact cookie set the browser would send to the cdn (cf_clearance plus __cf_bm and any
+        // others), so the native fetch presents the same thing the webview does
+        let header = handle
             .get_webview_window("main")
-            .and_then(|w| w.cookies_for_url("https://www.novelupdates.com/".parse().unwrap()).ok())
-            .and_then(|cookies| {
+            .and_then(|w| w.cookies_for_url("https://cdn.novelupdates.com/".parse().unwrap()).ok())
+            .map(|cookies| {
+                let names: Vec<&str> = cookies.iter().map(|c| c.name()).collect();
+                log::info!("nu_refresh: cdn cookies {:?}", names);
                 cookies
-                    .into_iter()
-                    .find(|c| c.name() == "cf_clearance")
-                    .map(|c| c.value().to_string())
-            });
-        let _ = tx.send(value);
+                    .iter()
+                    .map(|c| format!("{}={}", c.name(), c.value()))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .filter(|h| h.contains("cf_clearance"));
+        let _ = tx.send(header);
     });
     match rx.recv() {
-        Ok(Some(clearance)) => {
-            log::info!("nu_refresh: got cf_clearance ({} chars), ua={}", clearance.len(), ua);
-            *app.state::<NuClearance>().0.lock().unwrap() = Some((clearance, ua));
+        Ok(Some(cookie)) => {
+            log::info!("nu_refresh: cookie header ready ({} chars), ua={}", cookie.len(), ua);
+            *app.state::<NuClearance>().0.lock().unwrap() = Some((cookie, ua));
             true
         }
         _ => {
-            log::warn!("nu_refresh: no cf_clearance found in the cookie jar");
+            log::warn!("nu_refresh: no cf_clearance in the cdn cookie jar");
             false
         }
     }
@@ -56,7 +62,7 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
         return fail(403);
     }
 
-    let (clearance, ua) = match app.state::<NuClearance>().0.lock().unwrap().clone() {
+    let (cookie, ua) = match app.state::<NuClearance>().0.lock().unwrap().clone() {
         Some(c) => c,
         None => {
             log::warn!("nucover: no clearance cached yet for {}", target);
@@ -70,7 +76,7 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
     };
     let resp = client
         .get(&target)
-        .header("Cookie", format!("cf_clearance={}", clearance))
+        .header("Cookie", cookie)
         .header("User-Agent", ua)
         .header("Referer", "https://www.novelupdates.com/")
         .header("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
