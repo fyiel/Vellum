@@ -26,10 +26,14 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
     });
     match rx.recv() {
         Ok(Some(clearance)) => {
+            log::info!("nu_refresh: got cf_clearance ({} chars), ua={}", clearance.len(), ua);
             *app.state::<NuClearance>().0.lock().unwrap() = Some((clearance, ua));
             true
         }
-        _ => false,
+        _ => {
+            log::warn!("nu_refresh: no cf_clearance found in the cookie jar");
+            false
+        }
     }
 }
 
@@ -54,7 +58,10 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
 
     let (clearance, ua) = match app.state::<NuClearance>().0.lock().unwrap().clone() {
         Some(c) => c,
-        None => return fail(503),
+        None => {
+            log::warn!("nucover: no clearance cached yet for {}", target);
+            return fail(503);
+        }
     };
 
     let client = match reqwest::blocking::Client::builder().build() {
@@ -78,17 +85,26 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
                 .unwrap_or("image/jpeg")
                 .to_string();
             match r.bytes() {
-                Ok(b) => tauri::http::Response::builder()
-                    .status(200)
-                    .header("Content-Type", ct)
-                    .header("Cache-Control", "public, max-age=86400")
-                    .body(b.to_vec())
-                    .unwrap(),
+                Ok(b) => {
+                    log::info!("nucover ok {} bytes {}", b.len(), target);
+                    tauri::http::Response::builder()
+                        .status(200)
+                        .header("Content-Type", ct)
+                        .header("Cache-Control", "public, max-age=86400")
+                        .body(b.to_vec())
+                        .unwrap()
+                }
                 Err(_) => fail(502),
             }
         }
-        Ok(r) => fail(r.status().as_u16()),
-        Err(_) => fail(502),
+        Ok(r) => {
+            log::warn!("nucover cdn returned {} for {}", r.status(), target);
+            fail(r.status().as_u16())
+        }
+        Err(e) => {
+            log::warn!("nucover fetch error {} for {}", e, target);
+            fail(502)
+        }
     }
 }
 
@@ -109,13 +125,12 @@ pub fn run() {
         )
         .invoke_handler(tauri::generate_handler![nu_refresh])
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // logger on in release too, so the nucover diagnostics land in the app log file
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
             Ok(())
         })
         .run(tauri::generate_context!())
