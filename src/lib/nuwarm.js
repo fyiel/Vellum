@@ -3,6 +3,10 @@
 // challenge like any browser would, the cf_clearance lands in the shared cookie jar, and then the nu cover
 // imgs retry and load directly. mobile and web have no such webview so they stay on the baka/nf resolver
 
+// cloudflare hands the native webkitgtk UA a clearance the cdn rejects, so the warm webview and the native
+// fetch both pretend to be chrome (the engine that gets a cdn grade clearance, per the working helium test)
+const CHROME_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36'
+
 let warmed = false
 
 export async function warmNuClearance() {
@@ -21,12 +25,13 @@ export async function warmNuClearance() {
             focus: false,
             width: 1200,
             height: 900,
+            userAgent: CHROME_UA,
         })
 
         // give cloudflare time to clear, read the clearance into native state, retire the warm webview and
         // retry any nu covers on screen through the nucover proxy
         setTimeout(async () => {
-            try { await invoke('nu_refresh', { ua: navigator.userAgent }) } catch {}
+            try { await invoke('nu_refresh', { ua: CHROME_UA }) } catch {}
             await w.close().catch(() => {})
             retryNuCovers()
         }, 18000)
