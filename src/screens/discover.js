@@ -114,7 +114,7 @@ function render() {
     const wrap = $('#dlist')
     $('#dlab').innerHTML = active
         ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Results <span class="ct">&middot; filtered</span>')
-        : 'Trending now <span class="ct">&middot; this week</span>'
+        : 'Trending now <span class="ct">&middot; this month</span>'
 
     if (!active) {
         if (!trendLoaded && !trendLoading && !trendError) { loadTrending(); return }
