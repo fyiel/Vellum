@@ -29,7 +29,6 @@ let inited = false
 let query = ''
 let active = false
 
-// the feed accumulates pages as the user scrolls, until a short page tells us there is no more
 let items = []
 let page = 0
 let loadingMore = false
@@ -76,7 +75,6 @@ function buildDiscoverParams(p) {
     }
 }
 
-// the client side length and source narrowing that the backend does not do server side
 function filterPage(list) {
     const f = currentFilters()
     let out = list
@@ -85,7 +83,9 @@ function filterPage(list) {
     return out
 }
 
-const metaInit = r => [r.sourceName, r.year].filter(Boolean).join(' · ')
+const SRC = { novelfire: 'Novelfire', mangabaka: 'MangaBaka', dm: 'Dreamy', dawn: 'Dawn' }
+const metaInit = r => [SRC[r.sources?.[0]] || r.sourceName, r.year].filter(Boolean).join(' · ')
+const stars = r => r.rating ? `<span class="st">★</span>${Number(r.rating).toFixed(1)}` : ''
 
 function rowHtml(r, i) {
     const rank = i + 1
@@ -95,13 +95,12 @@ function rowHtml(r, i) {
       <span class="rk">${rank}</span>
       <span class="cv">${cover}</span>
       <div class="tt"><div class="n">${esc(r.title)}</div><div class="au">${esc(metaInit(r))}</div></div>
-      <span class="rt"></span>
+      <span class="rt">${stars(r)}</span>
       <span class="chp">${r.chapters ? `${r.chapters} ch` : ''}</span>
       <span class="tr"></span>
     </div>`
 }
 
-// only the first ten rows get the full detail lookup, so a long feed stays cheap
 function enrich(list) {
     list.slice(0, ENRICH_MAX).forEach(r => {
         getSeries(r.key).then(s => {
@@ -194,7 +193,6 @@ async function loadMore(fresh = false) {
     fillViewport()
 }
 
-// a first page shorter than the viewport would never trigger a scroll, so pull the next one eagerly
 function fillViewport() {
     if (done || loadingMore) return
     const sc = scroller()
@@ -309,7 +307,6 @@ function wire() {
         startFeed()
     })
 
-    // filter segments and source chips stage a change, then take effect on apply
     $$('.fseg').forEach(seg => seg.addEventListener('click', e => {
         const s = e.target.closest('span[data-v]')
         if (!s) return
@@ -365,6 +362,5 @@ export function showDiscover() {
         return
     }
 
-    // first visit seeds trending, later visits keep the existing feed and scroll position
     if (!inited) { inited = true; startFeed() }
 }

@@ -1,6 +1,5 @@
 const HOST = import.meta.env.VITE_API_HOST ?? 'https://pumg.fyi'
 
-// the web build (github pages) has no dev proxy in front of it, so it talks to the host directly
 const WEB_ABS = import.meta.env.VITE_WEB_ABS === '1'
 
 const isCapacitor = () => !!window.Capacitor?.isNativePlatform?.()
