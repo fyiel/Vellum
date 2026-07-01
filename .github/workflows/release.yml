@@ -1,0 +1,127 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # windows + macos desktop bundles via tauri
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            args: ''
+            rust-targets: ''
+            bundles: |
+              src-tauri/target/release/bundle/msi/*.msi
+              src-tauri/target/release/bundle/nsis/*.exe
+          - os: macos-latest
+            name: macos
+            args: '--target universal-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            bundles: |
+              src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: bun install --frozen-lockfile
+      - run: bun run tauri build ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vellum-${{ matrix.name }}
+          path: ${{ matrix.bundles }}
+          if-no-files-found: error
+
+  # android debug apk via capacitor (native project is generated on the fly)
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bunx cap add android
+      - run: bunx cap sync android
+      - name: build debug apk
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk vellum-android-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vellum-android
+          path: vellum-android-debug.apk
+          if-no-files-found: error
+
+  # ios unsigned build via capacitor. no apple developer account, so this is a
+  # compile-check that packages an unsigned .ipa (sideload tools re-sign it)
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bunx cap add ios
+      - run: bunx cap sync ios
+      - name: build unsigned
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace ios/App/App.xcworkspace \
+            -scheme App -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' \
+            build
+      - name: package unsigned ipa
+        run: |
+          set -euo pipefail
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/App.app Payload/App.app
+          zip -qry vellum-ios-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vellum-ios
+          path: vellum-ios-unsigned.ipa
+          if-no-files-found: error
+
+  # on a version tag, gather every platform's artifacts into one github release
+  release:
+    needs: [desktop, android, ios]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
