@@ -6,10 +6,10 @@ built fully in rust with tauri and cached hard for speed, so it stays snappy whi
 
 ## features
 
-- **library** — keep track of what you're reading, picks up where you left off
-- **discover** — browse trending and filter by tags/genres
-- **updates** — see new chapters for series you follow
-- **reader** — clean, distraction-free reading
+- **library** keep track of what you're reading, picks up where you left off
+- **discover** browse trending and filter by tags/genres
+- **updates** see new chapters for series you follow
+- **reader** clean, distraction-free reading
 
 ## web version
 
