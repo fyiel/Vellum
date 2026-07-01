@@ -27,13 +27,18 @@ async function loadTaxonomy() {
 let wired = false
 let inited = false
 let query = ''
-let results = []
 let active = false
-let trending = []
-let trendLoaded = false
-let trendLoading = false
-let trendError = false
+
+// the feed accumulates pages as the user scrolls, until a short page tells us there is no more
+let items = []
+let page = 0
+let loadingMore = false
+let done = false
+let enrichedFirst = false
+let feedError = false
+
 const LIMIT = 30
+const ENRICH_MAX = 10
 const dsort = { key: 'relevance', dir: 'desc' }
 const tokens = new Set()
 
@@ -54,7 +59,7 @@ function hasFilters() {
         || (segVal('length') && segVal('length') !== 'any')
 }
 
-function buildDiscoverParams() {
+function buildDiscoverParams(p) {
     const genres = [], tags = []
     for (const v of tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
     const status = segVal('status'), minRating = segVal('minrating'), length = segVal('length')
@@ -66,19 +71,18 @@ function buildDiscoverParams() {
         length: length && length !== 'any' ? length : undefined,
         sort: dsort.key,
         order: dsort.dir,
-        page: 1,
+        page: p,
         limit: LIMIT
     }
 }
 
-function sortResults(list) {
-    const dir = dsort.dir === 'asc' ? 1 : -1
-    const by = { chapters: r => r.chapters || 0, title: r => (r.title || '').toLowerCase(), newest: r => r.year || 0 }[dsort.key]
-    const arr = list.slice()
-    if (by) arr.sort((a, b) => { const va = by(a), vb = by(b); return va < vb ? -dir : va > vb ? dir : 0 })
-    else if (dsort.dir === 'asc') arr.reverse()
-
-    return arr
+// the client side length and source narrowing that the backend does not do server side
+function filterPage(list) {
+    const f = currentFilters()
+    let out = list
+    if (f.sources.size) out = out.filter(r => f.sources.has(r.source))
+    if (f.length !== 'any') out = out.filter(r => lengthBucket(r.chapters || 0) === f.length)
+    return out
 }
 
 const metaInit = r => [r.sourceName, r.year].filter(Boolean).join(' · ')
@@ -97,8 +101,9 @@ function rowHtml(r, i) {
     </div>`
 }
 
+// only the first ten rows get the full detail lookup, so a long feed stays cheap
 function enrich(list) {
-    list.slice(0, 10).forEach(r => {
+    list.slice(0, ENRICH_MAX).forEach(r => {
         getSeries(r.key).then(s => {
             if (!s) return
             const el = $$('#dlist .rrow').find(x => x.dataset.key === r.key)
@@ -110,73 +115,95 @@ function enrich(list) {
     })
 }
 
-function render() {
-    const wrap = $('#dlist')
+function setLabel() {
     $('#dlab').innerHTML = active
         ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Results <span class="ct">&middot; filtered</span>')
         : 'Trending now <span class="ct">&middot; this month</span>'
+}
 
-    if (!active) {
-        if (!trendLoaded && !trendLoading && !trendError) { loadTrending(); return }
-        if (trending.length) {
-            $('#rescount').textContent = `${trending.length} result${trending.length === 1 ? '' : 's'}`
-            wrap.innerHTML = trending.map(rowHtml).join('')
-            enrich(trending)
-            return
-        }
-        wrap.innerHTML = `<div class="void">${trendLoading ? 'loading&hellip;' : trendError ? 'could not reach trending right now' : 'nothing trending right now'}</div>`
-        $('#rescount').textContent = ''
+function setCount() {
+    $('#rescount').textContent = items.length
+        ? `${items.length}${done ? '' : '+'} result${items.length === 1 ? '' : 's'}`
+        : ''
+}
+
+function voidMsg() {
+    if (feedError) return active ? 'could not reach the sources right now' : 'could not reach trending right now'
+    if (query) return `no results for ${esc(query)}`
+    if (active) return 'no results'
+    return 'nothing trending right now'
+}
+
+function feedFetch(p) {
+    if (query) return p === 1 ? searchNovels(query) : Promise.resolve({ results: [] })
+    if (active) return discover(buildDiscoverParams(p))
+    return discover({ sort: 'trending', page: p, limit: LIMIT })
+}
+
+const scroller = () => $('#view-discover .scroll')
+
+async function startFeed() {
+    active = !!(query || hasFilters())
+    page = 0
+    items = []
+    done = false
+    loadingMore = false
+    enrichedFirst = false
+    feedError = false
+    setLabel()
+    const sc = scroller()
+    if (sc) sc.scrollTop = 0
+    $('#dlist').innerHTML = `<div class="void">${active ? 'searching' : 'loading'}&hellip;</div>`
+    $('#rescount').textContent = ''
+    await loadMore(true)
+}
+
+async function loadMore(fresh = false) {
+    if (loadingMore || done) return
+    loadingMore = true
+
+    const p = page + 1
+    let data
+    try {
+        data = await feedFetch(p)
+    } catch (e) {
+        loadingMore = false
+        if (fresh) { feedError = true; $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`; $('#rescount').textContent = '' }
         return
     }
 
-    const f = currentFilters()
-    let list = results
-    if (f.sources.size) list = list.filter(r => f.sources.has(r.source))
-    if (f.length !== 'any') list = list.filter(r => lengthBucket(r.chapters || 0) === f.length)
-    list = sortResults(list)
+    page = p
+    const raw = data.results || []
+    const batch = filterPage(raw)
+    if (raw.length < LIMIT) done = true
 
-    $('#rescount').textContent = `${list.length} result${list.length === 1 ? '' : 's'}`
-    if (!list.length) { wrap.innerHTML = `<div class="void">no results${query ? ` for ${esc(query)}` : ''}</div>`; return }
+    const wrap = $('#dlist')
+    const startIdx = items.length
+    items.push(...batch)
 
-    wrap.innerHTML = list.map(rowHtml).join('')
-    enrich(list)
-}
-
-async function loadTrending() {
-    if (active || trendLoaded || trendLoading) return
-
-    trendLoading = true
-    trendError = false
-    render()
-    try {
-        const data = await discover({ sort: 'trending', limit: LIMIT })
-        trending = data.results || []
-        // only latch it in when we actually got results, so an empty (a source blip) retries on revisit
-        trendLoaded = trending.length > 0
-    } catch {
-        trendError = true
-    } finally {
-        trendLoading = false
+    if (fresh) {
+        wrap.innerHTML = items.length ? items.map((r, i) => rowHtml(r, i)).join('') : `<div class="void">${voidMsg()}</div>`
+    } else if (batch.length) {
+        wrap.insertAdjacentHTML('beforeend', batch.map((r, i) => rowHtml(r, startIdx + i)).join(''))
     }
 
-    if (!active) render()
+    setCount()
+    if (!enrichedFirst && items.length) { enrichedFirst = true; enrich(items) }
+
+    loadingMore = false
+    fillViewport()
+}
+
+// a first page shorter than the viewport would never trigger a scroll, so pull the next one eagerly
+function fillViewport() {
+    if (done || loadingMore) return
+    const sc = scroller()
+    if (sc && sc.scrollHeight <= sc.clientHeight + 40) loadMore()
 }
 
 async function runSearch() {
-    if (!query && !hasFilters()) { results = []; active = false; render(); return }
-
-    active = true
-    const wrap = $('#dlist')
-    wrap.innerHTML = `<div class="void">searching&hellip;</div>`
-    try {
-        const data = query ? await searchNovels(query) : await discover(buildDiscoverParams())
-        results = data.results || []
-        render()
-    } catch (e) {
-        results = []
-        wrap.innerHTML = `<div class="void">${esc(e.message)}</div>`
-        $('#rescount').textContent = ''
-    }
+    if (!query && !hasFilters()) { active = false; await startFeed(); return }
+    await startFeed()
 }
 
 function paintSort() {
@@ -249,10 +276,9 @@ function resetAll() {
     chips.querySelector('[data-all]').classList.add('on')
     dsort.key = 'relevance'
     dsort.dir = 'desc'
-    active = !!query
     paintSort()
     updateCount()
-    render()
+    startFeed()
 }
 
 function wire() {
@@ -274,21 +300,21 @@ function wire() {
     })
 
     $('#dsort').addEventListener('click', e => {
-        if (e.target.closest('.dir')) { dsort.dir = dsort.dir === 'asc' ? 'desc' : 'asc'; paintSort(); render(); return }
+        if (e.target.closest('.dir')) { dsort.dir = dsort.dir === 'asc' ? 'desc' : 'asc'; paintSort(); startFeed(); return }
         const s = e.target.closest('span[data-sort]')
         if (!s) return
         if (s.dataset.sort === dsort.key) dsort.dir = dsort.dir === 'asc' ? 'desc' : 'asc'
         else { dsort.key = s.dataset.sort; dsort.dir = 'desc' }
         paintSort()
-        render()
+        startFeed()
     })
 
+    // filter segments and source chips stage a change, then take effect on apply
     $$('.fseg').forEach(seg => seg.addEventListener('click', e => {
         const s = e.target.closest('span[data-v]')
         if (!s) return
         seg.querySelectorAll('span').forEach(o => o.classList.toggle('on', o === s))
         updateCount()
-        render()
     }))
 
     const chips = $('#dsource')
@@ -305,7 +331,6 @@ function wire() {
             if (!chips.querySelector('.chip.on')) all.classList.add('on')
         }
         updateCount()
-        render()
     })
 
     wireTokens()
@@ -315,6 +340,12 @@ function wire() {
         const r = e.target.closest('.rrow')
         if (r) go(`#/series/${encodeURIComponent(r.dataset.key)}`)
     })
+
+    scroller()?.addEventListener('scroll', () => {
+        const sc = scroller()
+        if (!sc || loadingMore || done) return
+        if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 600) loadMore()
+    }, { passive: true })
 
     paintSort()
     updateCount()
@@ -330,10 +361,10 @@ export function showDiscover() {
         $('#dsearch').value = seed
         query = seed
         inited = true
-        runSearch()
+        startFeed()
         return
     }
 
-    if (!inited) { inited = true; render() }
-    loadTrending()
+    // first visit seeds trending, later visits keep the existing feed and scroll position
+    if (!inited) { inited = true; startFeed() }
 }
