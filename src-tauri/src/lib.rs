@@ -1,10 +1,6 @@
 use std::sync::Mutex;
 use tauri::{Manager, UriSchemeContext, UriSchemeResponder};
 
-// the novelupdates cover cdn is cloudflare locked and sends a cross-origin-resource-policy header, so the
-// webview can neither present a clearance from js nor render the image cross origin. a hidden webview solves
-// the challenge, this command reads the resulting httpOnly cf_clearance out of the shared cookie jar, and the
-// nucover protocol below refetches the image natively (past cors and corp) with that cookie
 struct NuClearance(Mutex<Option<(String, String)>>); // (cf_clearance, user agent)
 
 #[tauri::command]
@@ -17,7 +13,10 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
         // others), so the native fetch presents the same thing the webview does
         let header = handle
             .get_webview_window("main")
-            .and_then(|w| w.cookies_for_url("https://cdn.novelupdates.com/".parse().unwrap()).ok())
+            .and_then(|w| {
+                w.cookies_for_url("https://cdn.novelupdates.com/".parse().unwrap())
+                    .ok()
+            })
             .map(|cookies| {
                 let names: Vec<&str> = cookies.iter().map(|c| c.name()).collect();
                 log::info!("nu_refresh: cdn cookies {:?}", names);
@@ -32,7 +31,11 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
     });
     match rx.recv() {
         Ok(Some(cookie)) => {
-            log::info!("nu_refresh: cookie header ready ({} chars), ua={}", cookie.len(), ua);
+            log::info!(
+                "nu_refresh: cookie header ready ({} chars), ua={}",
+                cookie.len(),
+                ua
+            );
             *app.state::<NuClearance>().0.lock().unwrap() = Some((cookie, ua));
             true
         }
@@ -51,10 +54,11 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
             .unwrap()
     };
 
-    let target = match tauri::Url::parse(uri)
-        .ok()
-        .and_then(|u| u.query_pairs().find(|(k, _)| k == "u").map(|(_, v)| v.into_owned()))
-    {
+    let target = match tauri::Url::parse(uri).ok().and_then(|u| {
+        u.query_pairs()
+            .find(|(k, _)| k == "u")
+            .map(|(_, v)| v.into_owned())
+    }) {
         Some(t) => t,
         None => return fail(400),
     };
