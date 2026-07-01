@@ -2,6 +2,10 @@
 html, body { margin: 0; height: 100%; }
 body { background: #15161a; overflow: hidden; }
 
+.den { user-select: none; -webkit-user-select: none; }
+.den input, .den textarea { user-select: text; -webkit-user-select: text; }
+.den .rrow .n, .den .trow .n, .den .ctile .ti { user-select: text; -webkit-user-select: text; }
+
 .den {
   --bg: #15161a; --panel: #1a1c21; --row: #1d1f25; --rowh: #212329; --sel: #23262d;
   --text: #b6bac2; --hi: #f1f2f5; --dim: #6c7079; --line: #ffffff10; --line2: #ffffff1c;
