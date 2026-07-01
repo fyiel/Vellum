@@ -4,6 +4,8 @@ body { background: #15161a; overflow: hidden; }
 
 .den { user-select: none; -webkit-user-select: none; }
 .den input, .den textarea { user-select: text; -webkit-user-select: text; }
+.den input::placeholder, .den textarea::placeholder { user-select: none; -webkit-user-select: none; }
+.den input::-webkit-input-placeholder, .den textarea::-webkit-input-placeholder { user-select: none; -webkit-user-select: none; }
 .den .rrow .n, .den .trow .n, .den .ctile .ti { user-select: text; -webkit-user-select: text; }
 
 .den {
