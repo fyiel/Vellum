@@ -15,6 +15,8 @@ built fully in rust with tauri and cached hard for speed, so it stays snappy whi
 
 https://fyiel.github.io/Vellum/
 
+and, for mobile (ios, android), for now, https://pumg.fyi/read is way better, since I haven't optimized, nor even MADE a mobile-specific version for Vellum
+
 ## demo
 
 <video src="https://files.catbox.moe/2607z9.mp4" controls></video>
