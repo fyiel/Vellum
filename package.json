@@ -1,7 +1,7 @@
 {
   "name": "vellum",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "type": "module",
   "description": "a reading app that feels native everywhere",
   "scripts": {
