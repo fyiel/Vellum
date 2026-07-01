@@ -15,7 +15,7 @@ async function loadTaxonomy() {
     taxoLoading = true
     try {
         const t = await discoverTaxonomy()
-        OPTIONS = (t.genres || []).map(v => ({ v, k: 'genre' })).concat((t.tags || []).map(v => ({ v, k: 'tag' })))
+        OPTIONS = (t.genres || []).map(g => ({ v: g.value ?? g, k: 'genre' })).concat((t.tags || []).map(g => ({ v: g.value ?? g, k: 'tag' })))
         taxoLoaded = true
         const input = $('#toksearch')
         if (input && document.activeElement === input) input.dispatchEvent(new Event('input'))
