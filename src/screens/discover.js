@@ -117,7 +117,7 @@ function enrich(list) {
 function setLabel() {
     $('#dlab').innerHTML = active
         ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Results <span class="ct">&middot; filtered</span>')
-        : 'Trending now <span class="ct">&middot; this month</span>'
+        : 'Trending'
 }
 
 function setCount() {
