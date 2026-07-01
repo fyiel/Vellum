@@ -11,10 +11,13 @@ let dbp
 function db() {
     if (dbp) return dbp
     dbp = new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB, 1)
+        // version 2 drops the old store so a source swap (novelupdates to novelfire) cannot serve stale
+        // cross source results out of a previous build
+        const req = indexedDB.open(DB, 2)
         req.onupgradeneeded = () => {
-            const os = req.result.createObjectStore(STORE)
-            os.createIndex('at', 'at')
+            const d = req.result
+            if (d.objectStoreNames.contains(STORE)) d.deleteObjectStore(STORE)
+            d.createObjectStore(STORE).createIndex('at', 'at')
         }
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => reject(req.error)
