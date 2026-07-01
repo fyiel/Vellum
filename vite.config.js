@@ -4,6 +4,8 @@ const API_TARGET = process.env.VITE_API_HOST ?? 'https://pumg.fyi'
 
 export default defineConfig({
 
+  // pages serves the app from a repo subpath, native and dev builds serve from root
+  base: process.env.VITE_BASE || '/',
   clearScreen: false,
   server: {
     port: 5173,
