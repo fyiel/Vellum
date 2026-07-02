@@ -11,9 +11,11 @@ export const posSet = (slug, pos) => lsSet(`${NS}:pos:${slug}`, pos)
 export const library = () => lsGet(`${NS}:lib`, [])
 
 export const touchLibrary = entry => {
-    const lib = library().filter(e => e.slug !== entry.slug)
-    lib.unshift({ ...entry, updatedAt: Date.now() })
-    lsSet(`${NS}:lib`, lib.slice(0, 60))
+    const lib = library()
+    const old = lib.find(e => e.slug === entry.slug)
+    const rest = lib.filter(e => e.slug !== entry.slug)
+    rest.unshift({ ...old, ...entry, updatedAt: Date.now() })
+    lsSet(`${NS}:lib`, rest.slice(0, 60))
 }
 
 export const dropLibrary = slug => lsSet(`${NS}:lib`, library().filter(e => e.slug !== slug))

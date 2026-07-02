@@ -11,9 +11,9 @@ export async function buildFeed() {
         let chapters = null
         try { chapters = (await getChapters(e.slug))?.chapters } catch {}
         const latest = chapters ? chapters.length : 0
-        const base = e.total || 0
+        const base = e.total
 
-        if (!chapters || latest <= base) {
+        if (!chapters || base == null || latest <= base) {
             if (ledger[e.slug]) delete ledger[e.slug]
             continue
         }

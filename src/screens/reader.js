@@ -1,4 +1,9 @@
-import { apiGet } from "../lib/http.js";
+import {
+  getSeries,
+  getChapters,
+  getChapter,
+  prefetchChapter,
+} from "../lib/api.js";
 import { go, back, hashSlug } from "../lib/router.js";
 import {
   readSet,
@@ -18,8 +23,6 @@ const esc = (s) =>
     /[&<>"]/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
   );
-
-const api = apiGet;
 
 let settings = loadSettings();
 const THEME_BG = {
@@ -47,7 +50,6 @@ const applySettings = () => {
 };
 
 const state = { view: "home", series: null, slug: null, chapters: [] };
-const chCache = new Map();
 
 const R = $("#reader");
 const prose = $("#reader-prose");
@@ -67,7 +69,6 @@ const rd = {
 };
 
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
-const ckey = (n) => `${rd.slug}:${n}`;
 const blockFor = (idx) => prose.querySelector(`.ch-block[data-idx="${idx}"]`);
 
 const scrollY = () => window.scrollY;
@@ -99,9 +100,7 @@ export async function showReader(slug, n) {
     prose.innerHTML = `<div class="spinner"></div>`;
     rfoot.innerHTML = "";
     try {
-      const { chapters } = await api(
-        `/read/api/chapters?slug=${encodeURIComponent(slug)}`,
-      );
+      const { chapters } = await getChapters(slug);
       state.slug = slug;
       state.chapters = chapters;
     } catch (e) {
@@ -119,7 +118,7 @@ export async function showReader(slug, n) {
 async function hydrateSeries(slug) {
   const key = slug.includes(":") ? slug : "nf:" + slug;
   try {
-    const s = await api(`/read/api/series/${encodeURIComponent(key)}`);
+    const s = await getSeries(key);
     if (rd.slug !== slug) return;
     state.series = { ...s, key: s.key ?? key };
     if (rd.cur >= 0) updateLibrary(rd.cur);
@@ -173,24 +172,11 @@ async function startAt(slug, idx, p = 0) {
   ensureBuffer();
 }
 
-const fetchChapter = async (n) => {
-  const k = ckey(n);
-  if (chCache.has(k)) return chCache.get(k);
+const fetchChapter = (n) => getChapter(rd.slug, n);
 
-  const ch = await api(
-    `/read/api/chapter?slug=${encodeURIComponent(rd.slug)}&n=${n}`,
-  );
-  chCache.set(k, ch);
-  if (chCache.size > 80) chCache.delete(chCache.keys().next().value);
-  return ch;
-};
-
-const prefetch = async (idx) => {
+const prefetch = (idx) => {
   const c = state.chapters[idx];
-  if (!c || chCache.has(ckey(c.n))) return;
-  try {
-    await fetchChapter(c.n);
-  } catch {}
+  if (c) prefetchChapter(rd.slug, c.n);
 };
 
 const makeBlock = (idx, c, ch) => {
@@ -515,7 +501,7 @@ function renderDrawer() {
       .map((c, i) => ({ c, i }))
       .filter(
         ({ c }) =>
-          c.t.toLowerCase().includes(f) ||
+          (c.t || "").toLowerCase().includes(f) ||
           (Number.isFinite(asNum) && c.n === asNum),
       )
       .slice(0, 200);
