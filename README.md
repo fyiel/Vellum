@@ -39,15 +39,8 @@ There's no mobile-optimized build of Vellum yet. Until there is,
 ## Build from source
 
 Requires [Rust](https://rustup.rs) and [Node.js](https://nodejs.org). On Linux
-you'll also need the Tauri system dependencies — see the
+you'll also need the Tauri system dependencies see the
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
-
-​```bash
-npm install
-npm run tauri dev
-npm run tauri build
-npm run web:build
-​```
 
 ## Tech stack
 
