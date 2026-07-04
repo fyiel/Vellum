@@ -3,8 +3,8 @@ name = "vellum"
 version = "0.1.0"
 description = "a reading app that feels native everywhere"
 authors = ["pumg"]
-license = ""
-repository = ""
+license = "CC-BY-NC-SA-4.0"
+repository = "https://github.com/fyiel/Vellum"
 edition = "2021"
 rust-version = "1.77.2"
 

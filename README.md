@@ -53,3 +53,14 @@ you'll also need the Tauri system dependencies see the
 [![Vellum](https://files.catbox.moe/5l5o8g.png)](https://files.catbox.moe/2607z9.mp4)
 
 ▶ [Watch the demo video](https://files.catbox.moe/2607z9.mp4)
+
+## License
+
+Vellum is licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) — see [LICENSE](LICENSE).
+
+You're free to use, study, modify, self-host, share, and fork Vellum, with two conditions:
+
+- **NonCommercial** — you may not sell it, or use it or any fork for commercial advantage.
+- **ShareAlike** — anything you distribute that's based on Vellum must be released under this same license and kept open source, never taken closed.
+
+Attribution to the original author is required.
