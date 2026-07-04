@@ -53,7 +53,3 @@ you'll also need the Tauri system dependencies see the
 [![Vellum](https://files.catbox.moe/5l5o8g.png)](https://files.catbox.moe/2607z9.mp4)
 
 ▶ [Watch the demo video](https://files.catbox.moe/2607z9.mp4)
-
-## License
-
-<MIT — see LICENSE>
