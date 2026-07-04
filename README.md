@@ -44,9 +44,9 @@ you'll also need the Tauri system dependencies — see the
 
 ​```bash
 npm install
-npm run tauri dev      # run the desktop app with hot reload
-npm run tauri build    # produce a native build
-npm run web:build      # produce the static web build
+npm run tauri dev
+npm run tauri build
+npm run web:build
 ​```
 
 ## Tech stack
