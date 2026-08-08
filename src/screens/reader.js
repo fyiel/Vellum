@@ -40,7 +40,7 @@ const applySettings = () => {
 
   const bg = THEME_BG[settings.theme];
   document.querySelector("meta[name=theme-color]").content = bg;
-  // reader scrolls the document (so Safari minimises its toolbar); paint the page bg to match during rubber band
+  // reader scrolls the document (so Safari minimises its toolbar. paint the page bg to match during rubber band)
   if (state.view === "reader") document.body.style.background = bg;
 };
 
@@ -86,7 +86,7 @@ export async function showReader(slug, n) {
   state.view = "reader";
   state.series = null; // never carry the previous series metadata into this slug's library entry
   R.classList.add("active");
-  // takeover: hide the shell and let the document scroll through the reader
+  // takeover hides the shell and lets the document scroll through the reader
   document.documentElement.classList.add("reading");
   document.body.classList.add("reading");
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
@@ -104,7 +104,7 @@ export async function showReader(slug, n) {
       prose.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
       return;
     }
-    if (routeGen !== rd.gen) return; // closed or re-navigated while the list was loading
+    if (routeGen !== rd.gen) return; // closed or re navigated while the list was loading
   }
   if (state.series?.nfSlug !== slug) hydrateSeries(slug);
 
@@ -202,7 +202,7 @@ const makeBlock = (idx, c, ch) => {
   const block = document.createElement("section");
   block.className = "ch-block";
   block.dataset.idx = idx;
-  // paragraphs as <div> not <p> so Safari doesn't flag the page as a Reader-mode article (which kills our JS scroll)
+  // paragraphs as <div> not <p> so Safari doesn't flag the page as a Reader article (which kills our JS scroll)
   const body = scrubDataUri(DOMPurify.sanitize(ch.html, CLEAN))
     .replace(/<p>/g, '<div class="rp">')
     .replace(/<\/p>/g, "</div>");
@@ -369,6 +369,7 @@ function setCurrent(idx) {
   $("#r-title").textContent = c.t;
   history.replaceState(null, "", `#/read/${hashSlug(rd.slug)}/${c.n}`);
 
+  // jumping past chapters marks them read, opening 300 implies the rest are behind you
   const crossed = [];
   for (let i = rd.first; i < idx; i++) crossed.push(state.chapters[i].n);
   let readSize = null;

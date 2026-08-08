@@ -89,7 +89,7 @@ function maybeEvict() {
 }
 
 function memPut(key, rec) {
-    // delete then set so a re-read refreshes the recency order for eviction
+    // delete then set so a re read refreshes the recency order for eviction
     if (mem.has(key)) mem.delete(key)
     mem.set(key, rec)
     if (mem.size > MEM_MAX) mem.delete(mem.keys().next().value)
