@@ -14,7 +14,9 @@ export const touchLibrary = entry => {
     const lib = library()
     const old = lib.find(e => e.slug === entry.slug)
     const rest = lib.filter(e => e.slug !== entry.slug)
-    rest.unshift({ ...old, ...entry, updatedAt: Date.now() })
+    // empty fields mean unknown, never let them erase stored values
+    const known = Object.fromEntries(Object.entries(entry).filter(([, v]) => v != null && v !== ''))
+    rest.unshift({ ...old, ...known, updatedAt: Date.now() })
     lsSet(`${NS}:lib`, rest.slice(0, 60))
 }
 

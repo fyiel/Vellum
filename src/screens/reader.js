@@ -90,6 +90,7 @@ prose.addEventListener(
 export async function showReader(slug, n) {
   const routeGen = ++rd.gen;
   state.view = "reader";
+  state.series = null; // never carry the previous series metadata into this slug's library entry
   R.classList.add("active");
   // takeover: hide the shell and let the document scroll through the reader
   document.documentElement.classList.add("reading");
@@ -413,12 +414,13 @@ const markChapterRead = (n) => {
 
 const updateLibrary = (idx, readSize) => {
   const s = state.series;
+  if (!s) return; // nothing is known about this series yet, do not write junk into the library
   const c = state.chapters[idx];
   touchLibrary({
     slug: rd.slug,
-    id: s?.id,
-    title: s?.title || rd.slug.replace(/-/g, " "),
-    cover: s?.cover || "",
+    id: s.id,
+    title: s.title,
+    cover: s.cover,
     lastN: c.n,
     total: state.chapters.length,
     readCount: readSize ?? readSet(rd.slug).size,
