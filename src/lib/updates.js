@@ -26,6 +26,7 @@ export async function buildFeed() {
     const ledger = loadUpdLedger()
     const now = Date.now()
     const feed = []
+    let dirty = false
 
     const entries = await mapPool(lib, 5, async e => {
         try { return { e, chapters: (await getChapters(e.slug))?.chapters } } catch { return { e, chapters: null } }
@@ -46,7 +47,10 @@ export async function buildFeed() {
         // nothing new since the follow or since the last ack, keep the entry so the watermark survives
         if (latest <= upTo) continue
 
-        if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenUpTo: base, newNums: [], latest: 0 }
+        if (!led) {
+            ledger[e.slug] = { firstSeen: now, read: false, seenUpTo: base, newNums: [], latest: 0 }
+            dirty = true
+        }
         const cur = ledger[e.slug]
         if (cur.read) {
             cur.read = false
@@ -54,10 +58,11 @@ export async function buildFeed() {
         }
         cur.newNums = chapters.slice(upTo).map(c => c.n)
         cur.latest = latest
+        dirty = true
         feed.push(rowOf(e, cur))
     }
 
-    saveUpdLedger(ledger)
+    if (dirty) saveUpdLedger(ledger)
     return feed.sort((a, b) => b.firstSeen - a.firstSeen)
 }
 
@@ -70,6 +75,8 @@ export function setRead(slug, read, upTo) {
         ledger[slug].read = read
         // ack raises the watermark to the acknowledged count, unack resets it to the follow baseline
         ledger[slug].seenUpTo = read ? (n != null ? n : ledger[slug].seenUpTo) : null
+        // the snapshot is recomputable from the api, shed it on ack so the ledger stays lean
+        if (read) ledger[slug].newNums = []
     } else ledger[slug] = { firstSeen: Date.now(), read, seenUpTo: read ? n : null, newNums: [], latest: n ?? 0 }
     saveUpdLedger(ledger)
 }
@@ -79,6 +86,7 @@ export function markAll(feed) {
     for (const u of feed) if (ledger[u.slug]) {
         ledger[u.slug].read = true
         ledger[u.slug].seenUpTo = u.latest
+        ledger[u.slug].newNums = []
     }
     saveUpdLedger(ledger)
 }

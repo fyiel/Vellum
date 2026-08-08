@@ -20,7 +20,15 @@ export const touchLibrary = entry => {
     lsSet(`${NS}:lib`, rest.slice(0, 60))
 }
 
-export const dropLibrary = slug => lsSet(`${NS}:lib`, library().filter(e => e.slug !== slug))
+export const dropLibrary = slug => {
+    lsSet(`${NS}:lib`, library().filter(e => e.slug !== slug))
+    // unfollowing ends the alert relationship, drop the ledger entry so it cannot grow forever
+    const ledger = loadUpdLedger()
+    if (ledger[slug]) {
+        delete ledger[slug]
+        saveUpdLedger(ledger)
+    }
+}
 
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }
 
