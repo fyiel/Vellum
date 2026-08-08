@@ -90,6 +90,7 @@ prose.addEventListener(
 );
 
 export async function showReader(slug, n) {
+  const routeGen = ++rd.gen;
   state.view = "reader";
   R.classList.add("active");
   // takeover: hide the shell and let the document scroll through the reader
@@ -109,6 +110,7 @@ export async function showReader(slug, n) {
       prose.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
       return;
     }
+    if (routeGen !== rd.gen) return; // closed or re-navigated while the list was loading
   }
   if (state.series?.nfSlug !== slug) hydrateSeries(slug);
 
@@ -128,6 +130,7 @@ async function hydrateSeries(slug) {
 }
 
 export const closeReader = () => {
+  rd.gen++; // invalidate any pending chapter load so it can't keep mutating the hidden reader
   posSave();
   closeSheet();
   closeDrawer();
