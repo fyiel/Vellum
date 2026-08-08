@@ -213,20 +213,34 @@ function wire() {
         if (row) launchChapter(row.dataset.n)
     })
 
-    $('#schapters').addEventListener('input', e => { if (e.target.id === 'chsearch') filterChapters(e.target.value) })
+    let t
+    $('#schapters').addEventListener('input', e => {
+        if (e.target.id !== 'chsearch') return
+        clearTimeout(t)
+        const v = e.target.value
+        t = setTimeout(() => filterChapters(v), 150)
+    })
 
-    document.addEventListener('click', () => $('#srcwrap')?.classList.remove('open'))
     window.addEventListener('resize', checkSynOverflow)
 }
 
 async function loadChapters(slug, mine) {
     let chapters = []
-    try { chapters = (await getChapters(slug))?.chapters || [] } catch {}
+    try {
+        const d = await getChapters(slug)
+        if (!Array.isArray(d?.chapters)) throw new Error('bad chapter list')
+        chapters = d.chapters
+    } catch (e) {
+        if (mine === req) $('#schapters').innerHTML = `<div class="void">couldn't load the chapter list</div>`
+        return
+    }
     if (mine !== req) return
 
     const count = chapters.length
     cur.chapters = chapters
     cur.count = count
+    // a follow may have landed before the count was known, backfill the total so updates can alert
+    if (followed(slug)) touchLibrary({ slug, total: count })
 
     $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
 
