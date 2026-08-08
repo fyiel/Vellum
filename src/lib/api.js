@@ -22,8 +22,6 @@ export const getChapters = slug =>
 export const getChapter = (slug, n) =>
     cached(`chapter:${slug}:${n}`, 24 * HOUR, () => apiGet(`/read/api/chapter?slug=${enc(slug)}&n=${n}`), { accept: d => typeof d.html === 'string' })
 
-export const prefetchSeries = key => { getSeries(key).catch(() => {}) }
-export const prefetchChapters = slug => { getChapters(slug).catch(() => {}) }
 export const prefetchChapter = (slug, n) => { getChapter(slug, n).catch(() => {}) }
 
 const discoverQuery = params => {
@@ -42,5 +40,3 @@ export const discover = params => {
 
 export const discoverTaxonomy = () =>
     cached('discover:taxonomy', 24 * HOUR, () => apiGet('/read/api/discover/taxonomy'))
-
-export const prefetchDiscover = params => { discover(params).catch(() => {}) }

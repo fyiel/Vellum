@@ -143,14 +143,3 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
     inflight.set(key, p)
     return p
 }
-
-export function peek(rawKey) {
-    const hot = mem.get(vkey(rawKey))
-    return hot && hot.exp > Date.now() ? hot.v : undefined
-}
-
-export async function clear() {
-    mem.clear()
-    const d = await db()
-    if (d) try { d.transaction(STORE, 'readwrite').objectStore(STORE).clear() } catch {}
-}
