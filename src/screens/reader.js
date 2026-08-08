@@ -67,6 +67,17 @@ const rd = {
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
 const blockFor = (idx) => prose.querySelector(`.ch-block[data-idx="${idx}"]`);
 
+// block geometry is read on every scroll frame, cache it and rebuild only when the
+// stream mutates or the viewport changes so layout is not forced per frame
+let offCache = new Map();
+const rebuildOffsets = () => {
+  offCache = new Map();
+  for (const b of prose.querySelectorAll(".ch-block")) {
+    offCache.set(Number(b.dataset.idx), { top: b.offsetTop, h: b.offsetHeight });
+  }
+};
+const offOf = (idx, b) => offCache.get(idx) ?? { top: b.offsetTop, h: b.offsetHeight };
+
 const scrollY = () => window.scrollY;
 const viewH = () => window.innerHeight;
 const docH = () => document.documentElement.scrollHeight;
@@ -77,10 +88,15 @@ prose.addEventListener(
     const img = e.target;
     if (img.tagName !== "IMG" || state.view !== "reader") return;
     const r = img.getBoundingClientRect();
-    if (r.top < 0) window.scrollBy(0, Math.min(0, r.bottom) - r.top);
+    // compensate the full growth so the reading text never drifts, this is exact
+    // because chapter images always grow from zero height
+    if (r.top < 0) window.scrollBy(0, r.bottom - r.top);
+    rebuildOffsets();
   },
   true,
 );
+
+window.addEventListener("resize", rebuildOffsets);
 
 export async function showReader(slug, n) {
   const routeGen = ++rd.gen;
@@ -165,6 +181,7 @@ async function startAt(slug, idx, p = 0) {
   }
 
   renderPrevHint();
+  rebuildOffsets(); // the hint button shifts every block top
   const b = blockFor(idx);
   window.scrollTo(
     0,
@@ -261,6 +278,7 @@ async function appendNext(gen = rd.gen) {
   }
   try {
     prose.appendChild(makeBlock(idx, c, ch));
+    rebuildOffsets();
   } catch {
     rd.loading = false;
     if (gen === rd.gen) {
@@ -354,6 +372,7 @@ async function loadPrev() {
   $("#ch-prev")?.remove();
   try {
     prose.prepend(makeBlock(idx, c, ch));
+    rebuildOffsets();
   } catch {
     rd.ploading = false;
     renderPrevHint();
@@ -361,6 +380,7 @@ async function loadPrev() {
   }
   rd.first = idx;
   renderPrevHint();
+  rebuildOffsets(); // the hint button shifts every block top
   window.scrollTo(0, scrollY() + (docH() - h));
   rd.ploading = false;
 }
@@ -377,6 +397,7 @@ function trimTop() {
     renderPrevHint();
     window.scrollTo(0, Math.max(0, scrollY() - (h - docH())));
   }
+  rebuildOffsets();
 }
 
 function setCurrent(idx) {
@@ -412,7 +433,7 @@ const topChapterIdx = () => {
   const y = scrollY() + 90;
   let idx = rd.first;
   for (const b of prose.querySelectorAll(".ch-block")) {
-    if (b.offsetTop <= y) idx = Number(b.dataset.idx);
+    if (offOf(Number(b.dataset.idx), b).top <= y) idx = Number(b.dataset.idx);
     else break;
   }
   return idx;
@@ -443,11 +464,12 @@ const updateLibrary = (idx, readSize) => {
 const chapterProgress = () => {
   const b = blockFor(rd.cur);
   if (!b) return 0;
+  const o = offOf(rd.cur, b);
   return Math.min(
     1,
     Math.max(
       0,
-      (scrollY() + viewH() - b.offsetTop) / Math.max(1, b.offsetHeight),
+      (scrollY() + viewH() - o.top) / Math.max(1, o.h),
     ),
   );
 };
@@ -472,6 +494,7 @@ const updateProgress = () => {
 
 let ticking = false;
 let idleTimer;
+let trimTick = 0;
 window.addEventListener(
   "scroll",
   () => {
@@ -483,6 +506,8 @@ window.addEventListener(
         setCurrent(topChapterIdx());
         updateProgress();
         ensureBuffer();
+        // a binge never idles long enough for the idle trim, shed old blocks on a timer
+        if (++trimTick % 120 === 0 && rd.last - rd.first > 20) trimTop();
         ticking = false;
       });
     }
@@ -676,6 +701,7 @@ $("#set-size").onclick = (e) => {
 const commit = () => {
   saveSettings(settings);
   applySettings();
+  rebuildOffsets(); // size and spacing changes reflow every block
   syncSheet();
   updateProgress();
 };
