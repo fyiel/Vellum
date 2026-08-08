@@ -117,8 +117,9 @@ function background(key, ttlMs, loader, negTtlMs, accept) {
 async function resolve(key, ttlMs, loader, swr, negTtlMs, accept) {
     const now = Date.now()
     const disk = await idbGet(key)
-    // a stored value that no longer passes accept (eg an empty page cached while a source was down) is
-    // treated as a miss, so a transient outage never gets stuck for the full ttl
+    // a stored value that fails accept (eg an empty page cached while a source was down) is
+    // never served, so a transient outage cannot stick for the full ttl and no caller
+    // caches negatives by default (negTtlMs defaults to 0)
     if (disk && accept(disk.v)) {
         memPut(key, disk)
         if (disk.exp > now) return disk.v
