@@ -374,8 +374,24 @@ function setCurrent(idx) {
   $("#r-title").textContent = c.t;
   history.replaceState(null, "", `#/read/${hashSlug(rd.slug)}/${c.n}`);
 
-  for (let i = rd.first; i < idx; i++) markChapterRead(state.chapters[i].n);
-  updateLibrary(idx);
+  const crossed = [];
+  for (let i = rd.first; i < idx; i++) crossed.push(state.chapters[i].n);
+  let readSize = null;
+  if (crossed.length) {
+    const set = readSet(rd.slug);
+    let changed = false;
+    for (const n of crossed) {
+      if (!set.has(n)) {
+        set.add(n);
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveRead(rd.slug, set);
+      readSize = set.size;
+    }
+  }
+  updateLibrary(idx, readSize);
 }
 
 const topChapterIdx = () => {
@@ -395,7 +411,7 @@ const markChapterRead = (n) => {
   saveRead(rd.slug, set);
 };
 
-const updateLibrary = (idx) => {
+const updateLibrary = (idx, readSize) => {
   const s = state.series;
   const c = state.chapters[idx];
   touchLibrary({
@@ -405,7 +421,7 @@ const updateLibrary = (idx) => {
     cover: s?.cover || "",
     lastN: c.n,
     total: state.chapters.length,
-    readCount: readSet(rd.slug).size,
+    readCount: readSize ?? readSet(rd.slug).size,
   });
 };
 
