@@ -1,5 +1,5 @@
-@font-face { font-family: 'Gohu'; src: url(./reader-assets/gohufont.woff2) format('woff2'); }
-@font-face { font-family: 'Pixellari'; src: url(./reader-assets/pixellari.woff2) format('woff2'); }
+@font-face { font-family: 'Gohu'; src: url(./reader-assets/gohufont.woff2) format('woff2'); font-display: swap; }
+@font-face { font-family: 'Pixellari'; src: url(./reader-assets/pixellari.woff2) format('woff2'); font-display: swap; }
 
 :root {
   --bg:       #181818;
