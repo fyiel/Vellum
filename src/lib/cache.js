@@ -27,9 +27,26 @@ function db() {
     return dbp
 }
 
+let swept = false
+function sweepStale(d) {
+    // one pass per session, drop rows from older app versions the version key no longer serves
+    if (swept) return
+    swept = true
+    const prefix = `${VER}|`
+    const cur = d.transaction(STORE, 'readwrite').objectStore(STORE).openCursor()
+    cur.onsuccess = e => {
+        const c = e.target.result
+        if (c) {
+            if (!String(c.key).startsWith(prefix)) c.delete()
+            c.continue()
+        }
+    }
+}
+
 async function idbGet(key) {
     const d = await db()
     if (!d) return undefined
+    sweepStale(d)
 
     return new Promise(res => {
         const r = d.transaction(STORE, 'readonly').objectStore(STORE).get(key)
@@ -71,9 +88,15 @@ function maybeEvict() {
     }, 2000)
 }
 
-function put(key, rec) {
+function memPut(key, rec) {
+    // delete then set so a re-read refreshes the recency order for eviction
+    if (mem.has(key)) mem.delete(key)
     mem.set(key, rec)
     if (mem.size > MEM_MAX) mem.delete(mem.keys().next().value)
+}
+
+function put(key, rec) {
+    memPut(key, rec)
     idbSet(key, rec).then(maybeEvict)
 }
 
@@ -97,7 +120,7 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept) {
     // a stored value that no longer passes accept (eg an empty page cached while a source was down) is
     // treated as a miss, so a transient outage never gets stuck for the full ttl
     if (disk && accept(disk.v)) {
-        mem.set(key, disk)
+        memPut(key, disk)
         if (disk.exp > now) return disk.v
         if (swr) { background(key, ttlMs, loader, negTtlMs, accept); return disk.v }
     }
