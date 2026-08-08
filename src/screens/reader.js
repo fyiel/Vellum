@@ -1,4 +1,5 @@
 import DOMPurify from "dompurify";
+import "../styles/reader.css";
 import {
   getSeries,
   getChapters,
