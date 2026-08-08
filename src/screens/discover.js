@@ -29,10 +29,12 @@ let active = false
 
 let items = []
 let page = 0
-let loadingMore = false
+let loadingGen = 0
 let done = false
 let enrichedFirst = false
 let feedError = false
+// filters as applied to the current feed, staged chip changes must not leak into pagination
+let appliedFiltersState = null
 
 const LIMIT = 30
 const ENRICH_MAX = 10
@@ -44,8 +46,15 @@ const lengthBucket = ch => ch < 100 ? 'short' : ch < 300 ? 'medium' : ch < 800 ?
 function currentFilters() {
     const seg = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
     const sources = new Set($$('#dsource .chip.on:not([data-all])').map(c => c.dataset.src))
-    return { length: seg('length') || 'any', sources }
+    return {
+        length: seg('length') || 'any',
+        status: seg('status') || 'all',
+        minRating: seg('minrating') || 'any',
+        sources,
+    }
 }
+
+const appliedFilters = () => appliedFiltersState ?? currentFilters()
 
 const segVal = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
 
@@ -59,13 +68,14 @@ function hasFilters() {
 function buildDiscoverParams(p) {
     const genres = [], tags = []
     for (const v of tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
-    const status = segVal('status'), minRating = segVal('minrating'), length = segVal('length')
+    // the query must reflect the feed's applied filters, staged chips only count after apply
+    const f = appliedFilters()
     return {
         q: query || undefined,
         genres, tags,
-        status: status && status !== 'all' ? status : undefined,
-        minRating: minRating && minRating !== 'any' ? minRating : undefined,
-        length: length && length !== 'any' ? length : undefined,
+        status: f.status && f.status !== 'all' ? f.status : undefined,
+        minRating: f.minRating && f.minRating !== 'any' ? f.minRating : undefined,
+        length: f.length && f.length !== 'any' ? f.length : undefined,
         sort: dsort.key,
         order: dsort.dir,
         page: p,
@@ -74,7 +84,7 @@ function buildDiscoverParams(p) {
 }
 
 function filterPage(list) {
-    const f = currentFilters()
+    const f = appliedFilters()
     let out = list
     if (f.sources.size) out = out.filter(r => srcIds(r).some(id => f.sources.has(id)))
     if (f.length !== 'any') out = out.filter(r => lengthBucket(r.chapters || 0) === f.length)
@@ -99,10 +109,11 @@ function rowHtml(r, i) {
 }
 
 function enrich(list) {
+    const rows = new Map([...$$('#dlist .rrow')].map(el => [el.dataset.key, el]))
     list.slice(0, ENRICH_MAX).forEach(r => {
         getSeries(r.key).then(s => {
             if (!s) return
-            const el = $$('#dlist .rrow').find(x => x.dataset.key === r.key)
+            const el = rows.get(r.key)
             if (!el) return
             const meta = [s.author, s.genres?.[0]].filter(Boolean).join(' · ')
             if (meta) el.querySelector('.au').textContent = meta
@@ -143,11 +154,12 @@ let emptyPages = 0
 
 async function startFeed() {
     const gen = ++feedGen
+    appliedFiltersState = currentFilters()
     active = !!(query || hasFilters())
     page = 0
     items = []
     done = false
-    loadingMore = false
+    loadingGen = 0
     enrichedFirst = false
     feedError = false
     emptyPages = 0
@@ -160,15 +172,15 @@ async function startFeed() {
 }
 
 async function loadMore(fresh = false, gen = feedGen) {
-    if (loadingMore || done) return
-    loadingMore = true
+    if (loadingGen !== 0 || done) return
+    loadingGen = gen
 
     const p = page + 1
     let data
     try {
         data = await feedFetch(p)
     } catch (e) {
-        loadingMore = false
+        if (loadingGen === gen) loadingGen = 0
         if (gen !== feedGen) return
         if (fresh) {
             feedError = true
@@ -180,7 +192,8 @@ async function loadMore(fresh = false, gen = feedGen) {
         return
     }
     if (gen !== feedGen) {
-        loadingMore = false
+        // a stale fetch must not release the lock held by the newer feed
+        if (loadingGen === gen) loadingGen = 0
         return
     }
 
@@ -208,12 +221,12 @@ async function loadMore(fresh = false, gen = feedGen) {
     setCount()
     if (!enrichedFirst && items.length) { enrichedFirst = true; enrich(items) }
 
-    loadingMore = false
+    if (loadingGen === gen) loadingGen = 0
     fillViewport()
 }
 
 function fillViewport() {
-    if (done || loadingMore) return
+    if (done || loadingGen !== 0) return
     const sc = scroller()
     if (sc && sc.scrollHeight <= sc.clientHeight + 40) loadMore()
 }
@@ -297,15 +310,16 @@ function resetAll() {
     startFeed()
 }
 
+let searchTimer = null
+
 function wire() {
     if (wired) return
     wired = true
 
-    let t
     $('#dsearch').addEventListener('input', e => {
-        clearTimeout(t)
+        clearTimeout(searchTimer)
         const v = e.target.value.trim()
-        t = setTimeout(() => { query = v; runSearch() }, 280)
+        searchTimer = setTimeout(() => { query = v; runSearch() }, 280)
     })
 
     const btn = $('#ftoggle'), panel = $('#fpanel')
@@ -363,7 +377,7 @@ function wire() {
 
     scroller()?.addEventListener('scroll', () => {
         const sc = scroller()
-        if (!sc || loadingMore || done) return
+        if (!sc || loadingGen !== 0 || done) return
         if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 600) loadMore()
     }, { passive: true })
 
@@ -374,6 +388,8 @@ function wire() {
 export function showDiscover() {
     wire()
     loadTaxonomy()
+    // a pending debounce from a previous visit must not fire after the seed hijacks the feed
+    clearTimeout(searchTimer)
 
     const seed = sessionStorage.getItem('vellum:discoverSeed')
     if (seed) {
