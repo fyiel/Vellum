@@ -166,13 +166,14 @@ function copyValue(el) {
     }, 900)
 }
 
+let chRows = []
+
 function filterChapters(q) {
     q = q.trim().toLowerCase()
-    $$('#chlist .chrow').forEach(r => {
-        const t = r.querySelector('.cht').textContent.toLowerCase()
-        const hit = !q || t.includes(q) || String(r.dataset.n).includes(q)
-        r.style.display = hit ? '' : 'none'
-    })
+    for (const r of chRows) {
+        const hit = !q || r.t.includes(q) || String(r.n).includes(q)
+        r.el.style.display = hit ? '' : 'none'
+    }
 }
 
 function setOrder(seg) {
@@ -241,6 +242,7 @@ async function loadChapters(slug, mine) {
     if (followed(slug)) touchLibrary({ slug, total: count })
 
     $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
+    chRows = [...$$('#chlist .chrow')].map(el => ({ el, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
 
     const stat = $('#chstat')
     if (stat) {
