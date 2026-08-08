@@ -76,8 +76,6 @@ const scrollY = () => window.scrollY;
 const viewH = () => window.innerHeight;
 const docH = () => document.documentElement.scrollHeight;
 
-if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-
 prose.addEventListener(
   "load",
   (e) => {
@@ -96,6 +94,7 @@ export async function showReader(slug, n) {
   // takeover: hide the shell and let the document scroll through the reader
   document.documentElement.classList.add("reading");
   document.body.classList.add("reading");
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   applySettings();
 
   if (state.slug !== slug || !state.chapters.length) {
@@ -138,6 +137,7 @@ export const closeReader = () => {
   document.documentElement.classList.remove("reading");
   document.body.classList.remove("reading");
   document.body.style.background = "";
+  if ("scrollRestoration" in history) history.scrollRestoration = "auto";
   if (state.view === "reader") state.view = "home";
 };
 
