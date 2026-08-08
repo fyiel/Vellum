@@ -249,7 +249,7 @@ export async function showSeries(key, origin) {
     chaps.innerHTML = ''
 
     let series
-    try { series = await getSeries(key) }
+    try { series = await getSeries(seriesKey(key)) }
     catch (e) { if (mine === req) info.innerHTML = `<div class="void">${esc(e.message)}</div>`; return }
     if (mine !== req) return
     if (!series) { info.innerHTML = `<div class="void">series not found</div>`; return }

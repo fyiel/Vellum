@@ -5,6 +5,9 @@ const enc = encodeURIComponent
 const MIN = 60 * 1000
 const HOUR = 60 * MIN
 
+// canonical key form, the api accepts both but the cache key must not depend on the caller
+export const seriesKey = key => (key || '').includes(':') ? key : `nf:${key || ''}`
+
 const hasResults = d => Array.isArray(d?.results) && d.results.length > 0
 
 export const searchNovels = q =>

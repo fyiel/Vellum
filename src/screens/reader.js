@@ -4,6 +4,7 @@ import {
   getChapters,
   getChapter,
   prefetchChapter,
+  seriesKey,
 } from "../lib/api.js";
 import { go, back, hashSlug } from "../lib/router.js";
 import {
@@ -120,7 +121,7 @@ export async function showReader(slug, n) {
 }
 
 async function hydrateSeries(slug) {
-  const key = slug.includes(":") ? slug : "nf:" + slug;
+  const key = seriesKey(slug);
   try {
     const s = await getSeries(key);
     if (rd.slug !== slug) return;
