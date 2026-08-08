@@ -1,14 +1,39 @@
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{Manager, UriSchemeContext, UriSchemeResponder};
 
 struct NuClearance(Mutex<Option<(String, String)>>); // (cf_clearance, user agent)
+
+// one pooled client instead of a fresh tls stack per cover, redirects stay on the cdn host
+// and never loop past the default hop budget
+fn client() -> Option<&'static reqwest::blocking::Client> {
+    static CLIENT: OnceLock<Option<reqwest::blocking::Client>> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                    if attempt.previous().len() >= 10 {
+                        return attempt.stop();
+                    }
+                    if attempt.url().as_str().starts_with("https://cdn.novelupdates.com/") {
+                        attempt.follow()
+                    } else {
+                        attempt.stop()
+                    }
+                }))
+                .build()
+                .ok()
+        })
+        .as_ref()
+}
 
 #[tauri::command]
 async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
     let (tx, rx) = std::sync::mpsc::channel();
     let handle = app.clone();
     // cookies_for_url pumps the gtk loop so it has to run on the main thread
-    let _ = app.run_on_main_thread(move || {
+    let dispatched = app.run_on_main_thread(move || {
         // read the exact cookie set the browser would send to the cdn (cf_clearance plus __cf_bm and any
         // others), so the native fetch presents the same thing the webview does
         let header = handle
@@ -29,7 +54,11 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
             .filter(|h| h.contains("cf_clearance"));
         let _ = tx.send(header);
     });
-    match rx.recv() {
+    if dispatched.is_err() {
+        log::warn!("nu_refresh: main thread dispatch failed");
+        return false;
+    }
+    match rx.recv_timeout(Duration::from_secs(5)) {
         Ok(Some(cookie)) => {
             log::info!(
                 "nu_refresh: cookie header ready ({} chars), ua={}",
@@ -74,9 +103,9 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
         }
     };
 
-    let client = match reqwest::blocking::Client::builder().build() {
-        Ok(c) => c,
-        Err(_) => return fail(500),
+    let client = match client() {
+        Some(c) => c,
+        None => return fail(500),
     };
     let resp = client
         .get(&target)
