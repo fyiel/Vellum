@@ -1,8 +1,25 @@
 const NS = 'vellum'
 const lsGet = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb } catch { return fb } }
-const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch {} }
+const lsSet = (k, v) => {
+    try { localStorage.setItem(k, JSON.stringify(v)) } catch {
+        // quota is full, shed the recomputable update snapshots and retry once
+        try {
+            const ledger = JSON.parse(localStorage.getItem(`${NS}:updates`) || '{}') || {}
+            let changed = false
+            for (const e of Object.values(ledger)) if (e.newNums?.length) {
+                e.newNums = []
+                changed = true
+            }
+            if (changed) localStorage.setItem(`${NS}:updates`, JSON.stringify(ledger))
+            localStorage.setItem(k, JSON.stringify(v))
+        } catch {}
+    }
+}
 
-export const readSet = slug => new Set(lsGet(`${NS}:read:${slug}`, []))
+export const readSet = slug => {
+    const v = lsGet(`${NS}:read:${slug}`, [])
+    return Array.isArray(v) ? new Set(v) : new Set()
+}
 export const saveRead = (slug, set) => lsSet(`${NS}:read:${slug}`, [...set])
 
 export const posGet = slug => lsGet(`${NS}:pos:${slug}`, null)
