@@ -22,7 +22,7 @@ function bucketOf(ts) {
 }
 
 function rowHtml(u) {
-    const chips = u.newNums.slice(0, CHIP_MAX).map(n => `<a class="uchip" data-n="${n}">Ch ${n}</a>`).join('')
+    const chips = u.newNums.slice(0, CHIP_MAX).map(n => `<a class="uchip" data-n="${esc(n)}">Ch ${esc(n)}</a>`).join('')
     const more = u.newNums.length > CHIP_MAX ? `<span class="umore">+${u.newNums.length - CHIP_MAX}</span>` : ''
     const badge = u.read ? '' : `<span class="unew">+${u.newCount} new</span>`
     const cover = coverImg(u.cover, u.title)

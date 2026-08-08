@@ -193,12 +193,29 @@ const CLEAN = {
     "img", "figure", "figcaption", "span", "sub", "sup", "a",
   ],
   ALLOWED_ATTR: ["href", "src", "class"],
-  ALLOWED_URI_REGEXP: /^(?:https?:|data:image\/)/i,
+  ALLOWED_URI_REGEXP: /^(?:https?:|\/(?!\/)|data:image\/)/i,
 };
 
 // dompurify's data uri allowlist is additive only, so scrub any data uri that
 // is not an image after sanitizing (its serializer quotes attrs with ")
 const scrubDataUri = s => s.replace(/\s(?:src|href)="data:(?!image\/)[^"]*"/gi, "");
+
+// chapters are immutable for their cache ttl, memoize the clean so re entries
+// and prev hints do not re sanitize the same body
+const cleanCache = new Map();
+const CLEAN_MAX = 20;
+const cleanBody = (slug, n, html) => {
+  const key = `${slug}:${n}`;
+  let body = cleanCache.get(key);
+  if (body === undefined) {
+    body = scrubDataUri(DOMPurify.sanitize(html, CLEAN));
+    cleanCache.set(key, body);
+    if (cleanCache.size > CLEAN_MAX) cleanCache.delete(cleanCache.keys().next().value);
+  }
+  return body
+    .replace(/<p>/g, '<div class="rp">')
+    .replace(/<\/p>/g, "</div>");
+};
 
 const makeBlock = (idx, c, ch) => {
   if (typeof ch?.html !== "string") throw new Error("bad chapter body");
@@ -206,12 +223,10 @@ const makeBlock = (idx, c, ch) => {
   block.className = "ch-block";
   block.dataset.idx = idx;
   // paragraphs as <div> not <p> so Safari doesn't flag the page as a Reader article (which kills our JS scroll)
-  const body = scrubDataUri(DOMPurify.sanitize(ch.html, CLEAN))
-    .replace(/<p>/g, '<div class="rp">')
-    .replace(/<\/p>/g, "</div>");
+  const body = cleanBody(rd.slug, c.n, ch.html);
   const title = ch.title || c.t;
   block.innerHTML =
-    `<div class="reader-ch-meta">chapter ${c.n} of ${state.chapters.length}</div>` +
+    `<div class="reader-ch-meta">chapter ${esc(c.n)} of ${state.chapters.length}</div>` +
     (title ? `<h2>${esc(title)}</h2>` : "") +
     body;
   return block;
@@ -570,8 +585,8 @@ function renderDrawer() {
   const row = ({
     c,
     i,
-  }) => `<a class="chap${set.has(c.n) ? " read" : ""}${i === rd.cur ? " current" : ""}" href="#/read/${hashSlug(rd.slug)}/${c.n}">
-      <span class="n">#${c.n}</span><span class="t">${esc(c.t)}</span><span class="dot"></span></a>`;
+  }) => `<a class="chap${set.has(c.n) ? " read" : ""}${i === rd.cur ? " current" : ""}" href="#/read/${hashSlug(rd.slug)}/${esc(c.n)}">
+      <span class="n">#${esc(c.n)}</span><span class="t">${esc(c.t)}</span><span class="dot"></span></a>`;
   listEl.innerHTML =
     (!dw.q && dw.lo > 0
       ? `<button class="drawer-more" id="dw-earlier">${dw.lo} earlier…</button>`

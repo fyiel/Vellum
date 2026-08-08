@@ -17,7 +17,7 @@ export const getSeries = key =>
     cached(`series:${key}`, 6 * HOUR, () => apiGet(`/read/api/series/${enc(key)}`))
 
 export const getChapters = slug =>
-    cached(`chapters:${slug}`, 30 * MIN, () => apiGet(`/read/api/chapters?slug=${enc(slug)}`), { accept: d => Array.isArray(d?.chapters) })
+    cached(`chapters:${slug}`, 30 * MIN, () => apiGet(`/read/api/chapters?slug=${enc(slug)}`), { accept: d => Array.isArray(d?.chapters) && d.chapters.every(c => Number.isFinite(c?.n)) })
 
 export const getChapter = (slug, n) =>
     cached(`chapter:${slug}:${n}`, 24 * HOUR, () => apiGet(`/read/api/chapter?slug=${enc(slug)}&n=${n}`), { accept: d => typeof d.html === 'string' })
