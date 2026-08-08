@@ -7,15 +7,31 @@ const rowOf = (e, led) => ({
     firstSeen: led.firstSeen, read: !!led.read,
 })
 
+// bounded concurrency so a big library does not serialize dozens of chapter fetches
+async function mapPool(list, n, fn) {
+    const out = new Array(list.length)
+    let i = 0
+    const worker = async () => {
+        while (i < list.length) {
+            const idx = i++
+            out[idx] = await fn(list[idx], idx)
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(n, list.length) }, worker))
+    return out
+}
+
 export async function buildFeed() {
     const lib = library()
     const ledger = loadUpdLedger()
     const now = Date.now()
     const feed = []
 
-    for (const e of lib) {
-        let chapters = null
-        try { chapters = (await getChapters(e.slug))?.chapters } catch {}
+    const entries = await mapPool(lib, 5, async e => {
+        try { return { e, chapters: (await getChapters(e.slug))?.chapters } } catch { return { e, chapters: null } }
+    })
+
+    for (const { e, chapters } of entries) {
         const led = ledger[e.slug]
         const base = e.total
 

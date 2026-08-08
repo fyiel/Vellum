@@ -23,7 +23,18 @@ export const touchLibrary = entry => {
 export const dropLibrary = slug => lsSet(`${NS}:lib`, library().filter(e => e.slug !== slug))
 
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }
-export const loadSettings = () => ({ ...SET_DEFAULT, ...lsGet(`${NS}:settings`, {}) })
+
+const num = (v, lo, hi, fb) => {
+    const n = Number(v)
+    return v != null && v !== '' && Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fb
+}
+
+export const loadSettings = () => {
+    const s = { ...SET_DEFAULT, ...lsGet(`${NS}:settings`, {}) }
+    s.size = num(s.size, 14, 28, SET_DEFAULT.size)
+    s.lh = num(s.lh, 1, 3, SET_DEFAULT.lh)
+    return s
+}
 export const saveSettings = s => lsSet(`${NS}:settings`, s)
 
 export const FEEL_DEFAULT = { scheme: 'Graphite', density: 'comfortable' }
