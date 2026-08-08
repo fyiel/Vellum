@@ -97,15 +97,17 @@ export async function showReader(slug, n) {
     rfoot.innerHTML = "";
     try {
       const { chapters } = await getChapters(slug);
+      if (routeGen !== rd.gen) return; // closed or re navigated while the list was loading
       if (!Array.isArray(chapters)) throw new Error("couldn't load the chapter list");
       state.slug = slug;
       state.chapters = chapters;
     } catch (e) {
+      if (routeGen !== rd.gen) return; // a dead route must not render into the live view
       prose.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
       return;
     }
-    if (routeGen !== rd.gen) return; // closed or re navigated while the list was loading
   }
+  if (document.fonts?.ready) document.fonts.ready.then(rebuildOffsets);
   if (state.series?.nfSlug !== slug) hydrateSeries(slug);
 
   const idx = Math.max(0, chapterIndex(n));
