@@ -3,9 +3,10 @@ export const go = hash => { location.hash = hash }
 export const back = () => { history.length > 1 ? history.back() : go('#/') }
 
 export function parseHash() {
-    const h = decodeURIComponent(location.hash || '#/')
+    let h
+    try { h = decodeURIComponent(location.hash || '#/') } catch { h = '#/' }
 
-    const read = h.match(/^#\/read\/([^/]+)\/(\d+(?:\.\d+)?)/)
+    const read = h.match(/^#\/read\/([^/]+)\/(\d+)$/)
     if (read) return { name: 'read', slug: read[1], n: Number(read[2]) }
 
     const series = h.match(/^#\/series\/(.+)$/)
