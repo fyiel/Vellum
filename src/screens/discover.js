@@ -1,4 +1,5 @@
 import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
+import { srcIds, srcLabel } from '../lib/source.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 
@@ -78,13 +79,12 @@ function buildDiscoverParams(p) {
 function filterPage(list) {
     const f = currentFilters()
     let out = list
-    if (f.sources.size) out = out.filter(r => f.sources.has(r.source))
+    if (f.sources.size) out = out.filter(r => srcIds(r).some(id => f.sources.has(id)))
     if (f.length !== 'any') out = out.filter(r => lengthBucket(r.chapters || 0) === f.length)
     return out
 }
 
-const SRC = { novelfire: 'Novelfire', mangabaka: 'MangaBaka', dm: 'Dreamy', dawn: 'Dawn' }
-const metaInit = r => [SRC[r.sources?.[0]] || r.sourceName, r.year].filter(Boolean).join(' · ')
+const metaInit = r => [srcLabel(srcIds(r)[0]) || r.sourceName, r.year].filter(Boolean).join(' · ')
 const stars = r => r.rating ? `<span class="st">★</span>${Number(r.rating).toFixed(1)}` : ''
 
 function rowHtml(r, i) {
