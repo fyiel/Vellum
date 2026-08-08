@@ -57,29 +57,7 @@
 .den .srcwrap { position: relative; display: inline-flex; align-items: center; gap: 8px; }
 .den .srcname { cursor: pointer; }
 .den .srcname:hover { color: var(--hi); }
-.den .swbtn { display: inline-flex; align-items: center; justify-content: center; width: 23px; height: 18px; flex: none; border: 1px solid var(--line2); background: var(--row); cursor: pointer; }
-.den .swbtn .swico { color: var(--ac); font-family: var(--mono); font-size: 12px; line-height: 1; transition: transform .15s; }
-.den .swbtn:hover { border-color: var(--ac); }
-.den .srcwrap.open .swbtn { border-color: var(--ac); background: var(--sel); }
-.den .srcwrap.open .swico { transform: rotate(90deg); }
-.den .srcmenu { position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%); z-index: 30; min-width: 158px; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 8px 24px -6px #000a; display: none; flex-direction: column; }
-.den .srcwrap.open .srcmenu { display: flex; }
-.den .srcmenu::before { content: ''; position: absolute; left: 100%; top: 50%; transform: translateY(-50%); border: 5px solid transparent; border-left-color: var(--line2); }
-.den .smhd { font: 600 9px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; padding: 8px 11px 6px; border-bottom: 1px solid var(--line); }
-.den .srcopt { display: flex; align-items: center; gap: 9px; padding: 8px 11px; cursor: pointer; border-bottom: 1px solid var(--line); }
-.den .srcopt:last-child { border-bottom: none; }
-.den .srcopt:hover { background: var(--rowh); }
-.den .srcopt .dot { width: 7px; height: 7px; flex: none; border: 1px solid var(--line2); border-radius: 50%; }
-.den .srcopt .snm { font: 500 12px 'Archivo'; color: var(--text); flex: 1; }
-.den .srcopt .smeta { font: 400 10px var(--mono); color: var(--dim); }
-.den .srcopt.cur .dot { background: var(--ac); border-color: var(--ac); }
-.den .srcopt.cur .snm { color: var(--hi); }
-.den .srcopt.cur .ck { color: var(--ac); font-size: 12px; }
-.den .srcopt.off { cursor: not-allowed; opacity: .85; }
-.den .srcopt.off:hover { background: transparent; }
-.den .srcopt.off .dot { background: #ff5f57; border-color: #ff5f57; }
-.den .srcopt.off .snm { color: var(--dim); }
-.den .srcopt.off .smeta { color: #ff5f57; text-transform: uppercase; letter-spacing: .5px; }
+.den .srcwrap .smeta { font: 400 10px var(--mono); color: var(--dim); }
 
 .den .copyable { cursor: pointer; position: relative; }
 .den .copyable:hover { color: var(--hi); }

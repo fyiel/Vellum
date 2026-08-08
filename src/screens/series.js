@@ -1,4 +1,5 @@
-import { getSeries, getChapters, prefetchChapter } from '../lib/api.js'
+import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.js'
+import { srcName } from '../lib/source.js'
 import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
@@ -17,10 +18,6 @@ let req = 0
 const followed = slug => library().some(e => e.slug === slug)
 
 const byDesc = (a, b) => b.n - a.n
-
-const srcName = x => typeof x === 'string' ? x : (x.name || x.sourceName || x.source || '')
-const srcCount = x => typeof x === 'string' ? null : (x.chapterCount ?? x.chapters ?? x.count ?? null)
-const srcOff = x => typeof x === 'string' ? false : !(x.available ?? x.readable ?? true)
 
 function ratingHtml(s) {
     if (typeof s.rating !== 'number') return ''
@@ -45,25 +42,10 @@ function synopsisHtml(s) {
 function sourceRowHtml(s) {
     const sources = Array.isArray(s.sources) ? s.sources : []
     const name = s.sourceName || (sources[0] && srcName(sources[0])) || 'Unknown'
-    const selectable = sources.filter(x => !srcOff(x))
-
-    if (selectable.length < 2) {
-        return `<div class="drow"><span class="k">Source</span><span class="srcwrap" id="srcwrap"><span class="srcname copyable" id="srcname" title="Click to copy">${esc(name)}</span></span></div>`
-    }
-
-    const opts = sources.map(x => {
-        const nm = srcName(x)
-        const isCur = nm === name
-        if (srcOff(x)) return `<span class="srcopt off" data-src="${esc(nm)}"><span class="dot"></span><span class="snm">${esc(nm)}</span><span class="smeta">offline</span></span>`
-        const tail = isCur ? `<span class="ck">&#10003;</span>` : `<span class="smeta">${srcCount(x) != null ? `${esc(srcCount(x))} ch` : 'available'}</span>`
-        return `<span class="srcopt${isCur ? ' cur' : ''}" data-src="${esc(nm)}"><span class="dot"></span><span class="snm">${esc(nm)}</span>${tail}</span>`
-    }).join('')
-
-    return `<div class="drow"><span class="k">Source</span><span class="srcwrap" id="srcwrap">
-      <span class="srcname copyable" id="srcname" title="Click to copy">${esc(name)}</span>
-      <span class="swbtn" id="srcpick" title="Change source"><span class="swico">&#8644;</span></span>
-      <span class="srcmenu" id="srcmenu"><span class="smhd">Available sources</span>${opts}</span>
-    </span></div>`
+    // the source list is informational only, switching is not implemented so do not imply it
+    const others = sources.map(srcName).filter(n => n && n !== name)
+    const tail = others.length ? ` <span class="smeta">also on ${esc(others.join(' · '))}</span>` : ''
+    return `<div class="drow"><span class="k">Source</span><span class="srcwrap" id="srcwrap"><span class="srcname copyable" id="srcname" title="Click to copy">${esc(name)}</span>${tail}</span></div>`
 }
 
 function statsHtml(s, slug, count) {
@@ -186,33 +168,6 @@ function copyValue(el) {
     }, 900)
 }
 
-function selectSource(opt) {
-    if (opt.classList.contains('off')) return
-
-    const menu = opt.closest('.srcmenu')
-    menu.querySelectorAll('.srcopt').forEach(x => {
-        x.classList.remove('cur')
-        x.querySelector('.ck')?.remove()
-        if (!x.classList.contains('off') && !x.querySelector('.smeta')) {
-            const m = document.createElement('span')
-            m.className = 'smeta'
-            m.textContent = 'available'
-            x.appendChild(m)
-        }
-    })
-    opt.classList.add('cur')
-    opt.querySelector('.smeta')?.remove()
-    const ck = document.createElement('span')
-    ck.className = 'ck'
-    ck.textContent = '✓'
-    opt.appendChild(ck)
-
-    const name = $('#srcname')
-    name.classList.remove('copied')
-    name.textContent = opt.dataset.src
-    $('#srcwrap').classList.remove('open')
-}
-
 function filterChapters(q) {
     q = q.trim().toLowerCase()
     $$('#chlist .chrow').forEach(r => {
@@ -245,9 +200,6 @@ function wire() {
         if (e.target.closest('#tagall')) return toggleTags()
         if (e.target.closest('#followbtn')) return toggleFollow()
         if (e.target.closest('#contbtn')) return launchContinue()
-        if (e.target.closest('#srcpick')) { e.stopPropagation(); $('#srcwrap').classList.toggle('open'); return }
-        const opt = e.target.closest('.srcopt')
-        if (opt) { e.stopPropagation(); selectSource(opt); return }
         const cp = e.target.closest('.copyable')
         if (cp) { e.stopPropagation(); return copyValue(cp) }
         const chip = e.target.closest('.gchip')
