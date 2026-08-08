@@ -41,7 +41,7 @@ function rowHtml(u) {
     const more = u.newNums.length > CHIP_MAX ? `<span class="umore">+${u.newNums.length - CHIP_MAX}</span>` : ''
     const badge = u.read ? '' : `<span class="unew">+${u.newCount} new</span>`
     const cover = coverImg(u.cover, u.title)
-    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-new="${u.newCount}">
+    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-new="${u.newCount}" data-up="${u.latest}">
       <span class="cv">${cover}</span>
       <div class="utt"><div class="n">${esc(u.title)}</div><div class="uch">${badge}${chips}${more}</div></div>
       <span class="utime">${esc(relTime(u.firstSeen))}</span>
@@ -80,7 +80,7 @@ function refresh() {
 function setRowRead(row, read) {
     row.classList.toggle('read', read)
     row.classList.toggle('unread', !read)
-    setRead(row.dataset.slug, read)
+    setRead(row.dataset.slug, read, read ? row.dataset.up : null)
 
     const uch = row.querySelector('.uch')
     const badge = uch.querySelector('.unew')
