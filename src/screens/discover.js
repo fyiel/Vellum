@@ -141,7 +141,11 @@ function feedFetch(p) {
 
 const scroller = () => $('#view-discover .scroll')
 
+let feedGen = 0
+let emptyPages = 0
+
 async function startFeed() {
+    const gen = ++feedGen
     active = !!(query || hasFilters())
     page = 0
     items = []
@@ -149,15 +153,16 @@ async function startFeed() {
     loadingMore = false
     enrichedFirst = false
     feedError = false
+    emptyPages = 0
     setLabel()
     const sc = scroller()
     if (sc) sc.scrollTop = 0
     $('#dlist').innerHTML = `<div class="void">${active ? 'searching' : 'loading'}&hellip;</div>`
     $('#rescount').textContent = ''
-    await loadMore(true)
+    await loadMore(true, gen)
 }
 
-async function loadMore(fresh = false) {
+async function loadMore(fresh = false, gen = feedGen) {
     if (loadingMore || done) return
     loadingMore = true
 
@@ -167,7 +172,18 @@ async function loadMore(fresh = false) {
         data = await feedFetch(p)
     } catch (e) {
         loadingMore = false
-        if (fresh) { feedError = true; $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`; $('#rescount').textContent = '' }
+        if (gen !== feedGen) return
+        if (fresh) {
+            feedError = true
+            $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
+            $('#rescount').textContent = ''
+        } else if (!$('#dmore-err')) {
+            $('#dlist').insertAdjacentHTML('beforeend', `<div class="void" id="dmore-err">couldn't load more<button class="freset" id="dmore-retry">retry</button></div>`)
+        }
+        return
+    }
+    if (gen !== feedGen) {
+        loadingMore = false
         return
     }
 
@@ -175,6 +191,11 @@ async function loadMore(fresh = false) {
     const raw = data.results || []
     const batch = filterPage(raw)
     if (raw.length < LIMIT) done = true
+    // a page that renders nothing cannot fill the viewport, stop chaining after a few of them
+    // but keep scanning while full pages remain, matches can sit deeper in the catalog
+    else if (batch.length === 0) {
+        if (++emptyPages >= 3) done = true
+    } else emptyPages = 0
 
     const wrap = $('#dlist')
     const startIdx = items.length
@@ -184,6 +205,7 @@ async function loadMore(fresh = false) {
         wrap.innerHTML = items.length ? items.map((r, i) => rowHtml(r, i)).join('') : `<div class="void">${voidMsg()}</div>`
     } else if (batch.length) {
         wrap.insertAdjacentHTML('beforeend', batch.map((r, i) => rowHtml(r, startIdx + i)).join(''))
+        wrap.querySelector('.void')?.remove()
     }
 
     setCount()
@@ -200,7 +222,6 @@ function fillViewport() {
 }
 
 async function runSearch() {
-    if (!query && !hasFilters()) { active = false; await startFeed(); return }
     await startFeed()
 }
 
@@ -334,6 +355,11 @@ function wire() {
     $('#fapply').addEventListener('click', runSearch)
     $('#freset').addEventListener('click', resetAll)
     $('#dlist').addEventListener('click', e => {
+        if (e.target.closest('#dmore-retry')) {
+            $('#dmore-err')?.remove()
+            loadMore()
+            return
+        }
         const r = e.target.closest('.rrow')
         if (r) go(`#/series/${encodeURIComponent(r.dataset.key)}`)
     })
