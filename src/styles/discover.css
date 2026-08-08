@@ -49,7 +49,6 @@
 .den .rt { font: 400 12px var(--mono); color: var(--text); text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .den .rt .st { color: var(--ac); }
 .den .tr { font: 400 11px var(--mono); text-align: right; color: var(--dim); }
-.den .tr .up, .den .tr .nw { color: var(--ac); }
 
 .den.d-compact .rrow { padding: 6px 10px; }
 .den.d-compact .rrow .cv { width: 36px; height: 48px; }

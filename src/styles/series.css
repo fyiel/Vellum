@@ -36,7 +36,6 @@
 .den .cloud.clamp::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 20px; background: linear-gradient(transparent, var(--bg)); pointer-events: none; }
 
 .den .dactions { display: flex; flex-direction: column; gap: 8px; }
-.den .brow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .den .btn { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 12px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 12px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .den .btn:hover { border-color: var(--ac); color: var(--hi); }
 .den .btn.primary { background: var(--ac); border-color: var(--ac); color: var(--bg); }
