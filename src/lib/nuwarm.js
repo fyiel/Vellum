@@ -3,6 +3,11 @@ const CHROME_UA =
 
 let warmed = false;
 
+// cloudflare can take a while to clear, retry the cookie read a few times before
+// retiring the warm webview so a slow challenge still lands
+const ATTEMPTS = 4;
+const RETRY_MS = 9000;
+
 export async function warmNuClearance() {
   if (warmed || !window.__TAURI_INTERNALS__) return;
   warmed = true;
@@ -22,15 +27,21 @@ export async function warmNuClearance() {
       userAgent: CHROME_UA,
     });
 
-    // give cloudflare time to clear, read the clearance into native state, retire the warm webview and
-    // retry any nu covers on screen through the nucover proxy
-    setTimeout(async () => {
+    let tries = 0;
+    const attempt = async () => {
+      tries++;
       try {
-        await invoke("nu_refresh", { ua: CHROME_UA });
+        const ok = await invoke("nu_refresh", { ua: CHROME_UA });
+        if (ok) {
+          await w.close().catch(() => {});
+          retryNuCovers();
+          return;
+        }
       } catch {}
-      await w.close().catch(() => {});
-      retryNuCovers();
-    }, 18000);
+      if (tries < ATTEMPTS) setTimeout(attempt, RETRY_MS);
+      else await w.close().catch(() => {});
+    };
+    setTimeout(attempt, 18000);
   } catch (e) {
     console.warn("nu clearance warm failed", e);
   }
