@@ -102,6 +102,7 @@ export async function showReader(slug, n) {
     rfoot.innerHTML = "";
     try {
       const { chapters } = await getChapters(slug);
+      if (!Array.isArray(chapters)) throw new Error("couldn't load the chapter list");
       state.slug = slug;
       state.chapters = chapters;
     } catch (e) {
@@ -199,6 +200,7 @@ const CLEAN = {
 const scrubDataUri = s => s.replace(/\s(?:src|href)="data:(?!image\/)[^"]*"/gi, "");
 
 const makeBlock = (idx, c, ch) => {
+  if (typeof ch?.html !== "string") throw new Error("bad chapter body");
   const block = document.createElement("section");
   block.className = "ch-block";
   block.dataset.idx = idx;
@@ -241,8 +243,16 @@ async function appendNext(gen = rd.gen) {
     rd.loading = false;
     return false;
   }
-
-  prose.appendChild(makeBlock(idx, c, ch));
+  try {
+    prose.appendChild(makeBlock(idx, c, ch));
+  } catch {
+    rd.loading = false;
+    if (gen === rd.gen) {
+      rd.failed = true;
+      renderFoot();
+    }
+    return false;
+  }
   rd.last = idx;
   rd.loading = false;
   renderFoot();
@@ -258,7 +268,9 @@ const renderFoot = () => {
     $("#rfoot-retry").onclick = () => {
       rd.failed = false;
       renderFoot();
-      ensureBuffer();
+      // boot failure never rendered a block, restart it so chrome and progress come up
+      if (rd.last < rd.first) startAt(rd.slug, rd.first, 0);
+      else ensureBuffer();
     };
   } else if (rd.end) {
     const s = state.series;
@@ -324,7 +336,13 @@ async function loadPrev() {
 
   const h = docH();
   $("#ch-prev")?.remove();
-  prose.prepend(makeBlock(idx, c, ch));
+  try {
+    prose.prepend(makeBlock(idx, c, ch));
+  } catch {
+    rd.ploading = false;
+    renderPrevHint();
+    return;
+  }
   rd.first = idx;
   renderPrevHint();
   window.scrollTo(0, scrollY() + (docH() - h));

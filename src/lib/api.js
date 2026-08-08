@@ -14,10 +14,10 @@ export const getSeries = key =>
     cached(`series:${key}`, 6 * HOUR, () => apiGet(`/read/api/series/${enc(key)}`))
 
 export const getChapters = slug =>
-    cached(`chapters:${slug}`, 30 * MIN, () => apiGet(`/read/api/chapters?slug=${enc(slug)}`))
+    cached(`chapters:${slug}`, 30 * MIN, () => apiGet(`/read/api/chapters?slug=${enc(slug)}`), { accept: d => Array.isArray(d?.chapters) })
 
 export const getChapter = (slug, n) =>
-    cached(`chapter:${slug}:${n}`, 24 * HOUR, () => apiGet(`/read/api/chapter?slug=${enc(slug)}&n=${n}`))
+    cached(`chapter:${slug}:${n}`, 24 * HOUR, () => apiGet(`/read/api/chapter?slug=${enc(slug)}&n=${n}`), { accept: d => typeof d.html === 'string' })
 
 export const prefetchSeries = key => { getSeries(key).catch(() => {}) }
 export const prefetchChapters = slug => { getChapters(slug).catch(() => {}) }

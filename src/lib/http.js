@@ -13,8 +13,9 @@ export const setTransport = fn => { transport = fn }
 
 export async function apiGet(path) {
     const res = await transport(apiUrl(path), { headers: { accept: 'application/json' } })
-    const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data.error || `http ${res.status}`)
+    const data = await res.json().catch(() => null)
+    if (!res.ok) throw new Error(data?.error || `http ${res.status}`)
+    if (data == null) throw new Error(`http ${res.status}`)
 
     return data
 }
