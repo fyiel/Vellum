@@ -32,6 +32,7 @@
     "@fontsource/archivo": "^5",
     "@fontsource/ibm-plex-mono": "^5",
     "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-http": "^2"
+    "@tauri-apps/plugin-http": "^2",
+    "dompurify": "^3.4.13"
   }
 }

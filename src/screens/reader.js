@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import {
   getSeries,
   getChapters,
@@ -179,12 +180,30 @@ const prefetch = (idx) => {
   if (c) prefetchChapter(rd.slug, c.n);
 };
 
+// chapter html is third party scraped content, allow only the formatting the reader styles
+// and never event handlers, ids or styles, so a hostile source cannot run script in the app
+const CLEAN = {
+  ALLOWED_TAGS: [
+    "p", "div", "br", "b", "strong", "i", "em", "u", "s", "del", "ins",
+    "ul", "ol", "li", "dl", "dt", "dd", "blockquote",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "pre", "code", "hr", "table", "thead", "tbody", "tr", "th", "td",
+    "img", "figure", "figcaption", "span", "sub", "sup", "a",
+  ],
+  ALLOWED_ATTR: ["href", "src", "class"],
+  ALLOWED_URI_REGEXP: /^(?:https?:|data:image\/)/i,
+};
+
+// dompurify's data uri allowlist is additive only, so scrub any data uri that
+// is not an image after sanitizing (its serializer quotes attrs with ")
+const scrubDataUri = s => s.replace(/\s(?:src|href)="data:(?!image\/)[^"]*"/gi, "");
+
 const makeBlock = (idx, c, ch) => {
   const block = document.createElement("section");
   block.className = "ch-block";
   block.dataset.idx = idx;
   // paragraphs as <div> not <p> so Safari doesn't flag the page as a Reader-mode article (which kills our JS scroll)
-  const body = ch.html
+  const body = scrubDataUri(DOMPurify.sanitize(ch.html, CLEAN))
     .replace(/<p>/g, '<div class="rp">')
     .replace(/<\/p>/g, "</div>");
   const title = ch.title || c.t;
