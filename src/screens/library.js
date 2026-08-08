@@ -2,10 +2,8 @@ import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
-
-const $ = (s, el = document) => el.querySelector(s)
-const $$ = (s, el = document) => [...el.querySelectorAll(s)]
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+import { $, $$, esc } from '../lib/dom.js'
+import { relTime } from '../lib/time.js'
 
 const CONT_MAX = 4
 
@@ -20,22 +18,6 @@ const pctOf = e => total(e) ? Math.min(100, Math.round((read(e) / total(e)) * 10
 const started = e => read(e) > 0 || e.lastN != null
 const done = e => total(e) > 0 && read(e) >= total(e)
 const resumeN = e => (e.lastN != null ? e.lastN : 1)
-
-function relTime(ts) {
-    if (!ts) return ''
-    const s = (Date.now() - ts) / 1000
-    if (s < 60) return 'now'
-    const m = s / 60
-    if (m < 60) return `${Math.floor(m)}m`
-    const h = m / 60
-    if (h < 24) return `${Math.floor(h)}h`
-    const d = h / 24
-    if (d < 7) return `${Math.floor(d)}d`
-    const w = d / 7
-    if (w < 5) return `${Math.floor(w)}w`
-    const mo = d / 30
-    return mo < 12 ? `${Math.floor(mo)}mo` : `${Math.floor(d / 365)}y`
-}
 
 function sortEntries(list) {
     const sign = ui.sortDir === 'asc' ? 1 : -1

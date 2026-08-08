@@ -4,10 +4,7 @@ import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
-
-const $ = (s, el = document) => el.querySelector(s)
-const $$ = (s, el = document) => [...el.querySelectorAll(s)]
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+import { $, $$, esc } from '../lib/dom.js'
 
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
 
@@ -50,6 +47,7 @@ function sourceRowHtml(s) {
 
 function statsHtml(s, slug, count) {
     const status = s.status || s.nfStatus || null
+    // the chapter stat is backfilled from the live chapter list once it loads, ellipsis until then
     const chval = count != null
         ? `<span class="v copyable" id="chstat" title="Click to copy">${count}</span>`
         : `<span class="v" id="chstat">&hellip;</span>`

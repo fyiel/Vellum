@@ -1,11 +1,7 @@
 import { apiUrl } from "./http.js";
+import { esc } from "./dom.js";
 
 const enc = encodeURIComponent;
-const esc = (s) =>
-  String(s ?? "").replace(
-    /[&<>"]/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
-  );
 
 const isNu = (u) => /novelupdates\.com/i.test(u || "");
 const isTauri = () => !!window.__TAURI_INTERNALS__;

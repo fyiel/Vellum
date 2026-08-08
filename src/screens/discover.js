@@ -2,10 +2,7 @@ import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.
 import { srcIds, srcLabel } from '../lib/source.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
-
-const $ = (s, el = document) => el.querySelector(s)
-const $$ = (s, el = document) => [...el.querySelectorAll(s)]
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+import { $, $$, esc } from '../lib/dom.js'
 
 let OPTIONS = []
 let taxoLoaded = false

@@ -17,14 +17,7 @@ import {
   saveSettings,
   SET_DEFAULT,
 } from "../lib/store.js";
-
-const $ = (s, el = document) => el.querySelector(s);
-const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const esc = (s) =>
-  String(s ?? "").replace(
-    /[&<>"]/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
-  );
+import { $, $$, esc } from "../lib/dom.js";
 
 let settings = loadSettings();
 const THEME_BG = {

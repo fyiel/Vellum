@@ -1,10 +1,8 @@
 import { buildFeed, setRead, markAll } from '../lib/updates.js'
 import { coverImg } from '../lib/cover.js'
 import { go, hashSlug } from '../lib/router.js'
-
-const $ = (s, el = document) => el.querySelector(s)
-const $$ = (s, el = document) => [...el.querySelectorAll(s)]
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+import { $, $$, esc } from '../lib/dom.js'
+import { relTime } from '../lib/time.js'
 
 const CHIP_MAX = 5
 const BUCKETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This week'], ['earlier', 'Earlier']]
@@ -12,19 +10,6 @@ const BUCKETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This 
 let wired = false
 let feed = []
 let filter = 'all'
-
-function relTime(ts) {
-    const s = (Date.now() - ts) / 1000
-    if (s < 60) return 'now'
-    const m = s / 60
-    if (m < 60) return `${Math.floor(m)}m`
-    const h = m / 60
-    if (h < 24) return `${Math.floor(h)}h`
-    const d = h / 24
-    if (d < 7) return `${Math.floor(d)}d`
-    const w = d / 7
-    return w < 5 ? `${Math.floor(w)}w` : `${Math.floor(d / 30)}mo`
-}
 
 function bucketOf(ts) {
     const n = new Date()
