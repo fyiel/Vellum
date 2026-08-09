@@ -51,6 +51,7 @@ function currentFilters() {
         status: seg('status') || 'all',
         minRating: seg('minrating') || 'any',
         sources,
+        tokens: [...tokens],
     }
 }
 
@@ -63,13 +64,14 @@ function hasFilters() {
         || (segVal('status') && segVal('status') !== 'all')
         || (segVal('minrating') && segVal('minrating') !== 'any')
         || (segVal('length') && segVal('length') !== 'any')
+        || $$('#dsource .chip.on:not([data-all])').length > 0
 }
 
 function buildDiscoverParams(p) {
     const genres = [], tags = []
-    for (const v of tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
     // the query must reflect the feed's applied filters, staged chips only count after apply
     const f = appliedFilters()
+    for (const v of f.tokens) (OPTIONS.find(o => o.v === v)?.k === 'tag' ? tags : genres).push(v)
     return {
         q: query || undefined,
         genres, tags,
