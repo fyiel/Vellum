@@ -52,5 +52,6 @@ startRouter(async route => {
     if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
+    else if (route.name === 'shelf') { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary(route.id) }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }
 })

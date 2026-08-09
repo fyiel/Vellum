@@ -67,7 +67,7 @@ body { background: #15161a; overflow: hidden; }
 .den .ctile .bar { flex: 1; height: 4px; background: var(--track); }
 .den .ctile .bar > span { display: block; height: 100%; background: var(--ac); }
 
-.den .trow { display: grid; grid-template-columns: 48px minmax(0, 1fr) 150px 62px 70px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .trow { display: grid; grid-template-columns: 48px minmax(0, 1fr) 150px 62px 70px 24px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .den .trow:hover { background: var(--rowh); }
 .den .trow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
 .den .tt { min-width: 0; }
@@ -97,3 +97,36 @@ body { background: #15161a; overflow: hidden; }
 .den.d-dense .ctile { padding: 6px; }
 .den.d-dense .ctile .cv { width: 34px; }
 .den.d-dense .lab { margin-bottom: 7px; }
+
+/* shelves (F8) */
+.den .shelfstrip { flex: none; display: flex; gap: 6px; overflow-x: auto; padding: 8px 16px; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.den .shelfstrip::-webkit-scrollbar { display: none; }
+.den .shelfstrip .chip { flex: none; display: inline-flex; align-items: center; gap: 7px; }
+.den .shelfstrip .chip .sc { font: 400 10px var(--mono); color: var(--dim); }
+.den .shelfstrip .chip.on .sc { color: var(--ac); }
+.den .shelfstrip .chip.new { border-style: dashed; }
+.den .shelfmsg { flex: none; min-height: 0; padding: 0 16px 9px; font: 400 11px 'Archivo'; color: var(--dim); }
+.den .shelfinput { min-width: 0; padding: 4px 10px; border: 1px solid var(--ac); background: var(--row); color: var(--hi); font: 500 11px 'Archivo'; outline: none; }
+.den .shelfinput.bad { border-style: dashed; }
+
+.den .shelfhead { display: flex; align-items: center; gap: 10px; margin: 0 0 9px; }
+.den .shelfhead .sname { font: 600 13px 'Archivo'; color: var(--hi); text-transform: none; letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .shelfhead .scount { font: 400 11px var(--mono); color: var(--dim); }
+.den .shelfhead .iconbtn { flex: none; padding: 2px 8px; border: 1px solid var(--line2); background: transparent; color: var(--dim); font: 400 11px var(--mono); cursor: pointer; }
+.den .shelfhead .iconbtn:hover { color: var(--hi); border-color: var(--ac); }
+
+.den .recon { display: flex; align-items: center; margin: 16px 0 2px; padding: 10px 12px; border: 1px dashed var(--line2); color: var(--dim); font: 400 12px 'Archivo'; cursor: pointer; }
+.den .recon:hover { color: var(--text); border-color: var(--ac); }
+
+.den .shelfadd { border: none; background: transparent; color: var(--dim); font: 400 15px var(--mono); line-height: 1; cursor: pointer; padding: 2px; }
+.den .shelfadd:hover { color: var(--ac); }
+
+.den .spop { position: fixed; z-index: 60; min-width: 190px; max-width: 260px; max-height: 300px; overflow-y: auto; padding: 6px; background: var(--panel); border: 1px solid var(--line2); box-shadow: 0 14px 30px -10px #000; }
+.den .spop .sphd { padding: 4px 8px 6px; font: 600 10px 'Archivo'; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); }
+.den .spop .sprow { display: flex; align-items: center; gap: 9px; padding: 6px 8px; font: 400 12px 'Archivo'; color: var(--text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .spop .sprow:hover { background: var(--rowh); }
+.den .spop .sprow input { flex: none; accent-color: var(--ac); }
+.den .spop .spempty { padding: 10px 8px; font: 400 12px 'Archivo'; color: var(--dim); }
+
+.den.d-dense .shelfstrip { padding: 6px 16px; }
+.den.d-dense .shelfhead { margin-bottom: 7px; }

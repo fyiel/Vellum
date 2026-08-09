@@ -2,6 +2,7 @@ import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.j
 import { srcName } from '../lib/source.js'
 import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
+import { openShelfPicker, shelfCountFor } from '../lib/shelves.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
@@ -66,6 +67,7 @@ function infoHtml(s, slug, count) {
     const pos = posGet(slug)
     const cont = pos ? `Continue &middot; Ch ${esc(pos.n)}` : 'Start reading'
     const isFol = followed(slug)
+    const shelfN = shelfCountFor(slug)
 
     return `<div class="cover-lg">${cover}</div>
       <div class="dtitle">${esc(s.title)}</div>
@@ -76,6 +78,7 @@ function infoHtml(s, slug, count) {
       <div class="dactions">
         <button class="btn primary" id="contbtn">${cont}</button>
         <button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button>
+        <button class="btn${shelfN ? ' on' : ''}" id="shelvesbtn">${shelfN ? `Shelves &middot; ${shelfN}` : 'Shelves'}</button>
       </div>
       ${synopsisHtml(s)}
       ${statsHtml(s, slug, count)}`
@@ -132,6 +135,19 @@ function toggleFollow() {
         btn.classList.add('on')
         btn.textContent = 'Following'
     }
+}
+
+function toggleShelves() {
+    if (!cur) return
+    openShelfPicker(cur.slug, $('#shelvesbtn'))
+}
+
+function paintShelvesBtn() {
+    const btn = $('#shelvesbtn')
+    if (!btn || !cur) return
+    const n = shelfCountFor(cur.slug)
+    btn.classList.toggle('on', n > 0)
+    btn.textContent = n ? `Shelves \u00b7 ${n}` : 'Shelves'
 }
 
 const writeClip = t => {
@@ -198,6 +214,7 @@ function wire() {
         if (e.target.closest('#synmore')) return toggleSyn()
         if (e.target.closest('#tagall')) return toggleTags()
         if (e.target.closest('#followbtn')) return toggleFollow()
+        if (e.target.closest('#shelvesbtn')) return toggleShelves()
         if (e.target.closest('#contbtn')) return launchContinue()
         const cp = e.target.closest('.copyable')
         if (cp) { e.stopPropagation(); return copyValue(cp) }
@@ -221,6 +238,7 @@ function wire() {
     })
 
     window.addEventListener('resize', checkSynOverflow)
+    window.addEventListener('vellum:shelves', paintShelvesBtn)
 }
 
 async function loadChapters(slug, mine) {

@@ -15,6 +15,9 @@ export function parseHash() {
     if (h.startsWith('#/discover')) return { name: 'discover' }
     if (h.startsWith('#/updates')) return { name: 'updates' }
 
+    const shelf = h.match(/^#\/shelf\/(.+)$/)
+    if (shelf) return { name: 'shelf', id: shelf[1] }
+
     return { name: 'home' }
 }
 

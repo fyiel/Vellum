@@ -45,6 +45,28 @@ export const dropLibrary = slug => {
         delete ledger[slug]
         saveUpdLedger(ledger)
     }
+    // unfollowing prunes the series from every shelf too (shelves group followed series)
+    const colls = loadCollections()
+    let changed = false
+    for (const c of Object.values(colls)) if (c.slugs.includes(slug)) {
+        c.slugs = c.slugs.filter(s => s !== slug)
+        changed = true
+    }
+    if (changed) saveCollections(colls)
+}
+
+// shelves: user-made named groups of followed series, id-keyed so renames never rewrite refs
+export const loadCollections = () => lsGet(`${NS}:collections`, {})
+export const saveCollections = c => lsSet(`${NS}:collections`, c)
+
+export const newCollectionId = () =>
+    (globalThis.crypto?.randomUUID?.() || `c_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`)
+
+// display names are not unique, but creation/rename reject duplicates case-insensitively
+export const collectionNameTaken = (name, excludeId) => {
+    const n = String(name ?? '').trim().toLowerCase()
+    return Object.entries(loadCollections()).some(([id, c]) =>
+        id !== excludeId && String(c?.name ?? '').trim().toLowerCase() === n)
 }
 
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }
