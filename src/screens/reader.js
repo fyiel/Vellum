@@ -412,6 +412,8 @@ function setCurrent(idx) {
   // jumping past chapters marks them read, opening 300 implies the rest are behind you
   const crossed = [];
   for (let i = rd.first; i < idx; i++) crossed.push(state.chapters[i].n);
+  // the chapter you land on is being read right now, do not wait for the 98% idle mark
+  crossed.push(state.chapters[idx].n);
   let readSize = null;
   if (crossed.length) {
     const set = readSet(rd.slug);
@@ -427,7 +429,8 @@ function setCurrent(idx) {
       readSize = set.size;
     }
   }
-  updateLibrary(idx, readSize);
+  // a revisit that marks nothing must not rewind lastN or bump recency
+  if (readSize != null) updateLibrary(idx, readSize);
 }
 
 const topChapterIdx = () => {
