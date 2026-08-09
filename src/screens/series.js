@@ -83,7 +83,9 @@ function infoHtml(s, slug, count) {
 
 function chrow(c, read, curN) {
     const cls = ['chrow', read.has(c.n) && 'read', c.n === curN && 'cur'].filter(Boolean).join(' ')
-    return `<div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>`
+    const st = c.n === curN ? 'current' : read.has(c.n) ? 'read' : 'unread'
+    const lab = `Chapter ${c.n}: ${st}`
+    return `<div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot" title="${esc(lab)}" aria-label="${esc(lab)}"></span></div>`
 }
 
 function chaptersHtml(slug, chapters, count) {
@@ -91,12 +93,19 @@ function chaptersHtml(slug, chapters, count) {
     const curN = posGet(slug)?.n
     const rows = [...chapters].sort(byDesc).map(c => chrow(c, read, curN)).join('')
     const list = rows || `<div class="void">no chapters yet</div>`
+    // the read tally is the display-clamped intersection, stale marks outside the list do not count
+    let readN = 0
+    for (const c of chapters) if (read.has(c.n)) readN++
+    readN = Math.min(readN, count)
+    const legend = readN > 0
+        ? `<span class="chlegend" aria-hidden="true"><span class="lsw l-read" title="read"></span><span class="lsw l-unread" title="unread"></span><span class="lsw l-cur" title="current"></span></span>`
+        : ''
 
     return `<div class="chtool">
         <div class="srch"><input id="chsearch" placeholder="Jump to chapter&hellip;"></div>
         <div class="seg" id="chorder"><span data-end="top">Top</span><span class="on" data-end="bottom">Bottom</span></div>
       </div>
-      <div class="chhead">Chapter list <span class="ct">&middot; ${count}</span></div>
+      <div class="chhead">Chapter list <span class="ct">&middot; ${count} &middot; ${readN} read</span>${legend}</div>
       <div class="chscroll"><div class="chlist" id="chlist">${list}</div></div>`
 }
 

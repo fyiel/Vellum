@@ -67,6 +67,136 @@ const rd = {
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
 const blockFor = (idx) => prose.querySelector(`.ch-block[data-idx="${idx}"]`);
 
+// ---- chapter read-mark strip (hangs under the top chrome) ----
+// one flex segment per chapter up to STRIP_MAX, a single computed gradient beyond. the
+// html is cached per slug + read version so re entries do not rebuild; live marks and
+// the current accent are cheap class toggles, never a re render in the scroll rAF
+const STRIP_MAX = 600;
+const strip = { key: "", rendered: false, mode: "seg", segs: null };
+
+const readInList = (set) => {
+  let n = 0;
+  for (const c of state.chapters) if (set.has(c.n)) n++;
+  return Math.min(n, state.chapters.length);
+};
+
+const segLabel = (n, curN, set) =>
+  `Chapter ${n}: ${n === curN ? "current" : set.has(n) ? "read" : "unread"}`;
+
+const setSegLabel = (seg, curN, set) => {
+  const lab = segLabel(Number(seg.dataset.n), curN, set);
+  seg.setAttribute("aria-label", lab);
+  seg.title = lab;
+};
+
+const stripHtml = (set, curN) =>
+  state.chapters
+    .map(
+      (c) =>
+        `<div class="rs${set.has(c.n) ? " read" : ""}${c.n === curN ? " cur" : ""}" data-n="${esc(c.n)}" title="${esc(segLabel(c.n, curN, set))}" aria-label="${esc(segLabel(c.n, curN, set))}"></div>`,
+    )
+    .join("");
+
+// > STRIP_MAX chapters collapse into one gradient: dim spans for read, --ac for the
+// current chapter, --rline holes for unread. adjacent same-color runs merge so the stop
+// list stays proportional to the chapter count, and the 0.02% tail gap keeps hard stop
+// boundaries crisp instead of antialiased seams
+const paintGradient = (set) => {
+  const el = $("#rstrip");
+  const n = state.chapters.length;
+  const curN = state.chapters[rd.cur]?.n;
+  const colorOf = (i) => {
+    const c = state.chapters[i];
+    if (c.n === curN) return "var(--ac)";
+    return set.has(c.n) ? "var(--dim)" : "var(--rline)";
+  };
+  const stops = [];
+  let start = 0;
+  let color = colorOf(0);
+  for (let i = 1; i <= n; i++) {
+    const col = i < n ? colorOf(i) : null;
+    if (col !== color) {
+      stops.push(
+        `${color} ${((start / n) * 100).toFixed(3)}% calc(${((i / n) * 100).toFixed(3)}% - 0.02%)`,
+      );
+      start = i;
+      color = col;
+    }
+  }
+  el.style.backgroundImage = `linear-gradient(90deg, ${stops.join(", ")})`;
+};
+
+const renderStrip = () => {
+  const el = $("#rstrip");
+  if (!el || !state.chapters.length) return;
+  const set = readSet(rd.slug);
+  const key = `${rd.slug}:${set.size}`;
+  if (strip.rendered && strip.key === key) {
+    if (strip.mode === "seg")
+      strip.segs = new Map([...el.children].map((s) => [Number(s.dataset.n), s]));
+    updateStrip(rd.cur, set, []);
+    return;
+  }
+  const curN = state.chapters[rd.cur]?.n;
+  if (state.chapters.length > STRIP_MAX) {
+    el.innerHTML = "";
+    el.style.backgroundImage = "";
+    el.dataset.mode = "grad";
+    strip.mode = "grad";
+    strip.segs = null;
+    paintGradient(set);
+  } else {
+    el.innerHTML = stripHtml(set, curN);
+    el.style.backgroundImage = "";
+    el.dataset.mode = "seg";
+    strip.mode = "seg";
+    strip.segs = new Map([...el.children].map((s) => [Number(s.dataset.n), s]));
+  }
+  el.style.display = "";
+  strip.rendered = true;
+  strip.key = key;
+};
+
+const resetStrip = () => {
+  strip.rendered = false;
+  strip.key = "";
+  strip.segs = null;
+  const el = $("#rstrip");
+  if (el) {
+    el.innerHTML = "";
+    el.style.backgroundImage = "";
+    el.style.display = "none";
+  }
+};
+
+// keep the strip's marks and current accent in sync as chapters are crossed or re entered
+const updateStrip = (idx, set, crossed) => {
+  const el = $("#rstrip");
+  if (!strip.rendered || !el) return;
+  if (strip.mode === "grad") {
+    paintGradient(set);
+    return;
+  }
+  const curN = state.chapters[idx]?.n;
+  const old = el.querySelector(".rs.cur");
+  if (old && Number(old.dataset.n) !== curN) {
+    old.classList.remove("cur");
+    setSegLabel(old, curN, set);
+  }
+  for (const n of crossed) {
+    const seg = strip.segs.get(n);
+    if (seg) {
+      seg.classList.add("read");
+      setSegLabel(seg, curN, set);
+    }
+  }
+  const seg = curN != null ? strip.segs.get(curN) : null;
+  if (seg) {
+    seg.classList.add("cur", "read");
+    setSegLabel(seg, curN, set);
+  }
+};
+
 // block geometry is read on every scroll frame, cache it and rebuild only when the
 // stream mutates or the viewport changes so layout is not forced per frame
 let offCache = new Map();
@@ -110,6 +240,7 @@ export async function showReader(slug, n) {
   applySettings();
 
   if (state.slug !== slug || !state.chapters.length) {
+    resetStrip();
     prose.innerHTML = `<div class="spinner"></div>`;
     rfoot.innerHTML = "";
     try {
@@ -171,6 +302,7 @@ async function startAt(slug, idx, p = 0) {
   prose.innerHTML = `<div class="spinner" id="boot-spin"></div>`;
   rfoot.innerHTML = "";
   setChrome(false);
+  renderStrip();
 
   const ok = await appendNext(gen);
   if (gen !== rd.gen) return;
@@ -414,23 +546,20 @@ function setCurrent(idx) {
   for (let i = rd.first; i < idx; i++) crossed.push(state.chapters[i].n);
   // the chapter you land on is being read right now, do not wait for the 98% idle mark
   crossed.push(state.chapters[idx].n);
-  let readSize = null;
-  if (crossed.length) {
-    const set = readSet(rd.slug);
-    let changed = false;
-    for (const n of crossed) {
-      if (!set.has(n)) {
-        set.add(n);
-        changed = true;
-      }
-    }
-    if (changed) {
-      saveRead(rd.slug, set);
-      readSize = set.size;
+  const set = readSet(rd.slug);
+  let changed = false;
+  for (const n of crossed) {
+    if (!set.has(n)) {
+      set.add(n);
+      changed = true;
     }
   }
-  // a revisit that marks nothing must not rewind lastN or bump recency
-  if (readSize != null) updateLibrary(idx, readSize);
+  if (changed) {
+    saveRead(rd.slug, set);
+    // a revisit that marks nothing must not rewind lastN or bump recency
+    updateLibrary(idx, set.size);
+  }
+  updateStrip(idx, set, crossed);
 }
 
 const topChapterIdx = () => {
@@ -448,6 +577,14 @@ const markChapterRead = (n) => {
   if (set.has(n)) return;
   set.add(n);
   saveRead(rd.slug, set);
+  if (strip.mode === "grad") paintGradient(set);
+  else {
+    const seg = strip.segs?.get(n);
+    if (seg) {
+      seg.classList.add("read");
+      setSegLabel(seg, state.chapters[rd.cur]?.n, set);
+    }
+  }
 };
 
 const updateLibrary = (idx, readSize) => {
@@ -537,7 +674,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 R.addEventListener("click", (e) => {
-  if (e.target.closest("a, button")) return;
+  if (e.target.closest("a, button, #rstrip")) return;
   if (String(window.getSelection?.() ?? "")) return;
   setChrome(!chromeHidden);
 });
@@ -579,6 +716,21 @@ const closeDrawer = () => {
   drawerBd.classList.remove("open");
 };
 $("#r-list").onclick = openDrawer;
+// tap a strip segment to jump; the gradient rail maps the tap position to a chapter
+$("#rstrip").addEventListener("click", (e) => {
+  if (state.view !== "reader" || !rd.slug) return;
+  const seg = e.target.closest(".rs");
+  let n = seg ? Number(seg.dataset.n) : null;
+  if (n == null && strip.mode === "grad") {
+    const r = e.currentTarget.getBoundingClientRect();
+    const i = Math.min(
+      state.chapters.length - 1,
+      Math.max(0, Math.floor(((e.clientX - r.left) / r.width) * state.chapters.length)),
+    );
+    n = state.chapters[i]?.n;
+  }
+  if (n != null) go(`#/read/${hashSlug(rd.slug)}/${n}`);
+});
 drawerBd.onclick = closeDrawer;
 $("#drawer-list").addEventListener("click", (e) => {
   if (e.target.closest("a")) closeDrawer();
@@ -592,6 +744,7 @@ function renderDrawer() {
   const listEl = $("#drawer-list");
   const set = readSet(rd.slug);
   const total = state.chapters.length;
+  $("#dw-count").textContent = `${readInList(set)} / ${total} read`;
 
   let rows;
   if (dw.q) {
