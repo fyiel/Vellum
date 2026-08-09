@@ -26,7 +26,7 @@ function rowHtml(u) {
     const more = u.newNums.length > CHIP_MAX ? `<span class="umore">+${u.newNums.length - CHIP_MAX}</span>` : ''
     const badge = u.read ? '' : `<span class="unew">+${u.newCount} new</span>`
     const cover = coverImg(u.cover, u.title)
-    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-new="${u.newCount}" data-up="${u.latest}">
+    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-new="${esc(u.newCount)}" data-up="${esc(u.latest)}">
       <span class="cv">${cover}</span>
       <div class="utt"><div class="n">${esc(u.title)}</div><div class="uch">${badge}${chips}${more}</div></div>
       <span class="utime">${esc(relTime(u.firstSeen))}</span>
