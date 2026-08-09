@@ -89,3 +89,46 @@
 .den.d-dense .chrow { padding: 4px 10px; contain-intrinsic-size: auto 28px; }
 .den.d-dense .chd { display: none; }
 .den.d-dense .info { gap: 12px; }
+
+/* my review tab */
+.den .sectabs { flex: none; display: flex; align-items: center; padding: 10px 16px 0; }
+.den .spane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.den .spane[hidden] { display: none; }
+.den .rvtool { flex: none; display: flex; align-items: center; gap: 9px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.den .rvcount { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+.den .rvnote { font: 400 10px var(--mono); color: var(--dim); }
+.den .rvtool .btn { padding: 6px 11px; font: 600 10px 'Archivo'; margin-left: auto; }
+.den .rvwrap { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.den .rvcomposer { flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--row); border: 1px solid var(--line2); }
+.den .rvcomposer[hidden] { display: none; }
+.den .rvstars { display: flex; gap: 5px; }
+.den .rst { background: none; border: none; padding: 0; margin: 0; font-size: 22px; line-height: 1; color: var(--dim); cursor: pointer; }
+.den .rst:hover { color: var(--hi); }
+.den .rst.on { color: var(--ac); }
+.den .rvstars.nudge { animation: rvnudge .25s; }
+@keyframes rvnudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.den #rvtext { min-height: 96px; max-height: 240px; resize: none; background: var(--bg); border: 1px solid var(--line2); color: var(--text); font: 400 13px/1.55 'Archivo'; padding: 9px 11px; }
+.den #rvtext:focus { border-color: var(--ac); outline: none; }
+.den #rvtext::placeholder { color: var(--dim); }
+.den .rvmeta { display: flex; align-items: center; gap: 10px; }
+.den .rvchars { font: 400 10px var(--mono); color: var(--dim); }
+.den .chip { padding: 4px 10px; border: 1px solid var(--line2); background: transparent; color: var(--dim); font: 500 10px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .chip:hover { border-color: var(--ac); color: var(--hi); }
+.den .chip.on { border-color: var(--ac); color: var(--ac); }
+.den .rvspacer { flex: 1; }
+.den .rvmeta .btn { padding: 6px 11px; font-size: 10px; }
+.den .rvlist { display: flex; flex-direction: column; gap: 12px; }
+.den .rvlist .void .btn { margin-top: 12px; padding: 6px 11px; font-size: 10px; }
+.den .revcard { flex: none; display: flex; flex-direction: column; gap: 9px; padding: 12px; background: var(--row); border: 1px solid var(--line2); }
+.den .rvtop { display: flex; align-items: center; gap: 9px; }
+.den .rvsrow { display: flex; gap: 2px; font-size: 13px; line-height: 1; color: var(--dim); }
+.den .rvsrow .st.on { color: var(--ac); }
+.den .rvd { font: 400 10px var(--mono); color: var(--dim); }
+.den .rvlocal { font: 600 8px 'Archivo'; color: var(--ac); border: 1px solid var(--ac); padding: 2px 5px; letter-spacing: 1px; text-transform: uppercase; margin-left: auto; }
+.den .rvbody { font: 400 13px/1.6 'Archivo'; color: var(--text); white-space: pre-wrap; overflow-wrap: break-word; user-select: text; -webkit-user-select: text; }
+.den .rvbody.blur { filter: blur(7px); cursor: pointer; user-select: none; -webkit-user-select: none; }
+.den .rvact { display: flex; gap: 14px; }
+.den .rvlnk { background: none; border: none; padding: 0; font: 600 10px 'Archivo'; color: var(--dim); text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .rvlnk:hover { color: var(--ac); }
+.den .rvlnk.warn:hover { color: #e5484d; }
+.den #view-series button:focus-visible, .den #view-series .seg span:focus-visible, .den #view-series .rvbody.blur:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }

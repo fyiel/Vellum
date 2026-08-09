@@ -1,16 +1,21 @@
 import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.js'
 import { srcName } from '../lib/source.js'
 import { go, back, hashSlug } from '../lib/router.js'
-import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
+import { library, touchLibrary, dropLibrary, readSet, posGet, getReview, saveReview, clearReview } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
+import { relTime } from '../lib/time.js'
 
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
+const REVIEW_MAX = 2000
 
 let wired = false
 let cur = null
 let req = 0
+
+// reviews tab state, reset per series visit
+let rv = { sort: 'newest', open: false, rating: 0, spoiler: false }
 
 const followed = slug => library().some(e => e.slug === slug)
 
@@ -100,6 +105,54 @@ function chaptersHtml(slug, chapters, count) {
       <div class="chscroll"><div class="chlist" id="chlist">${list}</div></div>`
 }
 
+function starGlyphs(n) {
+    return Array.from({ length: 5 }, (_, i) => `<span class="st${i < n ? ' on' : ''}">&#9733;</span>`).join('')
+}
+
+function reviewCardHtml(r) {
+    const body = r.text
+        ? `<div class="rvbody${r.spoiler ? ' blur' : ''}"${r.spoiler ? ' tabindex="0" role="button" aria-label="Spoiler, tap to reveal"' : ''}>${esc(r.text)}</div>`
+        : ''
+    return `<div class="revcard">
+      <div class="rvtop"><span class="rvsrow" aria-label="${r.rating} of 5 stars">${starGlyphs(r.rating)}</span><span class="rvd">${relTime(r.at)}</span><span class="rvlocal" title="Saved on this device">local</span></div>
+      ${body}
+      <div class="rvact"><button type="button" class="rvlnk" id="rvedit">Edit</button><button type="button" class="rvlnk warn" id="rvdel">Delete</button></div>
+    </div>`
+}
+
+function composerHtml() {
+    return `<div class="rvcomposer" id="rvcomposer" hidden>
+      <div class="rvstars" role="group" aria-label="Your rating">
+        ${[1, 2, 3, 4, 5].map(n => `<button type="button" class="rst" data-n="${n}" aria-label="Rate ${n} of 5" aria-pressed="false">&#9733;</button>`).join('')}
+      </div>
+      <textarea id="rvtext" maxlength="${REVIEW_MAX}" placeholder="What did you think?"></textarea>
+      <div class="rvmeta">
+        <span class="rvchars" id="rvchars">0 / ${REVIEW_MAX}</span>
+        <button type="button" class="chip" id="rvspoiler" aria-pressed="false">Contains spoilers</button>
+        <span class="rvspacer"></span>
+        <button type="button" class="btn" id="rvcancel">Cancel</button>
+        <button type="button" class="btn primary" id="rvpost">Post</button>
+      </div>
+    </div>`
+}
+
+function reviewsPaneHtml() {
+    const r = getReview(cur.slug)
+    return `<div class="rvtool">
+        <span class="rvcount" id="rvcount">${r ? '1 review' : '0 reviews'}</span>
+        <span class="rvnote">saved on this device</span>
+        <div class="seg" id="rvsort"><span class="on" data-sort="newest">Newest</span><span data-sort="stars">Stars</span></div>
+        <button type="button" class="btn" id="rvwrite">Write a review</button>
+      </div>
+      <div class="rvwrap">${composerHtml()}<div class="rvlist" id="rvlist"></div></div>`
+}
+
+function columnShellHtml() {
+    return `<div class="sectabs"><div class="seg" id="chttabs"><span class="on" data-pane="chapters" tabindex="0">Chapters</span><span data-pane="reviews" tabindex="0">Reviews</span></div></div>
+      <div class="spane" id="pane-chapters"><div class="void">loading chapters&hellip;</div></div>
+      <div class="spane" id="pane-reviews" hidden>${reviewsPaneHtml()}</div>`
+}
+
 function checkSynOverflow() {
     const syn = $('#syn'), more = $('#synmore')
     if (!syn || !more) return
@@ -182,6 +235,130 @@ function setOrder(seg) {
     if (sc) sc.scrollTo({ top: seg.dataset.end === 'top' ? 0 : sc.scrollHeight, behavior: 'smooth' })
 }
 
+function setPane(pane) {
+    $$('#chttabs span').forEach(o => o.classList.toggle('on', o.dataset.pane === pane))
+    const cp = $('#pane-chapters'), rp = $('#pane-reviews')
+    if (cp) cp.hidden = pane !== 'chapters'
+    if (rp) rp.hidden = pane !== 'reviews'
+}
+
+function renderStars() {
+    $$('#rvcomposer .rst').forEach((b, i) => {
+        const on = i < rv.rating
+        b.classList.toggle('on', on)
+        b.setAttribute('aria-pressed', String(on))
+    })
+}
+
+function setStar(n) {
+    rv.rating = n
+    renderStars()
+}
+
+function updateChars(ta) {
+    const c = $('#rvchars')
+    if (c) c.textContent = `${ta.value.length} / ${REVIEW_MAX}`
+}
+
+function growText(ta) {
+    ta.style.height = 'auto'
+    ta.style.height = Math.min(ta.scrollHeight, 240) + 'px'
+}
+
+function toggleSpoiler() {
+    rv.spoiler = !rv.spoiler
+    const chip = $('#rvspoiler')
+    if (chip) {
+        chip.classList.toggle('on', rv.spoiler)
+        chip.setAttribute('aria-pressed', String(rv.spoiler))
+    }
+}
+
+function renderRvList() {
+    const list = $('#rvlist'), count = $('#rvcount')
+    if (!list) return
+    const r = getReview(cur.slug)
+    if (count) count.textContent = r ? '1 review' : '0 reviews'
+    if (!r) {
+        // while the composer is open an empty list stays out of the way
+        list.innerHTML = rv.open ? '' : `<div class="void">No reviews yet. First impressions count.<br><button type="button" class="btn" id="rvemptybtn">Write a review</button></div>`
+        return
+    }
+    const cmp = rv.sort === 'stars' ? (a, b) => b.rating - a.rating || b.at - a.at : (a, b) => b.at - a.at
+    list.innerHTML = [r].sort(cmp).map(reviewCardHtml).join('')
+}
+
+function setRvSort(span) {
+    $$('#rvsort span').forEach(o => o.classList.toggle('on', o === span))
+    rv.sort = span.dataset.sort
+    renderRvList()
+}
+
+function openComposer(editing) {
+    const box = $('#rvcomposer')
+    if (!box) return
+    rv.open = true
+    const r = editing ? getReview(cur.slug) : null
+    rv.rating = r?.rating ?? 0
+    rv.spoiler = r?.spoiler ?? false
+    const ta = box.querySelector('#rvtext')
+    ta.value = r?.text ?? ''
+    renderStars()
+    const chip = box.querySelector('#rvspoiler')
+    chip.classList.toggle('on', rv.spoiler)
+    chip.setAttribute('aria-pressed', String(rv.spoiler))
+    box.hidden = false
+    updateChars(ta)
+    growText(ta)
+    ta.focus()
+    renderRvList()
+}
+
+function closeComposer() {
+    const box = $('#rvcomposer')
+    if (box) box.hidden = true
+    rv.open = false
+    rv.rating = 0
+    rv.spoiler = false
+    renderRvList()
+}
+
+function postReview() {
+    if (!Number.isInteger(rv.rating) || rv.rating < 1 || rv.rating > 5) {
+        const stars = $('#rvcomposer .rvstars')
+        if (stars) {
+            stars.classList.remove('nudge')
+            void stars.offsetWidth
+            stars.classList.add('nudge')
+        }
+        return
+    }
+    const ta = $('#rvtext')
+    if (!ta) return
+    // caps are enforced at write time, the stored copy is plain text
+    saveReview(cur.slug, { rating: rv.rating, text: ta.value.trim().slice(0, REVIEW_MAX), spoiler: rv.spoiler, at: Date.now() })
+    closeComposer()
+}
+
+function deleteReview() {
+    const btn = $('#rvdel')
+    if (!btn) return
+    if (btn.dataset.arm !== '1') {
+        btn.dataset.arm = '1'
+        btn.textContent = 'Sure?'
+        setTimeout(() => { if (btn.dataset.arm === '1') { btn.dataset.arm = ''; btn.textContent = 'Delete' } }, 2500)
+        return
+    }
+    clearReview(cur.slug)
+    closeComposer()
+}
+
+function revealSpoiler(el) {
+    el.classList.remove('blur')
+    el.removeAttribute('role')
+    el.removeAttribute('aria-label')
+}
+
 const launchChapter = n => go(`#/read/${hashSlug(cur.slug)}/${n}`)
 
 function launchContinue() {
@@ -206,18 +383,46 @@ function wire() {
     })
 
     $('#schapters').addEventListener('click', e => {
+        const tab = e.target.closest('#chttabs span')
+        if (tab) return setPane(tab.dataset.pane)
         const seg = e.target.closest('#chorder span')
         if (seg) return setOrder(seg)
+        const sort = e.target.closest('#rvsort span')
+        if (sort) return setRvSort(sort)
+        if (e.target.closest('#rvwrite') || e.target.closest('#rvemptybtn')) return openComposer(getReview(cur.slug) != null)
+        if (e.target.closest('#rvcancel')) return closeComposer()
+        if (e.target.closest('#rvpost')) return postReview()
+        if (e.target.closest('#rvspoiler')) return toggleSpoiler()
+        if (e.target.closest('#rvedit')) return openComposer(true)
+        if (e.target.closest('#rvdel')) return deleteReview()
+        const st = e.target.closest('#rvcomposer .rst')
+        if (st) return setStar(+st.dataset.n)
+        const blur = e.target.closest('.rvbody.blur')
+        if (blur) return revealSpoiler(blur)
         const row = e.target.closest('.chrow')
         if (row) launchChapter(row.dataset.n)
     })
 
+    // the new tab/sort segs are focusable spans, give them keyboard activation
+    $('#schapters').addEventListener('keydown', e => {
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        const tab = e.target.closest('#chttabs span')
+        if (tab) { e.preventDefault(); return setPane(tab.dataset.pane) }
+        const sort = e.target.closest('#rvsort span')
+        if (sort) { e.preventDefault(); return setRvSort(sort) }
+        const blur = e.target.closest('.rvbody.blur')
+        if (blur) { e.preventDefault(); return revealSpoiler(blur) }
+    })
+
     let t
     $('#schapters').addEventListener('input', e => {
-        if (e.target.id !== 'chsearch') return
-        clearTimeout(t)
-        const v = e.target.value
-        t = setTimeout(() => filterChapters(v), 150)
+        if (e.target.id === 'chsearch') {
+            clearTimeout(t)
+            const v = e.target.value
+            t = setTimeout(() => filterChapters(v), 150)
+            return
+        }
+        if (e.target.id === 'rvtext') { updateChars(e.target); growText(e.target) }
     })
 
     window.addEventListener('resize', checkSynOverflow)
@@ -230,7 +435,7 @@ async function loadChapters(slug, mine) {
         if (!Array.isArray(d?.chapters)) throw new Error('bad chapter list')
         chapters = d.chapters
     } catch (e) {
-        if (mine === req) $('#schapters').innerHTML = `<div class="void">couldn't load the chapter list</div>`
+        if (mine === req) $('#pane-chapters').innerHTML = `<div class="void">couldn't load the chapter list</div>`
         return
     }
     if (mine !== req) return
@@ -241,7 +446,7 @@ async function loadChapters(slug, mine) {
     // a follow may have landed before the count was known, backfill the total so updates can alert
     if (followed(slug)) touchLibrary({ slug, total: count })
 
-    $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
+    $('#pane-chapters').innerHTML = chaptersHtml(slug, chapters, count)
     chRows = [...$$('#chlist .chrow')].map(el => ({ el, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
 
     const stat = $('#chstat')
@@ -270,10 +475,12 @@ export async function showSeries(key, origin) {
 
     const slug = series.nfSlug || key
     cur = { key, slug, series, chapters: [], count: null }
+    rv = { sort: 'newest', open: false, rating: 0, spoiler: false }
 
     setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => back())
     info.innerHTML = infoHtml(series, slug, null)
-    chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
+    chaps.innerHTML = columnShellHtml()
+    renderRvList()
 
     checkSynOverflow()
     if (document.fonts?.ready) document.fonts.ready.then(() => { if (mine === req) checkSynOverflow() })

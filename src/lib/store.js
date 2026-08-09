@@ -45,6 +45,16 @@ export const dropLibrary = slug => {
         delete ledger[slug]
         saveUpdLedger(ledger)
     }
+    // the private review is part of the shelf relationship, prune it too
+    clearReview(slug)
+}
+
+// one private per-series review, device-local and irreplaceable: quota-shedding
+// (which only empties the recomputable updates ledger) never targets these keys
+export const getReview = slug => lsGet(`${NS}:review:${slug}`, null)
+export const saveReview = (slug, review) => lsSet(`${NS}:review:${slug}`, review)
+export const clearReview = slug => {
+    try { localStorage.removeItem(`${NS}:review:${slug}`) } catch {}
 }
 
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }
