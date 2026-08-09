@@ -17,7 +17,11 @@ import {
   loadSettings,
   saveSettings,
   SET_DEFAULT,
+  statsAdd,
+  statsCh,
+  statsGet,
 } from "../lib/store.js";
+import { localDayKey } from "../lib/time.js";
 import { $, $$, esc } from "../lib/dom.js";
 
 let settings = loadSettings();
@@ -64,6 +68,38 @@ const rd = {
   failed: false,
 };
 
+// reading-ledger accrual: deltas accumulate between ticks and flush to the
+// session-start day bucket, so a binge across midnight stays in one bucket
+let sessionStart = 0;
+let lastTickAt = 0;
+let pendingMs = 0;
+let sessionDate = null;
+let todayMs = 0;
+
+const beginSession = () => {
+  sessionStart = performance.now();
+  lastTickAt = sessionStart;
+  pendingMs = 0;
+  sessionDate = localDayKey(Date.now());
+  todayMs = statsGet(sessionDate).ms;
+};
+
+const tick = () => {
+  const now = performance.now();
+  const delta = now - lastTickAt;
+  lastTickAt = now; // unconditional, so a backward clock jump cannot wedge the cursor
+  if (delta <= 0 || delta > 6 * 3600000) return; // clock jump or a >6h sleep, count nothing
+  pendingMs += delta;
+};
+
+const flush = () => {
+  if (pendingMs <= 0 || !sessionDate) return;
+  const ms = Math.round(pendingMs);
+  pendingMs = 0;
+  statsAdd(sessionDate, ms);
+  todayMs = statsGet(localDayKey(Date.now())).ms;
+};
+
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
 const blockFor = (idx) => prose.querySelector(`.ch-block[data-idx="${idx}"]`);
 
@@ -99,6 +135,8 @@ prose.addEventListener(
 window.addEventListener("resize", rebuildOffsets);
 
 export async function showReader(slug, n) {
+  // chapter jumps re enter showReader while still reading, keep one session per open
+  if (state.view !== "reader") beginSession();
   const routeGen = ++rd.gen;
   state.view = "reader";
   state.series = null; // never carry the previous series metadata into this slug's library entry
@@ -145,6 +183,7 @@ async function hydrateSeries(slug) {
 export const closeReader = () => {
   rd.gen++; // invalidate any pending chapter load so it can't keep mutating the hidden reader
   posSave();
+  flush();
   closeSheet();
   closeDrawer();
   R.classList.remove("active");
@@ -426,6 +465,7 @@ function setCurrent(idx) {
     }
     if (changed) {
       saveRead(rd.slug, set);
+      if (sessionDate) statsCh(sessionDate);
       readSize = set.size;
     }
   }
@@ -448,6 +488,7 @@ const markChapterRead = (n) => {
   if (set.has(n)) return;
   set.add(n);
   saveRead(rd.slug, set);
+  if (sessionDate) statsCh(sessionDate);
 };
 
 const updateLibrary = (idx, readSize) => {
@@ -480,6 +521,7 @@ const chapterProgress = () => {
 
 const posSave = () => {
   if (state.view !== "reader" || rd.cur < 0) return;
+  tick();
   const c = state.chapters[rd.cur];
   if (c) posSet(rd.slug, { n: c.n, p: chapterProgress(), at: Date.now() });
 };
@@ -491,9 +533,11 @@ const setChrome = (hide) => {
 const updateProgress = () => {
   if (rd.cur < 0) return;
   const p = chapterProgress();
+  const m = Math.floor(todayMs / 60000);
   $("#rprogbar").style.width = (p * 100).toFixed(1) + "%";
   $("#r-pos").textContent =
-    `${state.chapters[rd.cur].n} / ${state.chapters.length} · ${Math.round(p * 100)}%`;
+    `${state.chapters[rd.cur].n} / ${state.chapters.length} · ${Math.round(p * 100)}%` +
+    (m >= 1 ? ` · ${m}m today` : "");
 };
 
 let ticking = false;
@@ -531,10 +575,25 @@ const onScrollIdle = () => {
   }
 };
 
-window.addEventListener("pagehide", posSave);
+// hiding ends the accrue window: flush what was read and reset the cursor so the
+// time spent away (or a bfcache round trip) is never counted as reading
+const onHidden = () => {
+  posSave();
+  flush();
+  lastTickAt = performance.now();
+};
+window.addEventListener("pagehide", onHidden);
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") posSave();
+  if (document.visibilityState === "hidden") onHidden();
 });
+// while reading, accrue at least once a minute even without scrolling, then repaint
+// the today readout; visibility-gated so background tabs never count
+setInterval(() => {
+  if (state.view !== "reader" || rd.cur < 0 || document.visibilityState !== "visible") return;
+  tick();
+  flush();
+  updateProgress();
+}, 60000);
 
 R.addEventListener("click", (e) => {
   if (e.target.closest("a, button")) return;

@@ -8,6 +8,7 @@ import './styles/library.css'
 import './styles/discover.css'
 import './styles/updates.css'
 import './styles/series.css'
+import './styles/stats.css'
 
 import { startRouter, parseHash } from './lib/router.js'
 import { setupNative } from './lib/native.js'
@@ -17,6 +18,7 @@ import { showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
 import { showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
+import { showStats } from './screens/stats.js'
 import { installCoverFallback } from './lib/cover.js'
 
 // the reader is the only heavy screen (it drags dompurify along), load it on first read
@@ -52,5 +54,6 @@ startRouter(async route => {
     if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
+    else if (route.name === 'stats') { origin = 'stats'; setCrumb('Stats'); setActiveNav('stats'); view('stats'); showStats() }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }
 })

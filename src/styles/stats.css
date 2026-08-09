@@ -1,0 +1,25 @@
+/* reading ledger */
+.den .view.stats .scroll { padding: 22px 24px; }
+.den .stats-body { max-width: 460px; }
+.den .shero { margin-bottom: 24px; }
+.den .sline1 { font: 400 15px/1.3 var(--mono); color: var(--hi); }
+.den .sline2 { margin-top: 6px; font: 400 11px var(--mono); color: var(--dim); }
+.den .sline3 { margin-top: 3px; font: 400 11px var(--mono); color: var(--dim); }
+
+.den .sgrid { display: grid; grid-template-columns: 20px 8px 8px; gap: 5px; align-items: center; margin-bottom: 26px; }
+.den .srow { display: contents; }
+.den .sl { font: 400 9px var(--mono); color: var(--dim); text-align: right; }
+.den .scell { width: 8px; height: 8px; background: var(--track); }
+.den .scell.on { background: color-mix(in srgb, var(--ac) calc(var(--sa, .5) * 100%), transparent); }
+.den .scell.today { outline: 1px solid var(--ac); outline-offset: 1px; }
+
+.den .sfoot { font: 400 11px var(--mono); color: var(--dim); }
+.den .scap { margin-top: 8px; font: 400 10px var(--mono); color: var(--dim); }
+.den .view.stats .void { white-space: pre-line; }
+
+.den.d-compact .view.stats .scroll { padding: 18px 20px; }
+.den.d-compact .sgrid { gap: 4px; margin-bottom: 20px; }
+.den.d-dense .view.stats .scroll { padding: 14px 18px; }
+.den.d-dense .sline1 { font-size: 14px; }
+.den.d-dense .sgrid { gap: 3px; margin-bottom: 16px; }
+.den.d-dense .sfoot { font-size: 10px; }

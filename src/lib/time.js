@@ -1,3 +1,11 @@
+// local calendar day key (YYYY-MM-DD) for the reading ledger buckets
+export function localDayKey(ts) {
+    const d = new Date(ts)
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${d.getFullYear()}-${m}-${day}`
+}
+
 // relative time for library rows and update buckets, the library version carries the year branch
 export function relTime(ts) {
     if (!ts) return ''
