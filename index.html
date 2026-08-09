@@ -59,19 +59,19 @@
 
       <div class="view manga" id="view-manga" hidden>
         <div class="tool manga-tool">
-          <div class="srch"><span class="pr">⌕</span><input id="msearch" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Search manga, manhwa, manhua&hellip;"></div>
+          <div class="srch"><span class="pr" aria-hidden="true">⌕</span><input id="msearch" inputmode="search" autocomplete="off" autocapitalize="none" aria-label="Search manga, manhwa, and manhua" placeholder="Search manga, manhwa, manhua&hellip;"></div>
           <div class="seg manga-source" id="msource" aria-label="Manga source">
-            <span class="on" data-source="all">All</span><span data-source="mf">MangaFire</span><span data-source="mh">MangaHub</span>
+            <button class="on" type="button" data-source="all" aria-pressed="true">All</button><button type="button" data-source="mf" aria-pressed="false">MangaFire</button><button type="button" data-source="mh" aria-pressed="false">MangaHub</button>
           </div>
         </div>
         <div class="manga-subtool">
           <div class="lab" id="mlab">Recently updated</div>
           <div class="seg" id="mformat" aria-label="Manga format">
-            <span class="on" data-format="all">All</span><span data-format="manga">Manga</span><span data-format="manhwa">Manhwa</span><span data-format="manhua">Manhua</span>
+            <button class="on" type="button" data-format="all" aria-pressed="true">All</button><button type="button" data-format="manga" aria-pressed="false">Manga</button><button type="button" data-format="manhwa" aria-pressed="false">Manhwa</button><button type="button" data-format="manhua" aria-pressed="false">Manhua</button>
           </div>
         </div>
         <div class="scroll manga-scroll" id="mscroll">
-          <div class="manga-grid" id="mlist"></div>
+          <div class="manga-grid" id="mlist" aria-live="polite" aria-busy="false"></div>
           <button class="manga-more" id="mmore" hidden>Load more</button>
         </div>
       </div>
@@ -144,22 +144,22 @@
 </section>
 
 <!-- image reader stays separate from the prose reader: manga chapters use opaque ids and page progress -->
-<section class="mreader" id="mreader">
+<section class="mreader" id="mreader" tabindex="-1" role="region" aria-labelledby="mr-title" aria-busy="false" data-state="idle">
   <div class="mreader-progress" id="mr-progress"></div>
   <div class="mreader-chrome mreader-top">
-    <button class="riconbtn" id="mr-back" title="Back">‹</button>
-    <span class="mreader-title" id="mr-title"></span>
-    <button class="riconbtn" id="mr-list" title="Chapters">☰</button>
+    <button class="riconbtn" id="mr-back" type="button" aria-label="Back to series">‹</button>
+    <span class="mreader-title" id="mr-title" aria-live="polite"></span>
+    <button class="riconbtn" id="mr-list" type="button" aria-label="Open chapter list" aria-expanded="false" aria-controls="mdrawer">☰</button>
   </div>
   <main class="mreader-pages" id="mr-pages"></main>
   <nav class="mreader-step" id="mr-step"></nav>
-  <div class="mreader-chrome mreader-bottom"><span id="mr-pos"></span></div>
+  <div class="mreader-chrome mreader-bottom"><span id="mr-pos" aria-live="polite"></span></div>
 </section>
 
-<div class="sheet-backdrop" id="mdrawer-backdrop"></div>
-<div class="sheet drawer" id="mdrawer">
+<div class="sheet-backdrop" id="mdrawer-backdrop" aria-hidden="true"></div>
+<div class="sheet drawer" id="mdrawer" role="dialog" aria-modal="true" aria-label="Chapters" aria-hidden="true">
   <div class="grip"></div>
-  <div class="drawer-head"><input id="mdw-q" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Find a chapter&hellip;"></div>
+  <div class="drawer-head"><input id="mdw-q" inputmode="search" autocomplete="off" autocapitalize="none" aria-label="Find a chapter" placeholder="Find a chapter&hellip;"></div>
   <div class="drawer-list" id="mdrawer-list"></div>
 </div>
 

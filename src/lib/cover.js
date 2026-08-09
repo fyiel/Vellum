@@ -8,7 +8,9 @@ const isTauri = () => !!window.__TAURI_INTERNALS__;
 const placeholder = (u) => !u || /noimagemid/i.test(u);
 const resolver = (title) => apiUrl(`/read/api/cover?t=${enc(title)}`);
 
-export function coverImg(url, title, useResolver = true) {
+export function coverImg(url, title, options = {}) {
+  const useResolver = typeof options === "boolean" ? options : options.useResolver !== false;
+  const eager = typeof options === "object" && options.eager === true;
   const fb = useResolver && title ? resolver(title) : "";
   let src = placeholder(url) ? fb : url;
   let nu = "";
@@ -21,7 +23,7 @@ export function coverImg(url, title, useResolver = true) {
   if (!src) return "";
   const cf = fb && fb !== src ? ` data-cf="${esc(fb)}"` : "";
   const hide = !useResolver ? " data-hide-error" : "";
-  return `<img src="${esc(src)}"${cf}${nu}${hide} loading="lazy" alt="">`;
+  return `<img src="${esc(src)}"${cf}${nu}${hide} loading="${eager ? "eager" : "lazy"}"${eager ? ' fetchpriority="high"' : ""} alt="">`;
 }
 
 let installed = false;

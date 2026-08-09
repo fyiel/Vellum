@@ -1,5 +1,4 @@
 import { discoverManga, mangaErrorMessage, mangaProviderName, mangaResponseNotice, searchManga } from '../lib/manga-api.js'
-import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 
@@ -19,22 +18,31 @@ let searchTimer = null
 let ctrl = null
 let notice = ''
 let pageError = false
+let failed = false
 
-const card = item => `<article class="manga-card" data-key="${esc(item.key)}">
-  <div class="manga-cover"><span class="manga-cover-empty">No cover</span>${coverImg(item.cover, item.title, false)}</div>
+const card = (item, index) => `<a class="manga-card" href="#/manga/series/${encodeURIComponent(item.key)}" aria-label="${esc(item.title)}, ${esc(item.format)} from ${esc(mangaProviderName(item.key.split(':')[0]))}">
+  <div class="manga-cover">${coverImg(item.cover, item.title, { eager: index < 4 }) || '<span class="manga-cover-empty">No cover</span>'}</div>
   <div class="manga-card-copy">
     <h2>${esc(item.title)}</h2>
     <div class="manga-card-meta"><span>${esc(item.format)}</span><span>${esc(mangaProviderName(item.key.split(':')[0]))}</span></div>
   </div>
-</article>`
+</a>`
 
 const skeletons = () => Array.from({ length: 10 }, () => `<div class="manga-card manga-skeleton" aria-hidden="true">
   <div class="manga-cover"></div><div class="manga-card-copy"><i></i><i></i></div>
 </div>`).join('')
 
 function setControls() {
-    $$('#msource [data-source]').forEach(item => item.classList.toggle('on', item.dataset.source === source))
-    $$('#mformat [data-format]').forEach(item => item.classList.toggle('on', item.dataset.format === format))
+    $$('#msource [data-source]').forEach(item => {
+        const on = item.dataset.source === source
+        item.classList.toggle('on', on)
+        item.setAttribute('aria-pressed', String(on))
+    })
+    $$('#mformat [data-format]').forEach(item => {
+        const on = item.dataset.format === format
+        item.classList.toggle('on', on)
+        item.setAttribute('aria-pressed', String(on))
+    })
     $('#mlab').textContent = query ? `Results · ${query}` : 'Recently updated'
 }
 
@@ -43,6 +51,7 @@ function paint() {
     $('#mlist').innerHTML = rows.length
         ? status + rows.map(card).join('')
         : `<div class="manga-empty">${status || (query ? `No matches for “${esc(query)}”` : 'No manga available right now')}</div>`
+    $('#mlist').setAttribute('aria-busy', String(loading))
     const more = $('#mmore')
     more.hidden = !rows.length || !hasMore
     more.disabled = loading
@@ -76,7 +85,9 @@ async function start() {
     loading = true
     notice = ''
     pageError = false
+    failed = false
     setControls()
+    $('#mlist').setAttribute('aria-busy', 'true')
     $('#mlist').innerHTML = skeletons()
     $('#mmore').hidden = true
     try {
@@ -84,12 +95,15 @@ async function start() {
         if (mine === gen) paint()
     } catch (error) {
         if (mine === gen && error.name !== 'AbortError') {
-            $('#mlist').innerHTML = `<div class="manga-empty">${esc(mangaErrorMessage(error, 'Couldn’t reach the manga shelves.'))}<button id="mretry">Try again</button></div>`
+            failed = true
+            const fallback = navigator.onLine ? 'Couldn’t reach the manga shelves.' : 'You’re offline. Reconnect to load the manga shelves.'
+            $('#mlist').innerHTML = `<div class="manga-empty manga-error" role="status">${esc(mangaErrorMessage(error, fallback))}<button id="mretry" type="button">Try again</button></div>`
             $('#mretry').onclick = start
         }
     } finally {
         if (mine === gen) {
             loading = false
+            $('#mlist').setAttribute('aria-busy', 'false')
             if (rows.length) paint()
         }
     }
@@ -137,11 +151,8 @@ function wire() {
         format = item.dataset.format
         start()
     })
-    $('#mlist').addEventListener('click', event => {
-        const item = event.target.closest('.manga-card[data-key]')
-        if (item) go(`#/manga/series/${encodeURIComponent(item.dataset.key)}`)
-    })
     $('#mmore').addEventListener('click', more)
+    window.addEventListener('online', () => { if (failed && !$('#view-manga').hidden) start() })
 }
 
 export function showManga() {

@@ -7,6 +7,10 @@ const reader = $('#mreader')
 const pages = $('#mr-pages')
 const drawer = $('#mdrawer')
 const drawerBackdrop = $('#mdrawer-backdrop')
+const chrome = reader.querySelectorAll('.mreader-chrome')
+const otherSheets = ['#drawer', '#drawer-backdrop', '#sheet', '#sheet-backdrop'].map(selector => $(selector))
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
+const DRAWER_BATCH = 400
 
 const state = {
     active: false,
@@ -20,6 +24,12 @@ const state = {
     content: null,
     page: 0,
     hidden: false,
+    loadObserver: null,
+    pageObserver: null,
+    nextPrefetched: false,
+    firstImageMeasured: false,
+    drawerFocus: null,
+    drawerLimit: DRAWER_BATCH,
 }
 
 const route = (key, id) => `#/manga/read/${encodeURIComponent(key)}/${encodeURIComponent(id)}`
@@ -33,9 +43,84 @@ const stillHere = (key, id, gen) => {
 
 const ordered = () => orderMangaChapters(state.chapters)
 
+function adjacentChapter(offset) {
+    const chapters = ordered()
+    const index = chapters.findIndex(chapter => chapter.id === state.id)
+    return chapters[index + offset]
+}
+
+function beginMeasure() {
+    try {
+        performance.clearMarks('vellum:manga-reader:start')
+        performance.clearMeasures('vellum:manga-reader:metadata')
+        performance.clearMeasures('vellum:manga-reader:first-image')
+        performance.mark('vellum:manga-reader:start')
+    } catch {}
+}
+
+function measure(name) {
+    try { performance.measure(name, 'vellum:manga-reader:start') } catch {}
+}
+
+function setReaderState(value) {
+    reader.dataset.state = value
+    reader.setAttribute('aria-busy', String(value === 'loading'))
+    pages.setAttribute('aria-busy', String(value === 'loading'))
+}
+
 function setChrome(hidden) {
     state.hidden = hidden
     reader.classList.toggle('hide-chrome', hidden)
+    chrome.forEach(item => {
+        item.inert = hidden
+        item.setAttribute('aria-hidden', String(hidden))
+    })
+}
+
+function pageElement(index) {
+    return pages.querySelector(`[data-page="${index}"]`)
+}
+
+function loadPage(index, bust = false) {
+    const figure = pageElement(index)
+    const image = figure?.querySelector('img')
+    if (!image || (image.hasAttribute('src') && !bust)) return
+    let src = image.dataset.src
+    if (bust) {
+        const url = new URL(src, location.href)
+        url.searchParams.set('_retry', Date.now())
+        src = url.href
+    }
+    figure.classList.remove('failed', 'loaded', 'dormant')
+    figure.classList.add('loading')
+    figure.setAttribute('aria-busy', 'true')
+    image.src = src
+}
+
+function trimImages(center) {
+    pages.querySelectorAll('.manga-page').forEach((figure, index) => {
+        if (Math.abs(index - center) <= 7) return
+        const image = figure.querySelector('img')
+        if (!image?.complete || !image.naturalWidth) return
+        image.removeAttribute('src')
+        figure.classList.remove('loaded', 'loading')
+        figure.classList.add('dormant')
+        figure.setAttribute('aria-busy', 'false')
+    })
+}
+
+function prefetchNextChapter() {
+    if (state.nextPrefetched || navigator.connection?.saveData) return
+    const next = adjacentChapter(1)
+    if (!next) return
+    state.nextPrefetched = true
+    const key = state.key
+    getMangaChapter(key, next.id).then(content => {
+        if (!state.active || state.key !== key || !content.pages[0]) return
+        const image = new Image()
+        image.decoding = 'async'
+        image.src = mangaPageUrl(content.pages[0])
+    }).catch(() => {})
 }
 
 function setPage(index) {
@@ -44,10 +129,13 @@ function setPage(index) {
     state.page = next
     $('#mr-pos').textContent = `Page ${next + 1} / ${state.content.pages.length}`
     $('#mr-progress').style.width = `${((next + 1) / state.content.pages.length * 100).toFixed(2)}%`
+    for (let i = Math.max(0, next - 2); i <= Math.min(state.content.pages.length - 1, next + 3); i++) loadPage(i)
+    trimImages(next)
+    if (next >= state.content.pages.length - 2) prefetchNextChapter()
 }
 
 function saveProgress() {
-    if (!state.active || !state.id) return
+    if (!state.active || !state.id || !state.content) return
     posSet(state.key, { id: state.id, page: state.page, at: Date.now() })
     updateLibrary()
 }
@@ -74,51 +162,70 @@ function updateLibrary() {
     })
 }
 
-function currentPage() {
-    const center = innerHeight * .5
-    let best = 0
-    let distance = Infinity
-    pages.querySelectorAll('.manga-page').forEach((page, index) => {
-        const rect = page.getBoundingClientRect()
-        const point = rect.top <= center && rect.bottom >= center ? center : Math.min(Math.abs(rect.top - center), Math.abs(rect.bottom - center))
-        const nextDistance = point === center ? 0 : point
-        if (nextDistance < distance) { distance = nextDistance; best = index }
-    })
-    return best
+function jumpPage(offset) {
+    const next = Math.min((state.content?.pages.length || 1) - 1, Math.max(0, state.page + offset))
+    if (next === state.page) return
+    loadPage(next)
+    pageElement(next)?.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' })
+    setPage(next)
 }
 
 function renderSteps() {
-    const chapters = ordered()
-    const index = chapters.findIndex(chapter => chapter.id === state.id)
-    const previous = chapters[index - 1]
-    const next = chapters[index + 1]
-    $('#mr-step').innerHTML = `${previous ? `<a href="${route(state.key, previous.id)}"><span>Previous</span>${esc(chapterLabel(previous))}</a>` : '<span></span>'}
-      ${next ? `<a href="${route(state.key, next.id)}"><span>Next</span>${esc(chapterLabel(next))}</a>` : '<span></span>'}`
+    const previous = adjacentChapter(-1)
+    const next = adjacentChapter(1)
+    $('#mr-step').innerHTML = `${previous ? `<a href="${route(state.key, previous.id)}" aria-label="Previous chapter, ${esc(chapterLabel(previous))}"><span>Previous</span>${esc(chapterLabel(previous))}</a>` : '<span></span>'}
+      ${next ? `<a href="${route(state.key, next.id)}" aria-label="Next chapter, ${esc(chapterLabel(next))}"><span>Next</span>${esc(chapterLabel(next))}</a>` : '<span></span>'}`
+}
+
+function observePages() {
+    state.loadObserver?.disconnect()
+    state.pageObserver?.disconnect()
+    state.loadObserver = new IntersectionObserver(entries => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) loadPage(Number(entry.target.dataset.page))
+        })
+    }, { rootMargin: '150% 0px' })
+    state.pageObserver = new IntersectionObserver(entries => {
+        const visible = entries.filter(entry => entry.isIntersecting)
+            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+        if (visible) setPage(Number(visible.target.dataset.page))
+    }, { rootMargin: '-48% 0px -48% 0px', threshold: 0 })
+    pages.querySelectorAll('.manga-page').forEach(figure => {
+        state.loadObserver.observe(figure)
+        state.pageObserver.observe(figure)
+    })
 }
 
 function renderPages(content) {
-    window.scrollTo(0, 0)
-    pages.innerHTML = content.pages.map((page, index) => `<figure class="manga-page" data-page="${index}">
-      <img src="${esc(mangaPageUrl(page))}" ${page.width ? `width="${esc(page.width)}"` : ''} ${page.height ? `height="${esc(page.height)}"` : ''} ${index < 2 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" alt="Page ${index + 1}">
-      <figcaption><span>Page ${index + 1} couldn’t load</span><button data-page-retry="${index}">Retry</button></figcaption>
-    </figure>`).join('')
+    const total = content.pages.length
+    pages.innerHTML = content.pages.map((page, index) => {
+        const ratio = page.width && page.height ? ` style="aspect-ratio:${esc(page.width)} / ${esc(page.height)}"` : ''
+        const size = `${page.width ? ` width="${esc(page.width)}"` : ''}${page.height ? ` height="${esc(page.height)}"` : ''}`
+        return `<figure class="manga-page" data-page="${index}" aria-busy="true"${ratio}>
+          <img data-src="${esc(mangaPageUrl(page))}"${size} decoding="async" alt="Page ${index + 1} of ${total}">
+          <figcaption><span>Page ${index + 1} couldn’t load</span><button type="button" data-page-retry="${index}">Retry page ${index + 1}</button></figcaption>
+          <div class="manga-page-loading" aria-hidden="true"><span>Loading page ${index + 1}</span></div>
+        </figure>`
+    }).join('')
     renderSteps()
-    setPage(0)
+    observePages()
 
     const saved = posGet(state.key)
-    const target = saved?.id === state.id ? Math.min(content.pages.length - 1, Math.max(0, Number(saved.page) || 0)) : 0
-    const targetImage = pages.querySelectorAll('img')[target]
-    const restore = () => {
-        if (!state.active || target === 0) return
-        pages.querySelector(`[data-page="${target}"]`)?.scrollIntoView({ block: 'start' })
-        setPage(target)
-    }
-    if (targetImage?.complete) requestAnimationFrame(restore)
-    else targetImage?.addEventListener('load', restore, { once: true })
+    const target = saved?.id === state.id ? Math.min(total - 1, Math.max(0, Number(saved.page) || 0)) : 0
+    loadPage(target)
+    loadPage(Math.min(total - 1, target + 1))
+    setPage(target)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+        if (!state.active) return
+        window.scrollTo(0, target ? pageElement(target)?.offsetTop || 0 : 0)
+        reader.focus({ preventScroll: true })
+    }))
 }
 
 function showError(message) {
-    pages.innerHTML = `<div class="mreader-empty">${esc(message)}<button id="mr-retry">Try again</button></div>`
+    const offline = !navigator.onLine
+    setReaderState(offline ? 'offline' : 'error')
+    pages.innerHTML = `<div class="mreader-empty" role="alert">${esc(offline ? 'You’re offline. Reconnect to load this chapter.' : message)}<button id="mr-retry" type="button">Try again</button></div>`
     $('#mr-step').innerHTML = ''
     $('#mr-retry').onclick = () => showMangaReader(state.key, state.id)
 }
@@ -127,93 +234,154 @@ function renderDrawer() {
     const query = $('#mdw-q').value.trim().toLowerCase()
     const read = readSet(state.key)
     const rows = state.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
-    $('#mdrawer-list').innerHTML = rows.length ? rows.map(chapter => `<a class="chap${read.has(chapter.id) ? ' read' : ''}${chapter.id === state.id ? ' current' : ''}" href="${route(state.key, chapter.id)}">
+    const shown = rows.slice(0, state.drawerLimit)
+    $('#mdrawer-list').innerHTML = shown.length ? `${shown.map(chapter => `<a class="chap${read.has(chapter.id) ? ' read' : ''}${chapter.id === state.id ? ' current' : ''}" href="${route(state.key, chapter.id)}"${chapter.id === state.id ? ' aria-current="page"' : ''}>
       <span class="n">${esc(chapterLabel(chapter))}</span><span class="t">${esc(chapter.title || '')}</span><span class="dot"></span></a>`).join('')
-        : '<div class="empty">No matching chapters</div>'
+      }${shown.length < rows.length ? `<button type="button" class="drawer-more" id="mdrawer-more">Show ${Math.min(DRAWER_BATCH, rows.length - shown.length)} more</button>` : ''}`
+        : '<div class="empty" role="status">No matching chapters</div>'
 }
 
 function openDrawer() {
     if (!state.chapters.length) return
+    state.drawerFocus = document.activeElement
+    state.drawerLimit = DRAWER_BATCH
     $('#mdw-q').value = ''
     renderDrawer()
     drawer.classList.add('open')
     drawerBackdrop.classList.add('open')
+    drawer.setAttribute('aria-hidden', 'false')
+    drawerBackdrop.setAttribute('aria-hidden', 'false')
+    $('#mr-list').setAttribute('aria-expanded', 'true')
+    reader.inert = true
     $('#mdrawer-list .current')?.scrollIntoView({ block: 'center' })
+    $('#mdw-q').focus()
 }
 
-function closeDrawer() {
+function closeDrawer(restoreFocus = true) {
+    const wasOpen = drawer.classList.contains('open')
     drawer.classList.remove('open')
     drawerBackdrop.classList.remove('open')
+    drawer.setAttribute('aria-hidden', 'true')
+    drawerBackdrop.setAttribute('aria-hidden', 'true')
+    $('#mr-list').setAttribute('aria-expanded', 'false')
+    reader.inert = false
+    if (wasOpen && restoreFocus && state.active) state.drawerFocus?.focus({ preventScroll: true })
+    state.drawerFocus = null
+}
+
+function trapDrawerFocus(event) {
+    if (!drawer.classList.contains('open')) return false
+    if (event.key === 'Escape') {
+        event.preventDefault()
+        closeDrawer()
+        return true
+    }
+    if (event.key !== 'Tab') return false
+    const focusable = [...drawer.querySelectorAll('input, a[href], button:not([disabled])')]
+    if (!focusable.length) return false
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    return true
 }
 
 let wired = false
-let ticking = false
 let idleTimer = null
 function wire() {
     if (wired) return
     wired = true
     $('#mr-back').onclick = () => go(seriesRoute(state.key))
     $('#mr-list').onclick = openDrawer
-    drawerBackdrop.onclick = closeDrawer
-    $('#mdrawer-list').addEventListener('click', event => { if (event.target.closest('a')) closeDrawer() })
-    $('#mdw-q').addEventListener('input', renderDrawer)
+    drawerBackdrop.onclick = () => closeDrawer()
+    $('#mdrawer-list').addEventListener('click', event => { if (event.target.closest('a')) closeDrawer(false) })
+    $('#mdrawer-list').addEventListener('click', event => {
+        if (!event.target.closest('#mdrawer-more')) return
+        const before = $('#mdrawer-list').querySelectorAll('.chap').length
+        state.drawerLimit += DRAWER_BATCH
+        renderDrawer()
+        $('#mdrawer-list').querySelectorAll('.chap')[before]?.focus({ preventScroll: true })
+    })
+    $('#mdw-q').addEventListener('input', () => { state.drawerLimit = DRAWER_BATCH; renderDrawer() })
+    pages.addEventListener('load', event => {
+        if (event.target.tagName !== 'IMG') return
+        const figure = event.target.closest('.manga-page')
+        figure?.classList.remove('loading', 'failed', 'dormant')
+        figure?.classList.add('loaded')
+        figure?.setAttribute('aria-busy', 'false')
+        if (figure && !figure.style.aspectRatio && event.target.naturalWidth && event.target.naturalHeight) {
+            figure.style.aspectRatio = `${event.target.naturalWidth} / ${event.target.naturalHeight}`
+        }
+        if (!state.firstImageMeasured) {
+            state.firstImageMeasured = true
+            measure('vellum:manga-reader:first-image')
+        }
+    }, true)
     pages.addEventListener('error', event => {
-        if (event.target.tagName === 'IMG') event.target.closest('.manga-page')?.classList.add('failed')
+        if (event.target.tagName !== 'IMG') return
+        const figure = event.target.closest('.manga-page')
+        figure?.classList.remove('loading', 'loaded')
+        figure?.classList.add('failed')
+        figure?.setAttribute('aria-busy', 'false')
+        const label = figure?.querySelector('figcaption span')
+        if (label && !navigator.onLine) label.textContent = `Page ${Number(figure.dataset.page) + 1} is unavailable offline`
     }, true)
     pages.addEventListener('click', event => {
         const retry = event.target.closest('[data-page-retry]')
         if (retry) {
-            const figure = retry.closest('.manga-page')
-            const image = figure.querySelector('img')
-            figure.classList.remove('failed')
-            const url = new URL(image.src)
-            url.searchParams.set('_retry', Date.now())
-            image.src = url.href
+            loadPage(Number(retry.dataset.pageRetry), true)
             return
         }
-        if (!event.target.closest('button')) setChrome(!state.hidden)
+        if (!event.target.closest('button, a')) setChrome(!state.hidden)
     })
     window.addEventListener('scroll', () => {
-        if (!state.active || ticking) return
-        ticking = true
-        requestAnimationFrame(() => {
-            if (state.active) {
-                if (!state.hidden && scrollY > 40) setChrome(true)
-                setPage(currentPage())
-            }
-            ticking = false
-        })
+        if (!state.active) return
+        if (!state.hidden && scrollY > 40 && !document.activeElement.closest('.mreader-chrome')) setChrome(true)
         clearTimeout(idleTimer)
-        idleTimer = setTimeout(saveProgress, 250)
+        idleTimer = setTimeout(saveProgress, 200)
     }, { passive: true })
     window.addEventListener('keydown', event => {
-        if (!state.active || event.target.closest('input')) return
-        const chapters = ordered()
-        const index = chapters.findIndex(chapter => chapter.id === state.id)
-        if (event.key === 'ArrowLeft' && chapters[index - 1]) go(route(state.key, chapters[index - 1].id))
-        if (event.key === 'ArrowRight' && chapters[index + 1]) go(route(state.key, chapters[index + 1].id))
+        if (!state.active || trapDrawerFocus(event) || event.target.closest('input, textarea, select')) return
+        if (event.key === 'Escape') { setChrome(false); return }
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+        event.preventDefault()
+        const offset = event.key === 'ArrowLeft' ? -1 : 1
+        if (event.shiftKey) {
+            const chapter = adjacentChapter(offset)
+            if (chapter) go(route(state.key, chapter.id))
+        } else jumpPage(offset)
     })
     window.addEventListener('pagehide', saveProgress)
+    document.addEventListener('visibilitychange', () => { if (document.hidden) saveProgress() })
 }
 
 export async function showMangaReader(key, id) {
     wire()
     saveProgress()
     state.ctrl?.abort()
+    state.loadObserver?.disconnect()
+    state.pageObserver?.disconnect()
     const ctrl = new AbortController()
     const gen = ++state.gen
-    Object.assign(state, { active: true, key, id, ctrl, series: null, chapters: [], chapter: null, content: null, page: 0 })
+    Object.assign(state, {
+        active: true, key, id, ctrl, series: null, chapters: [], chapter: null, content: null,
+        page: 0, nextPrefetched: false, firstImageMeasured: false,
+    })
+    beginMeasure()
     reader.classList.add('active')
     document.documentElement.classList.add('manga-reading')
     document.body.classList.add('manga-reading')
     document.body.style.background = '#070707'
+    otherSheets.forEach(item => { item.inert = true })
+    setReaderState('loading')
     setChrome(false)
-    closeDrawer()
+    closeDrawer(false)
+    window.scrollTo(0, 0)
     $('#mr-title').textContent = 'Loading chapter…'
     $('#mr-pos').textContent = ''
     $('#mr-progress').style.width = '0'
     $('#mr-step').innerHTML = ''
-    pages.innerHTML = '<div class="spinner"></div>'
+    pages.innerHTML = '<div class="mreader-loading" role="status"><div class="spinner" aria-hidden="true"></div><span>Loading chapter…</span></div>'
 
     try {
         const [series, chapterData, content] = await Promise.all([
@@ -223,13 +391,16 @@ export async function showMangaReader(key, id) {
         ])
         if (!stillHere(key, id, gen)) return
         const chapter = chapterData.chapters.find(item => item.id === id)
-        if (!chapter) throw new Error('chapter is no longer available')
+        if (!chapter) throw new Error('Chapter is no longer available')
         Object.assign(state, { series, chapters: chapterData.chapters, chapter, content })
         $('#mr-title').textContent = `${series.title} · ${chapterLabel(chapter)}`
         renderPages(content)
+        setReaderState('ready')
+        measure('vellum:manga-reader:metadata')
         const read = readSet(key)
         if (!read.has(id)) { read.add(id); saveRead(key, read) }
-        posSet(key, { id, page: posGet(key)?.id === id ? posGet(key).page || 0 : 0, at: Date.now() })
+        const saved = posGet(key)
+        posSet(key, { id, page: saved?.id === id ? saved.page || 0 : 0, at: Date.now() })
         updateLibrary()
     } catch (error) {
         if (stillHere(key, id, gen)) showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))
@@ -243,9 +414,19 @@ export function closeMangaReader() {
     state.ctrl?.abort()
     state.ctrl = null
     state.gen++
+    state.loadObserver?.disconnect()
+    state.pageObserver?.disconnect()
+    state.loadObserver = null
+    state.pageObserver = null
     clearTimeout(idleTimer)
-    closeDrawer()
+    closeDrawer(false)
     reader.classList.remove('active', 'hide-chrome')
+    reader.inert = false
+    otherSheets.forEach(item => { item.inert = false })
+    setReaderState('idle')
+    pages.replaceChildren()
+    $('#mr-step').replaceChildren()
+    $('#mdrawer-list').replaceChildren()
     document.documentElement.classList.remove('manga-reading')
     document.body.classList.remove('manga-reading')
     document.body.style.background = ''

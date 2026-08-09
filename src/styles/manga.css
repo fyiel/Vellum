@@ -1,13 +1,17 @@
 .den .manga-tool .pr { color: var(--dim); font: 400 14px var(--mono); }
 .den .manga-subtool { display: flex; align-items: center; gap: 14px; min-height: 48px; padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .den .manga-subtool .lab { margin: 0; flex: 1; }
+.den .manga .seg button { appearance: none; margin: 0; padding: 6px 11px; border: 0; border-right: 1px solid var(--line2); background: transparent; color: var(--dim); font: 500 11px 'Archivo'; cursor: pointer; }
+.den .manga .seg button:last-child { border-right: 0; }
+.den .manga .seg button.on { background: var(--sel); color: var(--hi); }
 .den .manga-scroll { padding-top: 18px; }
 .den .manga-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); gap: 22px 14px; }
-.den .manga-card { min-width: 0; cursor: pointer; }
+.den .manga-card { min-width: 0; color: inherit; text-decoration: none; cursor: pointer; }
 .den .manga-cover { position: relative; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; background: var(--row); border: 1px solid var(--line2); }
 .den .manga-cover::after { content: ''; position: absolute; inset: auto 0 0; height: 26%; background: linear-gradient(transparent, #0008); pointer-events: none; opacity: 0; transition: opacity .16s; }
 .den .manga-card:hover .manga-cover { border-color: var(--ac); }
 .den .manga-card:hover .manga-cover::after { opacity: 1; }
+.den .manga-card:focus-visible, .den .manga .seg button:focus-visible, .den .mchrow:focus-visible, .den .manga-chapter-more:focus-visible { outline: 2px solid var(--ac); outline-offset: 3px; }
 .den .manga-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .den .manga-cover-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: .8px; }
 .den .manga-card-copy { padding: 9px 2px 0; }
@@ -20,6 +24,7 @@
 .den .manga-more:disabled { opacity: .55; cursor: progress; }
 .den .manga-empty { grid-column: 1 / -1; color: var(--dim); text-align: center; padding: 64px 12px; }
 .den .manga-notice { grid-column: 1 / -1; padding: 10px 12px; border: 1px solid var(--line2); color: var(--dim); font: 500 11px/1.4 'Archivo'; text-align: center; }
+.den .manga-error { color: var(--text); }
 .den .manga-skeleton { pointer-events: none; }
 .den .manga-skeleton .manga-cover, .den .manga-skeleton i { background: linear-gradient(100deg, var(--row) 20%, var(--sel) 42%, var(--row) 65%); background-size: 220% 100%; animation: manga-shimmer 1.2s linear infinite; }
 .den .manga-skeleton i { display: block; height: 10px; margin-bottom: 7px; }
@@ -40,19 +45,29 @@
 .den .mchlang { color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; }
 .den .mchdot { width: 6px; height: 6px; border: 1px solid var(--line2); }
 .den .manga-reset { color: var(--dim); }
+.den .manga-chapter-more { width: 100%; padding: 13px 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ac); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .manga-chapter-more span { margin-left: 8px; color: var(--dim); font: 400 10px var(--mono); }
+.den .manga-chapter-empty { padding: 42px 10px; color: var(--dim); text-align: center; }
 
 html.manga-reading, body.manga-reading { height: auto; min-height: 100%; overflow: visible; }
 body.manga-reading .den { display: none; }
 body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-behavior-y: none; }
 .mreader { display: none; min-height: 100vh; background: #070707; color: #ddd; }
 .mreader.active { display: block; }
+.mreader [hidden] { display: none; }
 .mreader-pages { width: min(100%, 980px); min-height: 100vh; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 64px) 0 28px; }
-.manga-page { position: relative; min-height: 160px; margin: 0; background: #0b0b0b; }
+.manga-page { position: relative; min-height: 0; margin: 0; overflow: hidden; background: #0b0b0b; content-visibility: auto; contain-intrinsic-size: auto min(72vh, 980px); }
+.manga-page:not([style]) { min-height: min(72vh, 980px); }
 .manga-page img { display: block; width: 100%; height: auto; min-height: 1px; image-rendering: auto; }
+.manga-page img:not([src]) { visibility: hidden; }
 .manga-page figcaption { display: none; min-height: 220px; place-items: center; align-content: center; gap: 12px; color: #777; font: 500 12px 'IBM Plex Mono', monospace; }
 .manga-page figcaption button, .mreader-empty button { padding: 9px 16px; border: 1px solid #ffffff26; background: transparent; color: #ddd; font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; }
 .manga-page.failed img { display: none; }
-.manga-page.failed figcaption { display: grid; }
+.manga-page.failed figcaption { position: absolute; inset: 0; display: grid; }
+.manga-page-loading { position: absolute; inset: 0; display: grid; place-items: center; background: linear-gradient(100deg, #0b0b0b 20%, #141414 42%, #0b0b0b 65%); background-size: 220% 100%; animation: manga-shimmer 1.2s linear infinite; color: #555; font: 500 10px 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .6px; }
+.manga-page.loaded .manga-page-loading, .manga-page.failed .manga-page-loading, .manga-page.dormant .manga-page-loading { display: none; }
+.mreader-loading { min-height: 70vh; display: grid; place-items: center; align-content: center; color: #777; font: 500 12px 'IBM Plex Mono', monospace; }
+.mreader-loading .spinner { margin: 40px auto 20px; }
 .mreader-empty { min-height: 70vh; display: grid; place-items: center; align-content: center; gap: 16px; color: #777; font: 500 13px 'Archivo'; text-align: center; }
 .mreader-step { width: min(100%, 980px); margin: 0 auto; padding: 20px 12px calc(env(safe-area-inset-bottom, 0px) + 92px); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .mreader-step > a { min-width: 0; padding: 14px; border: 1px solid #ffffff1c; color: #ddd; font: 500 12px 'Archivo'; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -63,6 +78,8 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 .mreader-bottom { bottom: 0; justify-content: center; padding: 11px 16px calc(env(safe-area-inset-bottom, 0px) + 11px); border-top: 1px solid #ffffff12; color: #888; font: 500 11px 'IBM Plex Mono', monospace; }
 .mreader-title { min-width: 0; flex: 1; overflow: hidden; color: #ddd; font: 500 13px 'Archivo'; text-overflow: ellipsis; white-space: nowrap; }
 .mreader .riconbtn { color: #ddd; }
+.mreader .riconbtn { width: 44px; height: 44px; }
+.mreader :focus-visible, #mdrawer :focus-visible { outline: 2px solid #d8a24a; outline-offset: 2px; }
 .mreader-progress { position: fixed; inset: 0 auto auto 0; z-index: 115; width: 0; height: 3px; background: #d8a24a; transition: width .12s linear; }
 .mreader.hide-chrome .mreader-chrome { opacity: 0; pointer-events: none; }
 .mreader.hide-chrome .mreader-top { transform: translateY(-105%); }
@@ -80,10 +97,10 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .ni .c { display: none; }
   .den .tool { padding: 8px 10px; }
   .den .manga-tool { align-items: stretch; flex-direction: column; }
-  .den .manga-source span { flex: 1; text-align: center; padding: 7px 4px; }
+  .den .manga-source button { flex: 1; text-align: center; padding: 8px 4px; }
   .den .manga-subtool { align-items: flex-start; flex-direction: column; gap: 7px; padding: 8px 10px 10px; }
   .den .manga-subtool .seg { width: 100%; overflow-x: auto; }
-  .den .manga-subtool .seg span { flex: 1; padding: 6px 7px; text-align: center; }
+  .den .manga-subtool .seg button { flex: 1; min-height: 36px; padding: 6px 7px; text-align: center; }
   .den .manga-scroll { padding: 12px 10px 20px; }
   .den .manga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
   .den .manga-card-copy { padding-top: 7px; }
@@ -98,4 +115,9 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .manga-detail .chscroll { overflow: visible; padding: 0 8px 20px; }
   .den .mchrow { grid-template-columns: 76px minmax(0, 1fr) 32px 8px; padding: 11px 8px; }
   .mreader-pages, .mreader-step { width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .den .manga-skeleton .manga-cover, .den .manga-skeleton i, .manga-page-loading { animation: none; background: var(--row, #111); }
+  .den .manga-cover::after, .mreader-chrome, .mreader-progress, .sheet, .sheet-backdrop { transition: none; }
 }

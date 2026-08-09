@@ -48,6 +48,11 @@ const readerRouteIs = route => {
     return cur.name === 'read' && cur.slug === route.slug && cur.n === route.n
 }
 
+const mangaReaderRouteIs = route => {
+    const cur = parseHash()
+    return cur.name === 'manga-read' && cur.key === route.key && cur.id === route.id
+}
+
 function closeReaderShell() {
     const reader = document.querySelector('#reader')
     reader.classList.remove('active')
@@ -59,10 +64,33 @@ function closeReaderShell() {
 }
 
 function closeMangaReaderShell() {
-    document.querySelector('#mreader').classList.remove('active', 'hide-chrome')
+    const reader = document.querySelector('#mreader')
+    reader.classList.remove('active', 'hide-chrome')
+    reader.dataset.state = 'idle'
+    reader.setAttribute('aria-busy', 'false')
+    document.querySelector('#mr-list').hidden = false
     document.documentElement.classList.remove('manga-reading')
     document.body.classList.remove('manga-reading')
     document.body.style.background = ''
+}
+
+function showMangaReaderLoadError(route) {
+    if (!mangaReaderRouteIs(route)) return
+    const reader = document.querySelector('#mreader')
+    reader.classList.add('active')
+    reader.dataset.state = 'error'
+    reader.setAttribute('aria-busy', 'false')
+    document.documentElement.classList.add('manga-reading')
+    document.body.classList.add('manga-reading')
+    document.body.style.background = '#070707'
+    document.querySelector('#mr-title').textContent = 'Reader unavailable'
+    document.querySelector('#mr-list').hidden = true
+    document.querySelector('#mr-pos').textContent = ''
+    document.querySelector('#mr-progress').style.width = '0'
+    document.querySelector('#mr-step').innerHTML = ''
+    document.querySelector('#mr-pages').innerHTML = '<div class="mreader-empty" role="alert">Couldn’t open the manga reader.<button id="manga-reader-load-retry" type="button">Try again</button></div>'
+    document.querySelector('#mr-back').onclick = () => go(`#/manga/series/${encodeURIComponent(route.key)}`)
+    document.querySelector('#manga-reader-load-retry').onclick = () => location.reload()
 }
 
 function showReaderLoadError(route) {
@@ -98,13 +126,10 @@ async function openReader(route) {
 async function openMangaReader(route) {
     try {
         const { showMangaReader } = await loadMangaReader()
-        if (parseHash().name !== 'manga-read') return
+        if (!mangaReaderRouteIs(route)) return
+        document.querySelector('#mr-list').hidden = false
         await showMangaReader(route.key, route.id)
-    } catch {
-        if (parseHash().name !== 'manga-read') return
-        closeMangaReaderShell()
-        go('#/manga')
-    }
+    } catch { showMangaReaderLoadError(route) }
 }
 
 startRouter(async route => {

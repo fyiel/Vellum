@@ -8,9 +8,12 @@ import { $, esc } from '../lib/dom.js'
 const SOURCE = { mf: 'MangaFire', mh: 'MangaHub' }
 const ORIGIN_LABEL = { library: 'Library', manga: 'Manga', updates: 'Updates' }
 const ORIGIN_ROUTE = { library: '#/', manga: '#/manga', updates: '#/updates' }
+const CHAPTER_BATCH = 250
 let request = 0
 let current = null
 let wired = false
+let chapterQuery = ''
+let chapterLimit = CHAPTER_BATCH
 
 const chapterLabel = chapter => chapter.number == null ? (chapter.title || 'Special') : `Ch. ${chapter.number}`
 const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
@@ -55,9 +58,19 @@ function info(series) {
 
 function chapterRows(chapters, activeId) {
     const read = readSet(current.key)
-    return chapters.map(chapter => `<button class="mchrow${read.has(chapter.id) ? ' read' : ''}${chapter.id === activeId ? ' current' : ''}" data-id="${esc(chapter.id)}">
+    return chapters.map(chapter => `<button type="button" class="mchrow${read.has(chapter.id) ? ' read' : ''}${chapter.id === activeId ? ' current' : ''}" data-id="${esc(chapter.id)}"${chapter.id === activeId ? ' aria-current="page"' : ''} aria-label="${esc(`${chapterLabel(chapter)}${chapterName(chapter) ? `, ${chapterName(chapter)}` : ''}${chapter.language ? `, ${chapter.language}` : ''}`)}">
       <span class="mchn">${esc(chapterLabel(chapter))}</span><span class="mcht">${esc(chapterName(chapter))}</span><span class="mchlang">${esc(chapter.language || '')}</span><span class="mchdot"></span>
     </button>`).join('')
+}
+
+function renderChapterList() {
+    if (!current) return
+    const query = chapterQuery.toLowerCase()
+    const filtered = current.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
+    const shown = filtered.slice(0, chapterLimit)
+    $('#mchapter-list').innerHTML = shown.length
+        ? `${chapterRows(shown, current.saved)}${shown.length < filtered.length ? `<button type="button" class="manga-chapter-more" id="mchapter-more">Show ${Math.min(CHAPTER_BATCH, filtered.length - shown.length)} more <span>${shown.length} of ${filtered.length}</span></button>` : ''}`
+        : '<div class="manga-chapter-empty" role="status">No matching chapters</div>'
 }
 
 function wire() {
@@ -79,22 +92,28 @@ function wire() {
         }
         if (event.target.closest('#manga-reset') && current && confirm(`Reset reading progress for ${current.series.title}?`)) {
             resetProgress(current.key)
-            current.first = current.chapters[current.chapters.length - 1] || current.chapters[0]
+            current.first = orderMangaChapters(current.chapters)[0] || current.chapters[0]
             $('#manga-start').textContent = 'Start reading'
             $('#manga-reset').hidden = true
             $('#mchapter-list')?.querySelectorAll('.mchrow').forEach(row => row.classList.remove('read', 'current'))
         }
     })
     $('#schapters').addEventListener('click', event => {
+        if (event.target.closest('#mchapter-more')) {
+            const before = $('#mchapter-list').querySelectorAll('.mchrow').length
+            chapterLimit += CHAPTER_BATCH
+            renderChapterList()
+            $('#mchapter-list').querySelectorAll('.mchrow')[before]?.focus({ preventScroll: true })
+            return
+        }
         const row = event.target.closest('.mchrow')
         if (row && current) go(chapterRoute(current.key, row.dataset.id))
     })
     $('#schapters').addEventListener('input', event => {
         if (event.target.id !== 'mchsearch') return
-        const query = event.target.value.trim().toLowerCase()
-        $('#mchapter-list').querySelectorAll('.mchrow').forEach(row => {
-            row.hidden = Boolean(query) && !row.textContent.toLowerCase().includes(query)
-        })
+        chapterQuery = event.target.value.trim()
+        chapterLimit = CHAPTER_BATCH
+        renderChapterList()
     })
 }
 
@@ -102,27 +121,41 @@ export async function showMangaSeries(key, origin = 'manga') {
     wire()
     const mine = ++request
     current = null
+    chapterQuery = ''
+    chapterLimit = CHAPTER_BATCH
     $('#view-series').classList.add('manga-detail')
-    $('#sinfo').innerHTML = '<div class="void">Loading manga…</div>'
-    $('#schapters').innerHTML = '<div class="void">Finding chapters…</div>'
+    $('#sinfo').setAttribute('aria-busy', 'true')
+    $('#schapters').setAttribute('aria-busy', 'true')
+    $('#sinfo').innerHTML = '<div class="void" role="status">Loading manga…</div>'
+    $('#schapters').innerHTML = '<div class="void" role="status">Finding chapters…</div>'
 
+    const chapterRequest = getMangaChapters(key)
+    chapterRequest.catch(() => {})
     let series
     try { series = await getMangaSeries(key) }
     catch (error) {
-        if (mine === request && currentRouteIs(key)) $('#sinfo').innerHTML = `<div class="void">${esc(mangaErrorMessage(error, 'Manga unavailable'))}</div>`
+        if (mine === request && currentRouteIs(key)) {
+            const message = navigator.onLine ? mangaErrorMessage(error, 'Manga unavailable') : 'You’re offline. Reconnect to load this manga.'
+            $('#sinfo').innerHTML = `<div class="void" role="status">${esc(message)}<button class="manga-inline-retry" id="mseries-retry" type="button">Try again</button></div>`
+            $('#mseries-retry').onclick = () => showMangaSeries(key, origin)
+            $('#sinfo').setAttribute('aria-busy', 'false')
+        }
         return
     }
     if (mine !== request || !currentRouteIs(key)) return
     setSeriesCrumb(ORIGIN_LABEL[origin] || 'Manga', series.title, () => go(ORIGIN_ROUTE[origin] || '#/manga'))
     current = { key, series, chapters: [], first: null }
     $('#sinfo').innerHTML = info(series)
+    $('#sinfo').setAttribute('aria-busy', 'false')
 
     let chapterData
-    try { chapterData = await getMangaChapters(key) }
+    try { chapterData = await chapterRequest }
     catch (error) {
         if (mine === request && currentRouteIs(key)) {
-            $('#schapters').innerHTML = `<div class="void">${esc(mangaErrorMessage(error, 'Chapter list unavailable'))}<button class="manga-inline-retry" id="mchapter-retry">Try again</button></div>`
+            const message = navigator.onLine ? mangaErrorMessage(error, 'Chapter list unavailable') : 'You’re offline. Reconnect to load the chapter list.'
+            $('#schapters').innerHTML = `<div class="void" role="status">${esc(message)}<button class="manga-inline-retry" id="mchapter-retry" type="button">Try again</button></div>`
             $('#mchapter-retry').onclick = () => showMangaSeries(key, origin)
+            $('#schapters').setAttribute('aria-busy', 'false')
         }
         return
     }
@@ -131,13 +164,15 @@ export async function showMangaSeries(key, origin = 'manga') {
     const chapters = chapterData.chapters
     const saved = posGet(key)?.id
     const first = saved ? chapters.find(chapter => chapter.id === saved) : orderMangaChapters(chapters)[0]
-    current = { key, series, chapters, first: first || chapters[0] }
+    current = { key, series, chapters, first: first || chapters[0], saved }
     if (followed(key)) touchLibrary(entryFor(current))
     const start = $('#manga-start')
     start.disabled = false
     start.textContent = saved ? `Continue · ${chapterLabel(current.first)}` : 'Start reading'
-    $('#schapters').innerHTML = `<div class="chtool"><div class="srch"><input id="mchsearch" inputmode="search" autocomplete="off" placeholder="Find a chapter…"></div></div>
+    $('#schapters').innerHTML = `<div class="chtool"><div class="srch"><input id="mchsearch" inputmode="search" autocomplete="off" aria-label="Find a chapter" placeholder="Find a chapter…"></div></div>
       <div class="chhead">Chapter list <span class="ct">· ${chapters.length}</span></div>
-      <div class="chscroll"><div id="mchapter-list">${chapterRows(chapters, saved)}</div></div>`
+      <div class="chscroll"><div id="mchapter-list"></div></div>`
+    renderChapterList()
+    $('#schapters').setAttribute('aria-busy', 'false')
     prefetchMangaChapter(key, current.first.id)
 }

@@ -160,6 +160,8 @@ test('walks the manga shelf and image reader at a phone viewport', async ({ page
 
   await page.locator('[data-nav="manga"]').click()
   await expect(page.locator('#mlist .manga-card').first()).toBeVisible()
+  await expect(page.locator('#mlist .manga-card').first()).toHaveAttribute('href', '#/manga/series/mf%3A72no8')
+  await expect(page.locator('#mformat button[aria-pressed="true"]')).toHaveText('All')
   await page.locator('#msearch').fill('second life')
   await expect(page.locator('#mlist .manga-card').first()).toContainText('Second Life')
   await page.locator('#mlist .manga-card').first().click()
@@ -205,6 +207,132 @@ test('walks the manga shelf and image reader at a phone viewport', async ({ page
 
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
   expect(overflow).toBeLessThanOrEqual(1)
+})
+
+test('bounds a large manga chapter list without hiding searchable chapters', async ({ page }) => {
+  const key = 'mf:large-series'
+  const chapters = Array.from({ length: 1001 }, (_, index) => {
+    const number = 1001 - index
+    return { id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }
+  })
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manga', title: 'A Thousand Chapters', cover: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="600" height="900"/%3E' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        key,
+        chapter: chapters.find(chapter => chapter.id === id),
+        pages: [{ url: `/read/api/manga/image?key=mf%3Alarge-series&id=${id}&page=0`, width: 900, height: 1200 }],
+      }),
+    })
+  })
+
+  await page.goto(`${app}#/manga/series/mf%3Alarge-series`)
+  await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
+  await expect(page.locator('#mchapter-more')).toContainText('250 of 1001')
+  await page.locator('#mchapter-more').click()
+  await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(500)
+  await page.locator('#mchsearch').fill('Chapter 777')
+  await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(1)
+  await expect(page.locator('#mchapter-list .mchrow')).toContainText('Ch. 777')
+})
+
+test('restores manga pages, windows image memory, and separates page and chapter keys', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const key = 'mf:long-reader'
+  const chapters = [1, 2, 3].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manhwa', title: 'Long Reader' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        key,
+        chapter: chapters.find(chapter => chapter.id === id),
+        pages: Array.from({ length: 30 }, (_, index) => ({
+          url: `/read/api/manga/image?key=mf%3Along-reader&id=${id}&page=${index}`,
+          width: 900,
+          height: 1200,
+        })),
+      }),
+    })
+  })
+  await page.route('**/read/api/manga/image?**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"><rect width="100%" height="100%" fill="#171717"/></svg>',
+  }))
+  await page.evaluate(key => localStorage.setItem(`vellum:pos:${key}`, JSON.stringify({ id: 'chapter-2', page: 15, at: Date.now() })), key)
+
+  await page.goto(`${app}#/manga/read/mf%3Along-reader/chapter-2`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('#mr-pos')).toHaveText('Page 16 / 30')
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(30)
+  await expect(page.locator('#mr-pages .manga-page[data-page="15"]')).toBeInViewport()
+  await expect.poll(() => page.locator('#mr-pages img[src]').count()).toBeLessThanOrEqual(14)
+
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('#mr-pos')).toHaveText('Page 17 / 30')
+  await expect(page).toHaveURL(/chapter-2$/)
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(page).toHaveURL(/chapter-3$/)
+  await expect(page.locator('#mr-pos')).toHaveText('Page 1 / 30')
+
+  await page.locator('#mr-list').click()
+  await expect(page.locator('#mdw-q')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#mr-list')).toBeFocused()
+
+  const diagnostics = await page.evaluate(() => ({
+    metadataMs: performance.getEntriesByName('vellum:manga-reader:metadata').at(-1)?.duration,
+    firstImageMs: performance.getEntriesByName('vellum:manga-reader:first-image').at(-1)?.duration,
+    chromeTransition: getComputedStyle(document.querySelector('.mreader-chrome')).transitionDuration,
+    saved: JSON.parse(localStorage.getItem('vellum:pos:mf:long-reader')),
+  }))
+  expect(diagnostics.metadataMs).toBeGreaterThanOrEqual(0)
+  expect(diagnostics.firstImageMs).toBeGreaterThanOrEqual(0)
+  expect(diagnostics.chromeTransition).toBe('0s')
+  expect(diagnostics.saved).toMatchObject({ id: 'chapter-3', page: 0 })
+
+  await page.locator('#mr-back').click()
+  await expect(page.locator('#manga-start')).toContainText('Continue · Ch. 3')
+  await expect(page.locator('#mr-pages img')).toHaveCount(0)
+})
+
+test('labels an unreachable manga chapter as offline and offers retry', async ({ page }) => {
+  await page.evaluate(() => import('/src/screens/manga-reader.js'))
+  await page.route('**/read/api/manga/**', route => route.abort('internetdisconnected'))
+  await page.context().setOffline(true)
+
+  await page.evaluate(() => { location.hash = '#/manga/read/mf%3Aoffline/chapter-1' })
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'offline')
+  await expect(page.locator('#mr-pages')).toContainText('You’re offline')
+  await expect(page.locator('#mr-retry')).toBeVisible()
+  page._vellumErrors.length = 0
+})
+
+test('offers recovery when the lazy manga reader module fails to load', async ({ page }) => {
+  await page.route('**/src/screens/manga-reader.js', route => route.abort('failed'))
+  await page.goto(`${app}#/manga/read/mf%3Achunk-failure/chapter-1`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'error')
+  await expect(page.locator('#mr-pages')).toContainText('Couldn’t open the manga reader')
+  await expect(page.locator('#manga-reader-load-retry')).toBeVisible()
+  await expect(page.locator('#mr-list')).toBeHidden()
+  page._vellumErrors.length = 0
 })
 
 test('surfaces manga updates by opaque chapter id and opens the updated chapter', async ({ page }) => {

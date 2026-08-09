@@ -8,6 +8,6 @@ export default defineConfig({
   webServer: {
     command: `bun run dev --host 127.0.0.1 --port ${port}`,
     url: `http://127.0.0.1:${port}`,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
 })
