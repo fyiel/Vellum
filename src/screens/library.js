@@ -12,12 +12,18 @@ let filterQ = ''
 let wired = false
 const newCounts = new Map()
 
+const isManga = e => e.kind === 'manga'
 const read = e => e.readCount || 0
 const total = e => e.total || 0
 const pctOf = e => total(e) ? Math.min(100, Math.round((read(e) / total(e)) * 100)) : 0
-const started = e => read(e) > 0 || e.lastN != null
-const done = e => total(e) > 0 && read(e) >= total(e)
+const started = e => read(e) > 0 || e.lastN != null || e.lastId != null
+const done = e => total(e) > 0 && read(e) >= total(e) && (!isManga(e) || !e.pageCount || e.lastPage >= e.pageCount)
 const resumeN = e => (e.lastN != null ? e.lastN : 1)
+const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
+const mangaMeta = e => [formatName(e.format), e.source].filter(Boolean).join(' · ')
+const lastRead = e => isManga(e)
+    ? [e.lastLabel || 'Chapter', e.pageCount ? `page ${e.lastPage || 1} of ${e.pageCount}` : ''].filter(Boolean).join(' · ')
+    : `${read(e)} / ${total(e)}`
 
 function sortEntries(list) {
     const sign = ui.sortDir === 'asc' ? 1 : -1
@@ -37,11 +43,12 @@ const cover = (e, ph) => coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>
 
 const contTile = e => {
     const pct = pctOf(e)
-    return `<div class="ctile" data-slug="${esc(e.slug)}" data-n="${esc(resumeN(e))}">
+    return `<div class="ctile" data-slug="${esc(e.slug)}" data-kind="${isManga(e) ? 'manga' : 'novel'}" data-n="${esc(resumeN(e))}" ${e.lastId ? `data-id="${esc(e.lastId)}"` : ''}>
       <div class="cv">${cover(e, 'COV')}</div>
       <div class="cbd">
         <div class="ti">${esc(e.title)}</div>
-        <div class="mt">${esc(read(e))} / ${esc(total(e))}<span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
+        ${isManga(e) ? `<div class="cm">${esc(mangaMeta(e))}</div>` : ''}
+        <div class="mt"><span class="last-read">${esc(lastRead(e))}</span><span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
       </div>
     </div>`
 }
@@ -55,9 +62,10 @@ function updCell(e) {
 
 const row = e => {
     const pct = pctOf(e)
-    return `<div class="trow" data-slug="${esc(e.slug)}" data-n="${esc(resumeN(e))}">
+    const meta = isManga(e) ? mangaMeta(e) : e.author || ''
+    return `<div class="trow" data-slug="${esc(e.slug)}" data-kind="${isManga(e) ? 'manga' : 'novel'}" data-n="${esc(resumeN(e))}">
       <span class="cv">${cover(e, '')}</span>
-      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(e.author || '')}</div></div>
+      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(meta)}</div>${isManga(e) && e.lastLabel ? `<div class="last">Last read ${esc(lastRead(e))}</div>` : ''}</div>
       <div class="pcell"><span class="bar"><span style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>
       <span class="chp">${esc(read(e))}/${esc(total(e))}</span>
       ${updCell(e)}
@@ -75,7 +83,7 @@ function render() {
     let rows = all.filter(e => !contSlugs.has(e.slug))
     if (filterQ) {
         const f = filterQ.toLowerCase()
-        rows = rows.filter(e => (e.title || '').toLowerCase().includes(f) || (e.author || '').toLowerCase().includes(f))
+        rows = rows.filter(e => [e.title, e.author, e.format, e.source].some(value => (value || '').toLowerCase().includes(f)))
     }
     rows = sortEntries(rows)
 
@@ -87,7 +95,7 @@ function render() {
 
     const table = $('#libtable')
     if (!all.length) table.innerHTML = `<div class="void">nothing in your library yet. find something to read and it shows up here</div>`
-    else if (!rows.length) table.innerHTML = `<div class="void">no matches</div>`
+    else if (!rows.length && filterQ) table.innerHTML = `<div class="void">no matches</div>`
     else table.innerHTML = rows.map(row).join('')
 }
 
@@ -115,13 +123,15 @@ async function checkUpdates() {
 function openEntry(el) {
     const slug = el.dataset.slug
     if (!slug) return
-    go(`#/series/${encodeURIComponent(slug)}`)
+    go(el.dataset.kind === 'manga' ? `#/manga/series/${encodeURIComponent(slug)}` : `#/series/${encodeURIComponent(slug)}`)
 }
 
 function continueEntry(el) {
     const slug = el.dataset.slug
+    const id = el.dataset.id
     const n = el.dataset.n
-    if (slug && n) go(`#/read/${hashSlug(slug)}/${n}`)
+    if (slug && el.dataset.kind === 'manga' && id) go(`#/manga/read/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`)
+    else if (slug && n) go(`#/read/${hashSlug(slug)}/${n}`)
 }
 
 function wire() {

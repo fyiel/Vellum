@@ -11,6 +11,7 @@ let wired = false
 let feed = []
 let failed = false
 let filter = 'all'
+const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
 
 function bucketOf(ts) {
     const n = new Date()
@@ -23,13 +24,17 @@ function bucketOf(ts) {
 }
 
 function rowHtml(u) {
-    const chips = u.newNums.slice(0, CHIP_MAX).map(n => `<a class="uchip" data-n="${esc(n)}">Ch ${esc(n)}</a>`).join('')
-    const more = u.newNums.length > CHIP_MAX ? `<span class="umore">+${u.newNums.length - CHIP_MAX}</span>` : ''
+    const updates = u.kind === 'manga' ? u.newChapters : u.newNums.map(n => ({ n, label: `Ch ${n}` }))
+    const chips = updates.slice(0, CHIP_MAX).map(chapter => u.kind === 'manga'
+        ? `<a class="uchip" data-id="${esc(chapter.id)}">${esc(chapter.label)}</a>`
+        : `<a class="uchip" data-n="${esc(chapter.n)}">${esc(chapter.label)}</a>`).join('')
+    const more = updates.length > CHIP_MAX ? `<span class="umore">+${updates.length - CHIP_MAX}</span>` : ''
     const badge = u.read ? '' : `<span class="unew">+${u.newCount} new</span>`
     const cover = coverImg(u.cover, u.title)
-    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-new="${esc(u.newCount)}" data-up="${esc(u.latest)}">
+    const meta = u.kind === 'manga' ? `<div class="umeta">${esc([formatName(u.format), u.source].filter(Boolean).join(' · '))}</div>` : ''
+    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-kind="${u.kind === 'manga' ? 'manga' : 'novel'}" data-new="${esc(u.newCount)}" data-up="${esc(u.latest)}">
       <span class="cv">${cover}</span>
-      <div class="utt"><div class="n">${esc(u.title)}</div><div class="uch">${badge}${chips}${more}</div></div>
+      <div class="utt"><div class="n">${esc(u.title)}</div>${meta}<div class="uch">${badge}${chips}${more}</div></div>
       <span class="utime">${esc(relTime(u.firstSeen))}</span>
       <button class="umark" title="${u.read ? 'Mark unread' : 'Mark read'}">&#10003;</button>
     </div>`
@@ -67,7 +72,9 @@ function refresh() {
 function setRowRead(row, read) {
     row.classList.toggle('read', read)
     row.classList.toggle('unread', !read)
-    setRead(row.dataset.slug, read, read ? row.dataset.up : null)
+    const item = feed.find(entry => entry.slug === row.dataset.slug)
+    if (item) item.read = read
+    setRead(row.dataset.slug, read, read ? row.dataset.up : null, item?.latestIds)
 
     const uch = row.querySelector('.uch')
     const badge = uch.querySelector('.unew')
@@ -103,9 +110,14 @@ function wire() {
         const mark = e.target.closest('.umark')
         if (mark) { e.stopPropagation(); const row = mark.closest('.urow'); setRowRead(row, !row.classList.contains('read')); refresh(); return }
         const chip = e.target.closest('.uchip')
-        if (chip) { const row = chip.closest('.urow'); go(`#/read/${hashSlug(row.dataset.slug)}/${chip.dataset.n}`); return }
+        if (chip) {
+            const row = chip.closest('.urow')
+            if (row.dataset.kind === 'manga') go(`#/manga/read/${encodeURIComponent(row.dataset.slug)}/${encodeURIComponent(chip.dataset.id)}`)
+            else go(`#/read/${hashSlug(row.dataset.slug)}/${chip.dataset.n}`)
+            return
+        }
         const row = e.target.closest('.urow')
-        if (row) go(`#/series/${encodeURIComponent(row.dataset.slug)}`)
+        if (row) go(row.dataset.kind === 'manga' ? `#/manga/series/${encodeURIComponent(row.dataset.slug)}` : `#/series/${encodeURIComponent(row.dataset.slug)}`)
     })
 }
 

@@ -28,11 +28,16 @@
 .den .manga-tag { padding: 3px 8px; border: 1px solid var(--line2); color: var(--text); font: 500 10px 'Archivo'; }
 .den .mchrow { width: 100%; appearance: none; display: grid; grid-template-columns: 90px minmax(0, 1fr) 42px 10px; align-items: center; gap: 12px; padding: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 42px; }
 .den .mchrow:hover { background: var(--rowh); }
+.den .mchrow.read .mchn, .den .mchrow.read .mcht { color: var(--dim); }
+.den .mchrow.read .mchdot { background: var(--dim); border-color: var(--dim); }
 .den .mchrow.current { background: var(--sel); box-shadow: inset 2px 0 var(--ac); }
+.den .mchrow.current .mchn { color: var(--ac); }
+.den .mchrow.current .mchdot { background: var(--ac); border-color: var(--ac); }
 .den .mchn { color: var(--ac); font: 500 11px var(--mono); }
 .den .mcht { overflow: hidden; color: var(--hi); font: 500 13px 'Archivo'; text-overflow: ellipsis; white-space: nowrap; }
 .den .mchlang { color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; }
 .den .mchdot { width: 6px; height: 6px; border: 1px solid var(--line2); }
+.den .manga-reset { color: var(--dim); }
 
 html.manga-reading, body.manga-reading { height: auto; min-height: 100%; overflow: visible; }
 body.manga-reading .den { display: none; }

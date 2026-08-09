@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const app = 'http://127.0.0.1:5173/'
+const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 
 test.setTimeout(60_000)
 
@@ -166,6 +166,14 @@ test('walks the manga shelf and image reader at a phone viewport', async ({ page
 
   await expect(page.locator('#sinfo .dtitle')).toContainText('Second Life')
   await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(2)
+  await page.locator('#manga-follow').click()
+  await expect(page.locator('#manga-follow')).toHaveText('Following')
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('vellum:lib'))?.[0])).toMatchObject({
+    slug: key, key, kind: 'manga', format: 'manhua', source: 'MangaFire', total: 2,
+  })
+  await page.reload()
+  await expect(page.locator('#manga-follow')).toHaveText('Following')
+  await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(2)
   await page.locator('#manga-start').click()
 
   await expect(page.locator('#mreader')).toHaveClass(/active/)
@@ -176,8 +184,90 @@ test('walks the manga shelf and image reader at a phone viewport', async ({ page
   await page.locator('#mdrawer-list .chap').filter({ hasText: 'Ch. 2' }).click()
   await expect(page.locator('#mr-title')).toContainText('Ch. 2')
 
+  await page.locator('#mr-back').click()
+  await expect(page.locator('#mchapter-list .mchrow.read')).toHaveCount(2)
+  await expect(page.locator('#mchapter-list .mchrow.current')).toContainText('Ch. 2')
+  await page.locator('[data-nav="library"]').click()
+  await expect(page.locator('#continue .ctile')).toContainText('Manhua · MangaFire')
+  await expect(page.locator('#continue .ctile')).toContainText('Ch. 2 · page 1 of 2')
+  await page.locator('#continue .ctile').click()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+
+  await page.locator('#mr-back').click()
+  page.once('dialog', dialog => dialog.accept())
+  await page.locator('#manga-reset').click()
+  await expect(page.locator('#manga-start')).toHaveText('Start reading')
+  await expect(page.locator('#mchapter-list .mchrow.read')).toHaveCount(0)
+  expect(await page.evaluate(k => ({ read: localStorage.getItem(`vellum:read:${k}`), pos: localStorage.getItem(`vellum:pos:${k}`) }), key)).toEqual({ read: null, pos: null })
+  await page.locator('#manga-follow').click()
+  await expect(page.locator('#manga-follow')).toHaveText('Follow')
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('vellum:lib')))).toEqual([])
+
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)
   expect(overflow).toBeLessThanOrEqual(1)
+})
+
+test('surfaces manga updates by opaque chapter id and opens the updated chapter', async ({ page }) => {
+  const key = 'mh:Series_CASE.9'
+  const oldId = 'Chapter_OLD.1'
+  const newId = 'Chapter_NEW.2'
+  const chapters = [
+    { id: newId, number: 2, title: 'New signal', language: 'en' },
+    { id: oldId, number: 1, title: 'Baseline', language: 'en' },
+  ]
+  const series = { key, kind: 'manga', format: 'manhwa', title: 'Opaque Signals', authors: ['Han Mira'] }
+
+  await page.route('**/read/api/manga/**', async route => {
+    const url = new URL(route.request().url())
+    if (url.pathname.includes('/series/')) {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(series) })
+      return
+    }
+    if (url.pathname.endsWith('/chapters')) {
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ key, chapters, partial: false, errors: [] }) })
+      return
+    }
+    if (url.pathname.endsWith('/chapter')) {
+      const id = url.searchParams.get('id')
+      const chapter = chapters.find(item => item.id === id)
+      const imageKey = encodeURIComponent(key)
+      const imageId = encodeURIComponent(id)
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ key, chapter, pages: [{ url: `/read/api/manga/image?key=${imageKey}&id=${imageId}&page=0`, width: 900, height: 1200 }] }),
+      })
+      return
+    }
+    if (url.pathname.endsWith('/image')) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"/>' })
+      return
+    }
+    await route.abort()
+  })
+
+  await page.evaluate(({ key, oldId }) => {
+    localStorage.setItem('vellum:lib', JSON.stringify([{
+      slug: key, key, kind: 'manga', title: 'Opaque Signals', format: 'manhwa', source: 'MangaHub', total: 1, chapterIds: [oldId], updatedAt: Date.now(),
+    }]))
+    localStorage.setItem('vellum:updates', JSON.stringify({
+      [key]: { firstSeen: Date.now(), read: true, seenIds: [oldId], newChapters: [], latest: 1, latestIds: [oldId] },
+    }))
+  }, { key, oldId })
+
+  await page.locator('[data-nav="updates"]').click()
+  const update = page.locator('#ufeed .urow')
+  await expect(update).toContainText('Opaque Signals')
+  await expect(update).toContainText('Manhwa · MangaHub')
+  await expect(update.locator('.uchip')).toHaveAttribute('data-id', newId)
+  await expect(page.locator('#count-updates')).toHaveText('1')
+
+  await update.locator('.umark').click()
+  await expect(page.locator('#count-updates')).toHaveText('')
+  await expect.poll(() => page.evaluate(k => JSON.parse(localStorage.getItem('vellum:updates'))[k].seenIds, key)).toEqual([newId, oldId])
+  await update.locator('.uchip').click()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+  expect(await page.evaluate(() => decodeURIComponent(location.hash))).toBe(`#/manga/read/${key}/${newId}`)
+  await expect.poll(() => page.evaluate(k => JSON.parse(localStorage.getItem('vellum:lib'))[0].lastId, key)).toBe(newId)
 })
 
 test('does not duplicate a chapter after rapid reader navigation', async ({ page }) => {
@@ -405,7 +495,7 @@ test('validates manga identities and never accepts an empty image chapter', asyn
     const chapter = {
       key,
       chapter: { id: '9349687', number: 72, title: 'Hidden Way' },
-      pages: [{ url: '/read/api/manga/image?key=mf%3A72no8&id=9349687&page=0', width: 940, height: 956 }],
+      pages: [{ url: '/read/api/manga/image?key=mf%3A72NO8&id=9349687&page=0', width: 940, height: 956 }],
     }
 
     return {
@@ -421,7 +511,7 @@ test('validates manga identities and never accepts an empty image chapter', asyn
       duplicateChapters: validMangaChapters({ ...chapters, chapters: [chapters.chapters[0], chapters.chapters[0]] }),
       chapter: validMangaChapter(chapter, key, '9349687'),
       directPage: validMangaChapter({ ...chapter, pages: [{ url: 'https://o48.mfcdn2.xyz/page.jpg' }] }, key, '9349687'),
-      wrongPage: validMangaChapter({ ...chapter, pages: [{ url: '/read/api/manga/image?key=mf%3A72no8&id=9349687&page=1' }] }, key, '9349687'),
+      wrongPage: validMangaChapter({ ...chapter, pages: [{ url: '/read/api/manga/image?key=mf%3A72NO8&id=9349687&page=1' }] }, key, '9349687'),
       pageUrl: mangaPageUrl(chapter.pages[0]),
       emptyChapter: validMangaChapter({ ...chapter, pages: [] }, key, '9349687'),
       wrongChapter: validMangaChapter(chapter, key, '9339335'),
@@ -429,8 +519,8 @@ test('validates manga identities and never accepts an empty image chapter', asyn
   })
 
   expect(result).toEqual({
-    key: 'mf:72no8',
-    parsed: { provider: 'mf', id: '72no8' },
+    key: 'mf:72NO8',
+    parsed: { provider: 'mf', id: '72NO8' },
     series: true,
     otherSeries: false,
     wrongSeries: false,
@@ -442,7 +532,7 @@ test('validates manga identities and never accepts an empty image chapter', asyn
     chapter: true,
     directPage: false,
     wrongPage: false,
-    pageUrl: '/read/api/manga/image?key=mf%3A72no8&id=9349687&page=0',
+    pageUrl: '/read/api/manga/image?key=mf%3A72NO8&id=9349687&page=0',
     emptyChapter: false,
     wrongChapter: false,
   })

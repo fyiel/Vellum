@@ -9,9 +9,9 @@ const KEY = /^(mf|mh):([a-z0-9][a-z0-9._-]{0,199})$/i
 const ID = /^[a-z0-9][a-z0-9._-]{0,199}$/i
 
 export function mangaKey(provider, id) {
-    const key = `${provider}:${id}`
+    const key = `${String(provider).toLowerCase()}:${id}`
     if (!KEY.test(key)) throw new Error('invalid manga key')
-    return key.toLowerCase()
+    return key
 }
 
 export function parseMangaKey(key) {

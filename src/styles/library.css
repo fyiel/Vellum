@@ -63,7 +63,9 @@ body { background: #15161a; overflow: hidden; }
 .den .ctile .cv span { font: 600 8px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .5px; line-height: 1.1; }
 .den .ctile .cbd { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
 .den .ctile .ti { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .ctile .cm { color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; letter-spacing: .45px; }
 .den .ctile .mt { font: 400 11px var(--mono); color: var(--dim); display: flex; gap: 9px; align-items: center; }
+.den .ctile .last-read { max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .den .ctile .bar { flex: 1; height: 4px; background: var(--track); }
 .den .ctile .bar > span { display: block; height: 100%; background: var(--ac); }
 
@@ -73,6 +75,7 @@ body { background: #15161a; overflow: hidden; }
 .den .tt { min-width: 0; }
 .den .tt .n { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .den .tt .au { font: 400 11px 'Archivo'; color: var(--dim); }
+.den .tt .last { margin-top: 2px; overflow: hidden; color: var(--dim); font: 400 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .den .pcell { display: flex; align-items: center; gap: 9px; }
 .den .bar { flex: 1; height: 4px; background: var(--track); }
 .den .bar > span { display: block; height: 100%; background: var(--ac); }
@@ -97,3 +100,16 @@ body { background: #15161a; overflow: hidden; }
 .den.d-dense .ctile { padding: 6px; }
 .den.d-dense .ctile .cv { width: 34px; }
 .den.d-dense .lab { margin-bottom: 7px; }
+
+@media (max-width: 640px) {
+  .den #view-library .tool { align-items: stretch; flex-direction: column; }
+  .den #view-library .sortlbl { display: none; }
+  .den #view-library .seg { width: 100%; overflow-x: auto; }
+  .den #view-library .seg span:not(.dir) { flex: 1; min-width: max-content; text-align: center; }
+  .den #view-library .scroll { padding: 12px 10px 20px; }
+  .den .cont { grid-template-columns: 1fr; }
+  .den .ctile { min-width: 0; }
+  .den .ctile .last-read { max-width: 54%; }
+  .den .trow { grid-template-columns: 42px minmax(0, 1fr) 54px; gap: 10px; padding: 9px 4px; }
+  .den .trow .pcell, .den .trow .chp { display: none; }
+}

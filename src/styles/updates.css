@@ -11,6 +11,7 @@
 .den .urow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
 .den .utt { min-width: 0; }
 .den .utt .n { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .umeta { margin-top: 2px; color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; letter-spacing: .45px; }
 .den .uch { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .den .unew { font: 600 10px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; margin-right: 2px; }
 .den .uchip { padding: 2px 7px; border: 1px solid var(--line2); font: 400 11px var(--mono); color: var(--text); white-space: nowrap; }
@@ -27,3 +28,11 @@
 .den.d-dense .urow { padding: 5px 10px; }
 .den.d-dense .urow .cv { width: 28px; height: 38px; }
 .den.d-dense .uch { display: none; }
+
+@media (max-width: 640px) {
+  .den #view-updates .tool { padding: 8px 10px; }
+  .den #view-updates .scroll { padding: 8px 10px 20px; }
+  .den .urow { grid-template-columns: 42px minmax(0, 1fr) 28px; gap: 10px; padding: 10px 4px; }
+  .den .utime { display: none; }
+  .den .markall { padding-inline: 9px; }
+}

@@ -142,7 +142,12 @@ startRouter(async route => {
     if (parseHash().name !== route.name) return
 
     if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
-    else if (route.name === 'manga-series') { origin = 'manga'; setActiveNav('manga'); view('series'); showMangaSeries(route.key) }
+    else if (route.name === 'manga-series') {
+        origin = ['library', 'updates'].includes(origin) ? origin : 'manga'
+        setActiveNav(origin)
+        view('series')
+        showMangaSeries(route.key, origin)
+    }
     else if (route.name === 'manga') { origin = 'manga'; setCrumb('Manga'); setActiveNav('manga'); view('manga'); showManga() }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }

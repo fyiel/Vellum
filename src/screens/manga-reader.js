@@ -1,6 +1,6 @@
-import { getMangaChapter, getMangaChapters, getMangaSeries, mangaPageUrl } from '../lib/manga-api.js'
+import { getMangaChapter, getMangaChapters, getMangaSeries, mangaPageUrl, parseMangaKey } from '../lib/manga-api.js'
 import { go, parseHash } from '../lib/router.js'
-import { posGet, posSet, readSet, saveRead } from '../lib/store.js'
+import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
 
 const reader = $('#mreader')
@@ -25,6 +25,7 @@ const state = {
 const route = (key, id) => `#/manga/read/${encodeURIComponent(key)}/${encodeURIComponent(id)}`
 const seriesRoute = key => `#/manga/series/${encodeURIComponent(key)}`
 const chapterLabel = chapter => chapter?.number == null ? (chapter?.title || 'Special') : `Ch. ${chapter.number}`
+const SOURCE = { mf: 'MangaFire', mh: 'MangaHub' }
 const stillHere = (key, id, gen) => {
     const current = parseHash()
     return state.active && state.gen === gen && current.name === 'manga-read' && current.key === key && current.id === id
@@ -53,6 +54,29 @@ function setPage(index) {
 function saveProgress() {
     if (!state.active || !state.id) return
     posSet(state.key, { id: state.id, page: state.page, at: Date.now() })
+    updateLibrary()
+}
+
+function updateLibrary() {
+    if (!state.series || !state.chapter || !state.content) return
+    const provider = parseMangaKey(state.key)?.provider
+    touchLibrary({
+        slug: state.key,
+        key: state.key,
+        kind: 'manga',
+        title: state.series.title,
+        cover: state.series.cover,
+        author: state.series.authors?.[0] || state.series.artists?.[0],
+        source: SOURCE[provider] || 'Manga',
+        format: state.series.format,
+        total: state.chapters.length,
+        chapterIds: state.chapters.map(chapter => chapter.id),
+        readCount: readSet(state.key).size,
+        lastId: state.id,
+        lastLabel: chapterLabel(state.chapter),
+        lastPage: state.page + 1,
+        pageCount: state.content.pages.length,
+    })
 }
 
 function currentPage() {
@@ -78,6 +102,7 @@ function renderSteps() {
 }
 
 function renderPages(content) {
+    window.scrollTo(0, 0)
     pages.innerHTML = content.pages.map((page, index) => `<figure class="manga-page" data-page="${index}">
       <img src="${esc(mangaPageUrl(page))}" ${page.width ? `width="${esc(page.width)}"` : ''} ${page.height ? `height="${esc(page.height)}"` : ''} ${index < 2 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" alt="Page ${index + 1}">
       <figcaption><span>Page ${index + 1} couldn’t load</span><button data-page-retry="${index}">Retry</button></figcaption>
@@ -178,6 +203,7 @@ function wire() {
 
 export async function showMangaReader(key, id) {
     wire()
+    saveProgress()
     state.ctrl?.abort()
     const ctrl = new AbortController()
     const gen = ++state.gen
@@ -209,6 +235,7 @@ export async function showMangaReader(key, id) {
         const read = readSet(key)
         if (!read.has(id)) { read.add(id); saveRead(key, read) }
         posSet(key, { id, page: posGet(key)?.id === id ? posGet(key).page || 0 : 0, at: Date.now() })
+        updateLibrary()
     } catch (error) {
         if (stillHere(key, id, gen)) showError(error.name === 'AbortError' ? 'Chapter request stopped' : error.message || 'Couldn’t load this chapter')
     }

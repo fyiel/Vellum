@@ -6,9 +6,9 @@ const lsSet = (k, v) => {
         try {
             const ledger = JSON.parse(localStorage.getItem(`${NS}:updates`) || '{}') || {}
             let changed = false
-            for (const e of Object.values(ledger)) if (e.newNums?.length) {
-                e.newNums = []
-                changed = true
+            for (const e of Object.values(ledger)) {
+                if (e.newNums?.length) { e.newNums = []; changed = true }
+                if (e.newChapters?.length) { e.newChapters = []; changed = true }
             }
             if (changed) localStorage.setItem(`${NS}:updates`, JSON.stringify(ledger))
             localStorage.setItem(k, JSON.stringify(v))
@@ -35,6 +35,13 @@ export const touchLibrary = entry => {
     const known = Object.fromEntries(Object.entries(entry).filter(([, v]) => v != null && v !== ''))
     rest.unshift({ ...old, ...known, updatedAt: Date.now() })
     lsSet(`${NS}:lib`, rest.slice(0, 60))
+    if (entry.kind === 'manga' && Array.isArray(entry.chapterIds)) {
+        const ledger = loadUpdLedger()
+        if (!ledger[entry.slug]) {
+            ledger[entry.slug] = { firstSeen: Date.now(), read: true, seenIds: entry.chapterIds, newChapters: [], latest: entry.chapterIds.length, latestIds: entry.chapterIds }
+            saveUpdLedger(ledger)
+        }
+    }
 }
 
 export const dropLibrary = slug => {
@@ -45,6 +52,19 @@ export const dropLibrary = slug => {
         delete ledger[slug]
         saveUpdLedger(ledger)
     }
+}
+
+export const resetProgress = slug => {
+    try {
+        localStorage.removeItem(`${NS}:read:${slug}`)
+        localStorage.removeItem(`${NS}:pos:${slug}`)
+    } catch {}
+    const lib = library()
+    const index = lib.findIndex(e => e.slug === slug)
+    if (index < 0) return
+    const { readCount, lastN, lastId, lastLabel, lastPage, pageCount, ...entry } = lib[index]
+    lib[index] = { ...entry, updatedAt: Date.now() }
+    lsSet(`${NS}:lib`, lib)
 }
 
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }
