@@ -1,5 +1,4 @@
 import DOMPurify from "dompurify";
-import "../styles/reader.css";
 import {
   getSeries,
   getChapters,
@@ -62,6 +61,7 @@ const rd = {
   buffering: false,
   end: false,
   failed: false,
+  ctrl: null,
 };
 
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
@@ -99,6 +99,9 @@ prose.addEventListener(
 window.addEventListener("resize", rebuildOffsets);
 
 export async function showReader(slug, n) {
+  rd.ctrl?.abort();
+  const ctrl = new AbortController();
+  rd.ctrl = ctrl;
   const routeGen = ++rd.gen;
   state.view = "reader";
   state.series = null; // never carry the previous series metadata into this slug's library entry
@@ -113,37 +116,46 @@ export async function showReader(slug, n) {
     prose.innerHTML = `<div class="spinner"></div>`;
     rfoot.innerHTML = "";
     try {
-      const { chapters } = await getChapters(slug);
+      const { chapters } = await getChapters(slug, { signal: ctrl.signal });
       if (routeGen !== rd.gen) return; // closed or re navigated while the list was loading
       if (!Array.isArray(chapters)) throw new Error("couldn't load the chapter list");
       state.slug = slug;
       state.chapters = chapters;
     } catch (e) {
       if (routeGen !== rd.gen) return; // a dead route must not render into the live view
-      prose.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+      prose.innerHTML = `<div class="empty">${esc(e.message)}<button class="btn" id="reader-list-retry">retry</button></div>`;
+      $("#reader-list-retry").onclick = () => showReader(slug, n);
       return;
     }
   }
   if (document.fonts?.ready) document.fonts.ready.then(rebuildOffsets);
-  if (state.series?.nfSlug !== slug) hydrateSeries(slug);
+  if (state.series?.nfSlug !== slug) hydrateSeries(slug, ctrl);
 
-  const idx = Math.max(0, chapterIndex(n));
+  const idx = chapterIndex(n);
+  if (idx < 0) {
+    prose.innerHTML = `<div class="empty">chapter ${esc(n)} isn’t available</div>`;
+    rfoot.innerHTML = "";
+    return;
+  }
   const pos = posGet(slug);
   await startAt(slug, idx, pos && pos.n === n ? pos.p : 0);
 }
 
-async function hydrateSeries(slug) {
+async function hydrateSeries(slug, ctrl) {
   const key = seriesKey(slug);
   try {
-    const s = await getSeries(key);
-    if (rd.slug !== slug) return;
+    const s = await getSeries(key, { signal: ctrl.signal });
+    if (rd.ctrl !== ctrl || ctrl.signal.aborted || state.view !== "reader") return;
     state.series = { ...s, key: s.key ?? key };
     if (rd.cur >= 0) updateLibrary(rd.cur);
   } catch {}
 }
 
 export const closeReader = () => {
+  rd.ctrl?.abort();
+  rd.ctrl = null;
   rd.gen++; // invalidate any pending chapter load so it can't keep mutating the hidden reader
+  clearTimeout(idleTimer);
   posSave();
   closeSheet();
   closeDrawer();
@@ -151,6 +163,8 @@ export const closeReader = () => {
   document.documentElement.classList.remove("reading");
   document.body.classList.remove("reading");
   document.body.style.background = "";
+  state.slug = null;
+  state.chapters = [];
   if ("scrollRestoration" in history) history.scrollRestoration = "auto";
   if (state.view === "reader") state.view = "home";
 };
@@ -192,11 +206,11 @@ async function startAt(slug, idx, p = 0) {
   ensureBuffer();
 }
 
-const fetchChapter = (n) => getChapter(rd.slug, n);
+const fetchChapter = (n) => getChapter(rd.slug, n, { signal: rd.ctrl?.signal });
 
 const prefetch = (idx) => {
   const c = state.chapters[idx];
-  if (c) prefetchChapter(rd.slug, c.n);
+  if (c) prefetchChapter(rd.slug, c.n, { signal: rd.ctrl?.signal });
 };
 
 // chapter html is third party scraped content, allow only the formatting the reader styles
@@ -226,7 +240,8 @@ const cleanBody = (slug, n, html) => {
   const key = `${slug}:${n}`;
   let body = cleanCache.get(key);
   if (body === undefined) {
-    body = scrubDataUri(DOMPurify.sanitize(html, CLEAN));
+    body = scrubDataUri(DOMPurify.sanitize(html, CLEAN))
+      .replace(/<img\b/g, '<img loading="lazy" decoding="async"');
     cleanCache.set(key, body);
     if (cleanCache.size > CLEAN_MAX) cleanCache.delete(cleanCache.keys().next().value);
   }
@@ -266,17 +281,13 @@ async function appendNext(gen = rd.gen) {
   try {
     ch = await fetchChapter(c.n);
   } catch {
+    if (gen !== rd.gen) return false;
     rd.loading = false;
-    if (gen === rd.gen) {
-      rd.failed = true;
-      renderFoot();
-    }
+    rd.failed = true;
+    renderFoot();
     return false;
   }
-  if (gen !== rd.gen) {
-    rd.loading = false;
-    return false;
-  }
+  if (gen !== rd.gen) return false;
   try {
     prose.appendChild(makeBlock(idx, c, ch));
     rebuildOffsets();
@@ -322,18 +333,21 @@ const renderFoot = () => {
 };
 
 async function ensureBuffer() {
-  if (rd.buffering) return;
+  if (state.view !== "reader" || rd.buffering) return;
+  const gen = rd.gen;
   rd.buffering = true;
   let guard = 0;
   while (
+    gen === rd.gen &&
+    state.view === "reader" &&
     !rd.end &&
     !rd.failed &&
     guard++ < 10 &&
     docH() - (scrollY() + viewH()) < viewH() * 2
   ) {
-    if (!(await appendNext())) break;
+    if (!(await appendNext(gen))) break;
   }
-  rd.buffering = false;
+  if (gen === rd.gen) rd.buffering = false;
 }
 
 const renderPrevHint = () => {
@@ -360,14 +374,15 @@ async function loadPrev() {
   try {
     ch = await fetchChapter(c.n);
   } catch {
+    if (gen !== rd.gen) return;
     rd.ploading = false;
-    if (btn) btn.disabled = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "couldn’t load · try again";
+    }
     return;
   }
-  if (gen !== rd.gen) {
-    rd.ploading = false;
-    return;
-  }
+  if (gen !== rd.gen) return;
 
   const h = docH();
   $("#ch-prev")?.remove();
@@ -411,7 +426,7 @@ function setCurrent(idx) {
 
   // jumping past chapters marks them read, opening 300 implies the rest are behind you
   const crossed = [];
-  for (let i = rd.first; i < idx; i++) crossed.push(state.chapters[i].n);
+  for (let i = 0; i < idx; i++) crossed.push(state.chapters[i].n);
   // the chapter you land on is being read right now, do not wait for the 98% idle mark
   crossed.push(state.chapters[idx].n);
   let readSize = null;
@@ -505,7 +520,12 @@ window.addEventListener(
     if (state.view !== "reader") return;
     if (!ticking) {
       ticking = true;
+      const gen = rd.gen;
       requestAnimationFrame(() => {
+        if (state.view !== "reader" || gen !== rd.gen) {
+          ticking = false;
+          return;
+        }
         if (!chromeHidden && scrollY() > 40) setChrome(true);
         setCurrent(topChapterIdx());
         updateProgress();

@@ -1,6 +1,6 @@
 import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
-import { go } from '../lib/router.js'
+import { go, hashSlug } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 import { relTime } from '../lib/time.js'
@@ -105,7 +105,7 @@ function setSort(key) {
 }
 
 async function checkUpdates() {
-    const feed = await buildFeed()
+    const { feed } = await buildFeed()
     newCounts.clear()
     for (const u of feed) if (!u.read && u.newCount > 0) newCounts.set(u.slug, u.newCount)
     $('#count-updates').textContent = unreadTotal(feed) ? String(unreadTotal(feed)) : ''
@@ -116,6 +116,12 @@ function openEntry(el) {
     const slug = el.dataset.slug
     if (!slug) return
     go(`#/series/${encodeURIComponent(slug)}`)
+}
+
+function continueEntry(el) {
+    const slug = el.dataset.slug
+    const n = el.dataset.n
+    if (slug && n) go(`#/read/${hashSlug(slug)}/${n}`)
 }
 
 function wire() {
@@ -136,7 +142,7 @@ function wire() {
         t = setTimeout(() => { filterQ = v; render() }, 200)
     })
 
-    $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) openEntry(t) })
+    $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) continueEntry(t) })
     $('#libtable').addEventListener('click', e => { const r = e.target.closest('.trow'); if (r) openEntry(r) })
 
     paintSort()

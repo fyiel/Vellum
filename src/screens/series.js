@@ -1,12 +1,13 @@
 import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.js'
 import { srcName } from '../lib/source.js'
-import { go, back, hashSlug } from '../lib/router.js'
+import { go, hashSlug, parseHash } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
+const ORIGIN_ROUTE = { library: '#/', discover: '#/discover', updates: '#/updates' }
 
 let wired = false
 let cur = null
@@ -230,10 +231,13 @@ async function loadChapters(slug, mine) {
         if (!Array.isArray(d?.chapters)) throw new Error('bad chapter list')
         chapters = d.chapters
     } catch (e) {
-        if (mine === req) $('#schapters').innerHTML = `<div class="void">couldn't load the chapter list</div>`
+        if (mine === req && parseHash().name === 'series' && parseHash().key === cur?.key) {
+            $('#schapters').innerHTML = `<div class="void">couldn't load the chapter list<button class="btn" id="schapters-retry">retry</button></div>`
+            $('#schapters-retry').onclick = () => loadChapters(slug, mine)
+        }
         return
     }
-    if (mine !== req) return
+    if (mine !== req || parseHash().name !== 'series' || parseHash().key !== cur?.key) return
 
     const count = chapters.length
     cur.chapters = chapters
@@ -257,6 +261,7 @@ async function loadChapters(slug, mine) {
 
 export async function showSeries(key, origin) {
     wire()
+    $('#view-series').classList.remove('manga-detail')
     const mine = ++req
     const info = $('#sinfo'), chaps = $('#schapters')
     info.innerHTML = `<div class="void">loading&hellip;</div>`
@@ -264,19 +269,28 @@ export async function showSeries(key, origin) {
 
     let series
     try { series = await getSeries(seriesKey(key)) }
-    catch (e) { if (mine === req) info.innerHTML = `<div class="void">${esc(e.message)}</div>`; return }
-    if (mine !== req) return
+    catch (e) {
+        if (mine === req && parseHash().name === 'series' && parseHash().key === key) info.innerHTML = `<div class="void">${esc(e.message)}</div>`
+        return
+    }
+    if (mine !== req || parseHash().name !== 'series' || parseHash().key !== key) return
     if (!series) { info.innerHTML = `<div class="void">series not found</div>`; return }
 
     const slug = series.nfSlug || key
-    cur = { key, slug, series, chapters: [], count: null }
+    const knownCount = series.totalChapters == null || series.totalChapters === ''
+        ? NaN
+        : Number(series.totalChapters)
+    const count = Number.isFinite(knownCount) && knownCount >= 0 ? knownCount : null
+    cur = { key, slug, series, chapters: [], count }
 
-    setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => back())
-    info.innerHTML = infoHtml(series, slug, null)
+    setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => go(ORIGIN_ROUTE[origin] || '#/'))
+    info.innerHTML = infoHtml(series, slug, count)
     chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
 
     checkSynOverflow()
-    if (document.fonts?.ready) document.fonts.ready.then(() => { if (mine === req) checkSynOverflow() })
+    if (document.fonts?.ready) document.fonts.ready.then(() => {
+        if (mine === req && parseHash().name === 'series' && parseHash().key === key) checkSynOverflow()
+    })
 
     const next = posGet(slug)?.n
     if (next != null) prefetchChapter(slug, next)

@@ -7,23 +7,39 @@ const vkey = k => `${VER}|${k}`
 
 const mem = new Map()
 const inflight = new Map()
+const writers = new Map()
 const refreshing = new Set()
 
 let dbp
 function db() {
     if (dbp) return dbp
-    dbp = new Promise((resolve, reject) => {
+    dbp = new Promise(resolve => {
+        let settled = false
+        const finish = value => {
+            if (settled) return false
+            settled = true
+            resolve(value)
+            return true
+        }
+        if (typeof indexedDB === 'undefined') { finish(null); return }
         // version 2 drops the old store so a source swap (novelupdates to novelfire) cannot serve stale
         // cross source results out of a previous build
-        const req = indexedDB.open(DB, 2)
+        let req
+        try { req = indexedDB.open(DB, 2) }
+        catch { finish(null); return }
         req.onupgradeneeded = () => {
             const d = req.result
             if (d.objectStoreNames.contains(STORE)) d.deleteObjectStore(STORE)
             d.createObjectStore(STORE).createIndex('at', 'at')
         }
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error)
-    }).catch(() => null)
+        req.onsuccess = () => {
+            if (!finish(req.result)) req.result.close()
+            else req.result.onversionchange = () => req.result.close()
+        }
+        req.onerror = () => finish(null)
+        // an older tab can hold version 1 open indefinitely; use memory/network instead of hanging every page
+        req.onblocked = () => finish(null)
+    })
     return dbp
 }
 
@@ -100,10 +116,10 @@ function put(key, rec) {
     idbSet(key, rec).then(maybeEvict)
 }
 
-async function load(key, ttlMs, loader, negTtlMs, accept) {
+async function load(key, ttlMs, loader, negTtlMs, accept, canStore = () => true) {
     const v = await loader()
     const ttl = accept(v) ? ttlMs : negTtlMs
-    if (ttl > 0) put(key, { v, exp: Date.now() + ttl, at: Date.now() })
+    if (ttl > 0 && canStore()) put(key, { v, exp: Date.now() + ttl, at: Date.now() })
 
     return v
 }
@@ -111,10 +127,15 @@ async function load(key, ttlMs, loader, negTtlMs, accept) {
 function background(key, ttlMs, loader, negTtlMs, accept) {
     if (refreshing.has(key)) return
     refreshing.add(key)
-    load(key, ttlMs, loader, negTtlMs, accept).catch(() => {}).finally(() => refreshing.delete(key))
+    const token = {}
+    writers.set(key, token)
+    load(key, ttlMs, loader, negTtlMs, accept, () => writers.get(key) === token).catch(() => {}).finally(() => {
+        refreshing.delete(key)
+        if (writers.get(key) === token) writers.delete(key)
+    })
 }
 
-async function resolve(key, ttlMs, loader, swr, negTtlMs, accept) {
+async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore) {
     const now = Date.now()
     const disk = await idbGet(key)
     // a stored value that fails accept (eg an empty page cached while a source was down) is
@@ -126,20 +147,36 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept) {
         if (swr) { background(key, ttlMs, loader, negTtlMs, accept); return disk.v }
     }
 
-    return load(key, ttlMs, loader, negTtlMs, accept)
+    claimStore()
+    return load(key, ttlMs, loader, negTtlMs, accept, canStore)
 }
 
 export function cached(rawKey, ttlMs, loader, opts = {}) {
-    const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined } = opts
+    const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined, signal } = opts
     const key = vkey(rawKey)
+
+    if (signal?.aborted) return Promise.reject(Object.assign(new Error('request aborted'), { name: 'AbortError' }))
 
     const hot = mem.get(key)
     if (hot && hot.exp > Date.now() && accept(hot.v)) return Promise.resolve(hot.v)
 
     const pending = inflight.get(key)
-    if (pending) return pending
+    if (pending && pending.signal === signal) return pending.promise
 
-    const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept).finally(() => inflight.delete(key))
-    inflight.set(key, p)
+    const entry = { signal, promise: null }
+    const claimStore = () => {
+        if (signal?.aborted || inflight.get(key) !== entry) return
+        writers.set(key, entry)
+    }
+    const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept, () => writers.get(key) === entry, claimStore).finally(() => {
+        if (inflight.get(key) === entry) inflight.delete(key)
+        if (writers.get(key) === entry) writers.delete(key)
+    })
+    entry.promise = p
+    inflight.set(key, entry)
+    signal?.addEventListener('abort', () => {
+        if (inflight.get(key) === entry) inflight.delete(key)
+        if (writers.get(key) === entry) writers.delete(key)
+    }, { once: true })
     return p
 }

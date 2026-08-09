@@ -3,7 +3,7 @@ import { loadFeel } from '../lib/store.js'
 import { $, $$ } from '../lib/dom.js'
 
 const SCHEME_CLASS = { Graphite: '', Ink: 's-ink', Paper: 's-paper', Phosphor: 's-phosphor', Ember: 's-ember' }
-const NAV_ROUTE = { library: '#/', discover: '#/discover', updates: '#/updates' }
+const NAV_ROUTE = { library: '#/', discover: '#/discover', manga: '#/manga', updates: '#/updates' }
 let wired = false
 
 export function applyFeel() {

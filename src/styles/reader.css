@@ -191,6 +191,7 @@ body.reading ::-webkit-scrollbar-thumb:hover { background: #444; }
 
 /* empty / loading */
 .empty { text-align: center; color: var(--dark); padding: 56px 20px; font: 400 14px/1.7 var(--gohu); white-space: pre-wrap; }
+.empty .btn { display: block; margin: 18px auto 0; }
 
 .spinner, .minispin { position: relative; width: 6px; height: 6px; margin: 60px auto;
   background: var(--text-hi); animation: sq .4s ease infinite alternate; animation-delay: .15s; }

@@ -31,6 +31,7 @@ export async function buildFeed() {
     const entries = await mapPool(lib, 5, async e => {
         try { return { e, chapters: (await getChapters(e.slug))?.chapters } } catch { return { e, chapters: null } }
     })
+    const failed = entries.some(({ e, chapters }) => !Array.isArray(chapters) || (e.total > 0 && chapters.length === 0))
 
     for (const { e, chapters } of entries) {
         const led = ledger[e.slug]
@@ -63,7 +64,7 @@ export async function buildFeed() {
     }
 
     if (dirty) saveUpdLedger(ledger)
-    return feed.sort((a, b) => b.firstSeen - a.firstSeen)
+    return { feed: feed.sort((a, b) => b.firstSeen - a.firstSeen), failed }
 }
 
 export const unreadTotal = feed => feed.reduce((n, u) => n + (u.read ? 0 : u.newCount), 0)

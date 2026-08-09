@@ -57,15 +57,13 @@ function currentFilters() {
 
 const appliedFilters = () => appliedFiltersState ?? currentFilters()
 
-const segVal = name => $(`.fseg[data-filter="${name}"] span.on`)?.dataset.v
+const hasFilters = f => f.tokens.length > 0
+    || (f.status && f.status !== 'all')
+    || (f.minRating && f.minRating !== 'any')
+    || (f.length && f.length !== 'any')
+    || f.sources.size > 0
 
-function hasFilters() {
-    return tokens.size > 0
-        || (segVal('status') && segVal('status') !== 'all')
-        || (segVal('minrating') && segVal('minrating') !== 'any')
-        || (segVal('length') && segVal('length') !== 'any')
-        || $$('#dsource .chip.on:not([data-all])').length > 0
-}
+const customSort = () => dsort.key !== 'relevance' || dsort.dir !== 'desc'
 
 function buildDiscoverParams(p) {
     const genres = [], tags = []
@@ -89,7 +87,8 @@ function filterPage(list) {
     const f = appliedFilters()
     let out = list
     if (f.sources.size) out = out.filter(r => srcIds(r).some(id => f.sources.has(id)))
-    if (f.length !== 'any') out = out.filter(r => lengthBucket(r.chapters || 0) === f.length)
+    if (f.length !== 'any') out = out.filter(r => r.chapters != null && Number.isFinite(Number(r.chapters)) && lengthBucket(Number(r.chapters)) === f.length)
+    if (f.minRating !== 'any') out = out.filter(r => Number(r.rating) >= Number(f.minRating))
     return out
 }
 
@@ -126,7 +125,7 @@ function enrich(list) {
 
 function setLabel() {
     $('#dlab').innerHTML = active
-        ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : 'Results <span class="ct">&middot; filtered</span>')
+        ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : `Results <span class="ct">&middot; ${customSort() && !hasFilters(appliedFilters()) ? 'sorted' : 'filtered'}</span>`)
         : 'Trending'
 }
 
@@ -152,19 +151,19 @@ function feedFetch(p) {
 const scroller = () => $('#view-discover .scroll')
 
 let feedGen = 0
-let emptyPages = 0
+let seenKeys = new Set()
 
-async function startFeed() {
+async function startFeed(commitFilters = false) {
     const gen = ++feedGen
-    appliedFiltersState = currentFilters()
-    active = !!(query || hasFilters())
+    if (commitFilters || !appliedFiltersState) appliedFiltersState = currentFilters()
+    active = !!(query || hasFilters(appliedFilters()) || customSort())
     page = 0
     items = []
     done = false
     loadingGen = 0
     enrichedFirst = false
     feedError = false
-    emptyPages = 0
+    seenKeys = new Set()
     setLabel()
     const sc = scroller()
     if (sc) sc.scrollTop = 0
@@ -201,13 +200,16 @@ async function loadMore(fresh = false, gen = feedGen) {
 
     page = p
     const raw = data.results || []
-    const batch = filterPage(raw)
-    if (raw.length < LIMIT) done = true
-    // a page that renders nothing cannot fill the viewport, stop chaining after a few of them
-    // but keep scanning while full pages remain, matches can sit deeper in the catalog
-    else if (batch.length === 0) {
-        if (++emptyPages >= 3) done = true
-    } else emptyPages = 0
+    const freshRows = raw.filter(r => {
+        const key = r.key ?? `${r.source || ''}:${r.title || ''}`
+        if (seenKeys.has(key)) return false
+        seenKeys.add(key)
+        return true
+    })
+    const batch = filterPage(freshRows)
+    // the service may return fewer rows than requested while more pages exist; only empty or
+    // repeated pages are a reliable end marker
+    if (raw.length === 0 || freshRows.length === 0) done = true
 
     const wrap = $('#dlist')
     const startIdx = items.length
@@ -309,7 +311,7 @@ function resetAll() {
     dsort.dir = 'desc'
     paintSort()
     updateCount()
-    startFeed()
+    startFeed(true)
 }
 
 let searchTimer = null
@@ -365,7 +367,7 @@ function wire() {
     })
 
     wireTokens()
-    $('#fapply').addEventListener('click', runSearch)
+    $('#fapply').addEventListener('click', () => startFeed(true))
     $('#freset').addEventListener('click', resetAll)
     $('#dlist').addEventListener('click', e => {
         if (e.target.closest('#dmore-retry')) {
@@ -403,5 +405,5 @@ export function showDiscover() {
         return
     }
 
-    if (!inited) { inited = true; startFeed() }
+    if (!inited) { inited = true; startFeed(true) }
 }

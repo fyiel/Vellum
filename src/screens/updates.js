@@ -9,6 +9,7 @@ const BUCKETS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['week', 'This 
 
 let wired = false
 let feed = []
+let failed = false
 let filter = 'all'
 
 function bucketOf(ts) {
@@ -46,7 +47,8 @@ function render() {
         html += `<div class="usec"><div class="lab">${label}${ct}</div>${items.map(rowHtml).join('')}</div>`
     }
 
-    $('#ufeed').innerHTML = html || `<div class="void">no new chapters. you are all caught up</div>`
+    const warning = failed ? `<div class="void">${feed.length ? 'couldn’t check every series' : 'couldn’t check for updates'}</div>` : ''
+    $('#ufeed').innerHTML = warning + (html || (failed ? '' : `<div class="void">no new chapters. you are all caught up</div>`))
 }
 
 function refresh() {
@@ -110,7 +112,9 @@ function wire() {
 export async function showUpdates() {
     wire()
     $('#ufeed').innerHTML = `<div class="void">checking for new chapters&hellip;</div>`
-    feed = await buildFeed()
+    const result = await buildFeed()
+    feed = result.feed
+    failed = result.failed
     render()
     refresh()
 }

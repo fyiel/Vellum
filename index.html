@@ -31,7 +31,8 @@
       <nav>
         <span class="ni on" data-nav="library"><span class="ix">1</span>Library<span class="c" id="count-library"></span></span>
         <span class="ni" data-nav="discover"><span class="ix">2</span>Discover</span>
-        <span class="ni" data-nav="updates"><span class="ix">3</span>Updates<span class="c" id="count-updates"></span></span>
+        <span class="ni" data-nav="manga"><span class="ix">3</span>Manga</span>
+        <span class="ni" data-nav="updates"><span class="ix">4</span>Updates<span class="c" id="count-updates"></span></span>
       </nav>
       <div class="grow"></div>
     </aside>
@@ -53,6 +54,25 @@
           <div class="lab" id="cont-lab">Continue</div>
           <div class="cont" id="continue"></div>
           <div id="libtable"></div>
+        </div>
+      </div>
+
+      <div class="view manga" id="view-manga" hidden>
+        <div class="tool manga-tool">
+          <div class="srch"><span class="pr">⌕</span><input id="msearch" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Search manga, manhwa, manhua&hellip;"></div>
+          <div class="seg manga-source" id="msource" aria-label="Manga source">
+            <span class="on" data-source="all">All</span><span data-source="mf">MangaFire</span><span data-source="mh">MangaHub</span>
+          </div>
+        </div>
+        <div class="manga-subtool">
+          <div class="lab" id="mlab">Recently updated</div>
+          <div class="seg" id="mformat" aria-label="Manga format">
+            <span class="on" data-format="all">All</span><span data-format="manga">Manga</span><span data-format="manhwa">Manhwa</span><span data-format="manhua">Manhua</span>
+          </div>
+        </div>
+        <div class="scroll manga-scroll" id="mscroll">
+          <div class="manga-grid" id="mlist"></div>
+          <button class="manga-more" id="mmore" hidden>Load more</button>
         </div>
       </div>
 
@@ -122,6 +142,26 @@
     <span class="rprog" id="r-pos"></span>
   </div>
 </section>
+
+<!-- image reader stays separate from the prose reader: manga chapters use opaque ids and page progress -->
+<section class="mreader" id="mreader">
+  <div class="mreader-progress" id="mr-progress"></div>
+  <div class="mreader-chrome mreader-top">
+    <button class="riconbtn" id="mr-back" title="Back">‹</button>
+    <span class="mreader-title" id="mr-title"></span>
+    <button class="riconbtn" id="mr-list" title="Chapters">☰</button>
+  </div>
+  <main class="mreader-pages" id="mr-pages"></main>
+  <nav class="mreader-step" id="mr-step"></nav>
+  <div class="mreader-chrome mreader-bottom"><span id="mr-pos"></span></div>
+</section>
+
+<div class="sheet-backdrop" id="mdrawer-backdrop"></div>
+<div class="sheet drawer" id="mdrawer">
+  <div class="grip"></div>
+  <div class="drawer-head"><input id="mdw-q" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Find a chapter&hellip;"></div>
+  <div class="drawer-list" id="mdrawer-list"></div>
+</div>
 
 <!-- chapter drawer -->
 <div class="sheet-backdrop" id="drawer-backdrop"></div>
