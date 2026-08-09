@@ -210,12 +210,13 @@ const CLEAN = {
     "img", "figure", "figcaption", "span", "sub", "sup", "a",
   ],
   ALLOWED_ATTR: ["href", "src", "class"],
-  ALLOWED_URI_REGEXP: /^(?:https?:|\/(?!\/)|data:image\/)/i,
+  // a data uri may not hide behind an http prefix, fail closed on the whole value
+  ALLOWED_URI_REGEXP: /^(?:(?:https?):(?!.*data:)|(?!\/\/)\/|data:image\/(?:png|jpe?g|gif|webp|avif|bmp))/i,
 };
 
 // dompurify's data uri allowlist is additive only, so scrub any data uri that
-// is not an image after sanitizing (its serializer quotes attrs with ")
-const scrubDataUri = s => s.replace(/\s(?:src|href)="data:(?!image\/)[^"]*"/gi, "");
+// is not a raster image after sanitizing (its serializer quotes attrs with ")
+const scrubDataUri = s => s.replace(/\s(?:src|href)="data:(?!image\/(?:png|jpe?g|gif|webp|avif|bmp))[^"]*"/gi, "");
 
 // chapters are immutable for their cache ttl, memoize the clean so re entries
 // and prev hints do not re sanitize the same body
