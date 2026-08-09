@@ -19,6 +19,9 @@ import {
   SET_DEFAULT,
 } from "../lib/store.js";
 import { $, $$, esc } from "../lib/dom.js";
+import { writeClip } from "../lib/clip.js";
+import { coverSrc } from "../lib/cover.js";
+import { renderQuoteCard } from "../lib/card.js";
 
 let settings = loadSettings();
 const THEME_BG = {
@@ -147,6 +150,9 @@ export const closeReader = () => {
   posSave();
   closeSheet();
   closeDrawer();
+  qHide();
+  closeQuoteSheet();
+  qcache = null; // a stale card must not leak into the next book
   R.classList.remove("active");
   document.documentElement.classList.remove("reading");
   document.body.classList.remove("reading");
@@ -709,3 +715,219 @@ const commit = () => {
   syncSheet();
   updateProgress();
 };
+
+/* quote cards: selection chip, pre rendered card, copy / share sheet */
+const qchip = $("#quote-chip");
+const qsheet = $("#rquote"),
+  qbd = $("#rquote-backdrop");
+const qimg = $("#rquote-img");
+const qcopyText = $("#rquote-copy-text"),
+  qcopyImg = $("#rquote-copy-img"),
+  qshare = $("#rquote-share");
+let qcur = null; // the selection the chip is anchored to: { text, range }
+let qcache = null; // pre rendered card for the current selection: { text, dataUrl, blob }
+let qrendering = null; // { text, promise } dedupe for the in flight render
+
+const qSel = () => {
+  const sel = window.getSelection?.();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
+  if (state.view !== "reader") return null;
+  const range = sel.getRangeAt(0);
+  if (!range || range.collapsed) return null;
+  // the selection must sit entirely inside the prose, chrome and foot are not quotable
+  for (const n of [sel.anchorNode, sel.focusNode]) {
+    if (!n || !prose.contains(n.nodeType === 3 ? n.parentNode : n)) return null;
+  }
+  if (!prose.contains(range.commonAncestorContainer)) return null;
+  const text = sel.toString().replace(/\s+/g, " ").trim();
+  if (text.length < 2) return null;
+  return { text, range };
+};
+
+const qAnchor = () => {
+  if (!qcur) return;
+  const r = qcur.range.getBoundingClientRect();
+  if (!r || (!r.width && !r.height)) return;
+  const w = qchip.offsetWidth || 0;
+  const h = qchip.offsetHeight || 0;
+  const x = Math.max(8, Math.min(r.left, innerWidth - w - 8));
+  const y = r.bottom + 10 + h > innerHeight - 8 ? Math.max(8, r.top - h - 10) : r.bottom + 10;
+  qchip.style.left = x + "px";
+  qchip.style.top = y + "px";
+};
+
+const qHide = () => {
+  qcur = null;
+  qchip.hidden = true;
+};
+
+const qShow = (s) => {
+  qcur = s;
+  qchip.hidden = false;
+  qAnchor();
+  renderQuote(s.text); // pre render so a copy gesture never waits on the renderer
+};
+
+// the current data-theme tokens as canvas colors, the card must match the display
+const qColors = () => {
+  const cs = getComputedStyle(R);
+  return {
+    bg: cs.getPropertyValue("--rbg"),
+    text: cs.getPropertyValue("--rtext"),
+    muted: cs.getPropertyValue("--rmuted"),
+    line: cs.getPropertyValue("--rline"),
+  };
+};
+
+const renderQuote = (text) => {
+  if (qrendering?.text === text) return qrendering.promise;
+  const p = (async () => {
+    const c = state.chapters[rd.cur];
+    const { canvas } = await renderQuoteCard({
+      quote: text,
+      series: state.series?.title ?? "",
+      chapter: c?.n ?? 0,
+      chapterTotal: state.chapters.length,
+      theme: R.dataset.theme ?? "dark",
+      colors: qColors(),
+      cover: coverSrc(state.series?.cover, state.series?.title),
+    });
+    const dataUrl = canvas.toDataURL("image/png");
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+    // a newer selection may have superseded this render, drop the stale one
+    if (qcur?.text === text) {
+      qcache = { text, dataUrl, blob };
+      if (qsheet.classList.contains("open")) qimg.src = dataUrl;
+    }
+  })().catch(() => {
+    if (qrendering?.promise === p) qrendering = null;
+  });
+  qrendering = { text, promise: p };
+  return p;
+};
+
+let qTick = false;
+document.addEventListener("selectionchange", () => {
+  if (state.view !== "reader") {
+    if (qcur) qHide();
+    return;
+  }
+  if (qTick) return;
+  qTick = true;
+  // a timer rather than a frame: selectionchange bursts during a drag and the
+  // frame callback is throttled when the window is occluded, which would leave
+  // the chip stuck hidden while the user is still selecting
+  setTimeout(() => {
+    qTick = false;
+    const s = qSel();
+    if (!s) {
+      if (qcur) qHide();
+      return;
+    }
+    qShow(s);
+  }, 0);
+});
+
+window.addEventListener(
+  "scroll",
+  () => {
+    if (qcur && state.view === "reader") qAnchor();
+  },
+  { passive: true },
+);
+window.addEventListener("resize", () => {
+  if (qcur) qAnchor();
+});
+
+const openQuoteSheet = () => {
+  if (!qcache) return;
+  qimg.src = qcache.dataUrl;
+  qsheet.classList.add("open");
+  qbd.classList.add("open");
+};
+const closeQuoteSheet = () => {
+  qsheet.classList.remove("open");
+  qbd.classList.remove("open");
+};
+qbd.onclick = closeQuoteSheet;
+$("#rquote-close").onclick = closeQuoteSheet;
+
+// keep the selection alive while the chip is pressed so a slow tap cannot collapse it
+qchip.addEventListener("mousedown", (e) => e.preventDefault());
+qchip.onclick = async () => {
+  const s = qcur;
+  if (!s) return;
+  if (!qcache || qcache.text !== s.text) await renderQuote(s.text);
+  openQuoteSheet();
+};
+
+const qFlash = (btn, label) => {
+  const orig = btn.textContent;
+  btn.textContent = label;
+  btn.classList.add("on");
+  setTimeout(() => {
+    btn.textContent = orig;
+    btn.classList.remove("on");
+  }, 900);
+};
+
+qcopyText.onclick = () => {
+  if (!qcache) return;
+  writeClip(qcache.text);
+  qFlash(qcopyText, "copied");
+};
+
+// image copy prefers the async clipboard api (best effort, some engines deny
+// the write even when ClipboardItem exists), then falls back to saving the png
+const saveBlob = (blob) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "vellum-quote.png";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+};
+const copyImage = async (blob) => {
+  if (window.ClipboardItem && navigator.clipboard?.write) {
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      return true;
+    } catch {}
+  }
+  saveBlob(blob);
+  return false;
+};
+qcopyImg.onclick = async () => {
+  if (!qcache?.blob) return;
+  try {
+    qFlash(qcopyImg, (await copyImage(qcache.blob)) ? "copied" : "saved");
+  } catch {
+    qFlash(qcopyImg, "failed");
+  }
+};
+
+const shareOk = () => {
+  if (!navigator.share) return false;
+  if (navigator.canShare) {
+    try {
+      return navigator.canShare({
+        files: [new File([new Blob(["x"])], "x.png", { type: "image/png" })],
+      });
+    } catch {
+      return false;
+    }
+  }
+  return true;
+};
+qshare.onclick = async () => {
+  if (!qcache?.blob || !navigator.share) return;
+  const f = new File([qcache.blob], "vellum-quote.png", { type: "image/png" });
+  try {
+    await navigator.share({ files: [f], title: "Vellum quote", text: qcache.text });
+  } catch {}
+};
+// entries with no reachable pipeline are hidden rather than dead buttons
+qcopyImg.hidden = !(window.ClipboardItem || "download" in document.createElement("a"));
+qshare.hidden = !shareOk();

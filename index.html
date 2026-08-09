@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#15161a">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -121,6 +121,7 @@
   <div class="reader-chrome reader-bottom">
     <span class="rprog" id="r-pos"></span>
   </div>
+  <button class="quote-chip" id="quote-chip" hidden>[ quote card ]</button>
 </section>
 
 <!-- chapter drawer -->
@@ -176,6 +177,19 @@
       <button data-lh="1.5">Normal</button>
       <button data-lh="1.8">Loose</button>
     </div>
+  </div>
+</div>
+
+<!-- quote card sheet -->
+<div class="sheet-backdrop" id="rquote-backdrop"></div>
+<div class="sheet qcard" id="rquote">
+  <div class="grip"></div>
+  <div class="qcard-img"><img id="rquote-img" alt="quote card"></div>
+  <div class="qcard-actions">
+    <button class="qcard-btn" id="rquote-copy-text">copy text</button>
+    <button class="qcard-btn" id="rquote-copy-img">copy image</button>
+    <button class="qcard-btn" id="rquote-share">share</button>
+    <button class="qcard-btn" id="rquote-close">close</button>
   </div>
 </div>
 

@@ -4,6 +4,7 @@ import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
+import { writeClip } from '../lib/clip.js'
 import { $, $$, esc } from '../lib/dom.js'
 
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
@@ -132,24 +133,6 @@ function toggleFollow() {
         btn.classList.add('on')
         btn.textContent = 'Following'
     }
-}
-
-const writeClip = t => {
-    try {
-        if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(t).catch(() => execCopy(t)); return }
-    } catch {}
-    execCopy(t)
-}
-
-const execCopy = t => {
-    const ta = document.createElement('textarea')
-    ta.value = t
-    ta.style.position = 'fixed'
-    ta.style.opacity = '0'
-    document.body.appendChild(ta)
-    ta.select()
-    try { document.execCommand('copy') } catch {}
-    document.body.removeChild(ta)
 }
 
 function copyValue(el) {

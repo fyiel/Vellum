@@ -161,6 +161,32 @@ body.reading ::-webkit-scrollbar-thumb:hover { background: #444; }
 .sheet .swatch { width: 28px; height: 28px; border-radius: 0; border: var(--bw) solid var(--border-hi); }
 .sheet .swatch.on { border-color: var(--text-hi); }
 
+/* quote card: selection chip anchored to the range, styled like the sheets */
+.quote-chip {
+  position: fixed; z-index: 118; margin: 0; cursor: pointer;
+  appearance: none; background: var(--bg-b) var(--dither); color: var(--text-hi);
+  border: var(--bw) solid var(--border-hi); border-radius: 0;
+  padding: 9px 12px; font: 400 13px/1 var(--gohu);
+  white-space: nowrap; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+.quote-chip:active { background: var(--bg-d); }
+.quote-chip[hidden] { display: none; }
+
+/* quote card sheet: canvas preview plus copy text / copy image / share */
+.qcard-img { display: flex; justify-content: center; padding: 8px 0 2px; }
+.qcard-img img {
+  width: 100%; max-width: 400px; height: auto;
+  border: var(--bw) solid var(--border-hi);
+}
+.qcard-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 10px 0 2px; }
+.qcard-btn {
+  appearance: none; background: var(--bg-a); color: var(--text); cursor: pointer;
+  border: var(--bw) solid var(--border); border-radius: 0;
+  padding: 9px 14px; font: 400 13px/1.2 var(--gohu);
+}
+.qcard-btn:active { background: var(--bg-d); }
+.qcard-btn.on { background: var(--bg-d); color: var(--text-hi); border-color: var(--border-hi); }
+
 /* chapter drawer */
 .drawer { display: flex; flex-direction: column; height: min(76dvh, 640px); padding-bottom: 0; }
 .drawer-head { padding: 2px 0 10px; }

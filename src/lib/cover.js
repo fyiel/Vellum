@@ -8,16 +8,20 @@ const isTauri = () => !!window.__TAURI_INTERNALS__;
 const placeholder = (u) => !u || /noimagemid/i.test(u);
 const resolver = (title) => apiUrl(`/read/api/cover?t=${enc(title)}`);
 
-export function coverImg(url, title) {
+// the src a cover image should load from: nucover in tauri (now cors-open so
+// canvases can read it), the api resolver elsewhere, empty when there is none
+export function coverSrc(url, title) {
   const fb = title ? resolver(title) : "";
   let src = placeholder(url) ? fb : url;
+  if (isNu(url) && !placeholder(url)) src = isTauri() ? `nucover://cover/?u=${enc(url)}` : fb;
+  return src || "";
+}
+
+export function coverImg(url, title) {
+  const fb = title ? resolver(title) : "";
+  const src = coverSrc(url, title);
   let nu = "";
-  if (isNu(url) && !placeholder(url)) {
-    if (isTauri()) {
-      src = `nucover://cover/?u=${enc(url)}`;
-      nu = ` data-nu="${esc(src)}"`;
-    } else src = fb;
-  }
+  if (src.startsWith("nucover://")) nu = ` data-nu="${esc(src)}"`;
   if (!src) return "";
   const cf = fb && fb !== src ? ` data-cf="${esc(fb)}"` : "";
   return `<img src="${esc(src)}"${cf}${nu} loading="lazy" alt="">`;

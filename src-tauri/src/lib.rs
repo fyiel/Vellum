@@ -126,10 +126,13 @@ fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<
             match r.bytes() {
                 Ok(b) => {
                     log::info!("nucover ok {} bytes {}", b.len(), target);
+                    // the webview draws this cover into quote card canvases, which
+                    // must be able to read the pixels back, so the response is cors-open
                     tauri::http::Response::builder()
                         .status(200)
                         .header("Content-Type", ct)
                         .header("Cache-Control", "public, max-age=86400")
+                        .header("Access-Control-Allow-Origin", "*")
                         .body(b.to_vec())
                         .unwrap()
                 }

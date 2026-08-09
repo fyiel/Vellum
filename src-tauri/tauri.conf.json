@@ -23,8 +23,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'",
-      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'"
     }
   },
   "bundle": {
