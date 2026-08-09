@@ -1,14 +1,17 @@
 import { library, loadLibSort, saveLibSort } from '../lib/store.js'
-import { buildFeed, unreadTotal } from '../lib/updates.js'
+import { buildFeed, unreadTotal, enrichGenres } from '../lib/updates.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 import { relTime } from '../lib/time.js'
 
 const CONT_MAX = 4
+// shelves are live genre views, the unshelved chip is a distinct bucket so no genre name can fake it
+const UNSHELVED = Symbol('unshelved')
 
 let ui = loadLibSort()
 let filterQ = ''
+let shelf = null
 let wired = false
 const newCounts = new Map()
 
@@ -64,15 +67,48 @@ const row = e => {
     </div>`
 }
 
+function groupByGenre(list) {
+    const by = new Map()
+    for (const e of list) {
+        for (const g of Array.isArray(e.genres) ? e.genres : []) {
+            const arr = by.get(g)
+            if (arr) arr.push(e)
+            else by.set(g, [e])
+        }
+    }
+    return by
+}
+
 function render() {
     const all = library()
     $('#count-library').textContent = all.length ? String(all.length) : ''
+
+    // shelves are derived membership views, a series with several genres sits on several shelves
+    const byGenre = groupByGenre(all)
+    const unshelved = all.filter(e => !(Array.isArray(e.genres) && e.genres.length))
+
+    const bar = $('#shelfbar')
+    const showBar = all.length > 0 && byGenre.size > 0
+    bar.hidden = !showBar
+    if (showBar) {
+        const chips = [...byGenre.entries()]
+            .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+            .map(([g, arr]) => `<span class="shelfchip${shelf === g ? ' on' : ''}" data-shelf="${esc(g)}" title="series counted per shelf"><span>${esc(g)}</span><span class="ct">${arr.length}</span></span>`)
+        if (unshelved.length) chips.push(`<span class="shelfchip${shelf === UNSHELVED ? ' on' : ''}" data-unshelved title="series counted per shelf"><span>Unshelved</span><span class="ct">${unshelved.length}</span></span>`)
+        $('#shelfchips').innerHTML = chips.join('')
+    }
+
+    // the active shelf may have emptied while away, fall back to All
+    if (shelf === UNSHELVED ? !unshelved.length : shelf != null && !byGenre.has(shelf)) shelf = null
 
     const inProg = all.filter(e => started(e) && !done(e))
     const continueItems = [...inProg].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, CONT_MAX)
     const contSlugs = new Set(continueItems.map(e => e.slug))
 
     let rows = all.filter(e => !contSlugs.has(e.slug))
+    if (shelf === UNSHELVED) rows = rows.filter(e => !(Array.isArray(e.genres) && e.genres.length))
+    else if (shelf != null) rows = rows.filter(e => (e.genres || []).includes(shelf))
+    const shelfRows = rows
     if (filterQ) {
         const f = filterQ.toLowerCase()
         rows = rows.filter(e => (e.title || '').toLowerCase().includes(f) || (e.author || '').toLowerCase().includes(f))
@@ -85,8 +121,14 @@ function render() {
     cont.style.display = showCont ? '' : 'none'
     cont.innerHTML = showCont ? continueItems.map(contTile).join('') : ''
 
+    const hd = $('#shelfhd')
+    if (shelf === UNSHELVED) { hd.hidden = false; hd.textContent = `Unshelved ${unshelved.length}` }
+    else if (shelf != null) { hd.hidden = false; hd.textContent = `${shelf} ${byGenre.get(shelf).length}` }
+    else hd.hidden = true
+
     const table = $('#libtable')
     if (!all.length) table.innerHTML = `<div class="void">nothing in your library yet. find something to read and it shows up here</div>`
+    else if (shelf != null && !shelfRows.length) table.innerHTML = `<div class="void">all of it is on the continue rail</div>`
     else if (!rows.length) table.innerHTML = `<div class="void">no matches</div>`
     else table.innerHTML = rows.map(row).join('')
 }
@@ -139,6 +181,14 @@ function wire() {
     $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) openEntry(t) })
     $('#libtable').addEventListener('click', e => { const r = e.target.closest('.trow'); if (r) openEntry(r) })
 
+    $('#shelfchips').addEventListener('click', e => {
+        const chip = e.target.closest('.shelfchip')
+        if (!chip) return
+        const next = chip.dataset.unshelved != null ? UNSHELVED : chip.dataset.shelf
+        shelf = shelf === next ? null : next
+        render()
+    })
+
     paintSort()
 }
 
@@ -146,4 +196,6 @@ export function showLibrary() {
     wire()
     render()
     checkUpdates()
+    // a warm background pass backfills genres, the follow write covers freshly followed series instantly
+    enrichGenres().then(() => { if (!$('#view-library').hidden) render() })
 }

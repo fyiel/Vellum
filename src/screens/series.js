@@ -128,7 +128,7 @@ function toggleFollow() {
         btn.classList.remove('on')
         btn.textContent = 'Follow'
     } else {
-        touchLibrary({ slug, title: series.title, cover: series.cover, author: series.author, total: count })
+        touchLibrary({ slug, title: series.title, cover: series.cover, author: series.author, total: count, genres: series.genres })
         btn.classList.add('on')
         btn.textContent = 'Following'
     }

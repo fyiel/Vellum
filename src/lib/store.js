@@ -31,10 +31,21 @@ export const touchLibrary = entry => {
     const lib = library()
     const old = lib.find(e => e.slug === entry.slug)
     const rest = lib.filter(e => e.slug !== entry.slug)
-    // empty fields mean unknown, never let them erase stored values
-    const known = Object.fromEntries(Object.entries(entry).filter(([, v]) => v != null && v !== ''))
+    // empty fields mean unknown, never let them erase stored values, an empty array is as unknown as an empty string
+    const known = Object.fromEntries(Object.entries(entry).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)))
     rest.unshift({ ...old, ...known, updatedAt: Date.now() })
     lsSet(`${NS}:lib`, rest.slice(0, 60))
+}
+
+// merge fields in place, position and recency untouched so enrichment never reshuffles the Recent sort
+export const patchLibraryEntry = (slug, fields) => {
+    const lib = library()
+    const i = lib.findIndex(e => e.slug === slug)
+    // the entry may have been unfollowed while a pass was in flight, never resurrect it
+    if (i === -1) return
+    const known = Object.fromEntries(Object.entries(fields).filter(([, v]) => v !== undefined && v !== ''))
+    lib[i] = { ...lib[i], ...known }
+    lsSet(`${NS}:lib`, lib)
 }
 
 export const dropLibrary = slug => {

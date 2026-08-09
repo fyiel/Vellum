@@ -1,5 +1,5 @@
-import { library, loadUpdLedger, saveUpdLedger } from './store.js'
-import { getChapters } from './api.js'
+import { library, loadUpdLedger, saveUpdLedger, patchLibraryEntry } from './store.js'
+import { getChapters, getSeries, seriesKey } from './api.js'
 
 const rowOf = (e, led) => ({
     slug: e.slug, title: e.title, cover: e.cover,
@@ -64,6 +64,28 @@ export async function buildFeed() {
 
     if (dirty) saveUpdLedger(ledger)
     return feed.sort((a, b) => b.firstSeen - a.firstSeen)
+}
+
+// backfill genres for entries that have none, the 6h series cache keeps warm passes free
+export async function enrichGenres() {
+    const missing = library().filter(e => e.genres == null)
+    if (!missing.length) return
+
+    const entries = await mapPool(missing, 5, async e => {
+        try {
+            const s = await getSeries(seriesKey(e.slug))
+            // a successful fetch is the truth, a genre-less series stores [] so it is never retried
+            return { e, genres: Array.isArray(s?.genres) ? s.genres : [] }
+        } catch {
+            // failed or partial, leave the field unknown and retry the next pass
+            return { e, genres: undefined }
+        }
+    })
+
+    for (const { e, genres } of entries) {
+        if (genres === undefined) continue
+        patchLibraryEntry(e.slug, { genres })
+    }
 }
 
 export const unreadTotal = feed => feed.reduce((n, u) => n + (u.read ? 0 : u.newCount), 0)

@@ -57,6 +57,15 @@ body { background: #15161a; overflow: hidden; }
 
 .den .scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
 .den .lab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin: 0 0 9px; }
+.den .shelfbar { display: flex; align-items: center; gap: 12px; flex: none; padding: 9px 16px; border-bottom: 1px solid var(--line); }
+.den .shelfbar[hidden] { display: none; }
+.den .shelfbar .lab { margin: 0; }
+.den .shelfchips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.den .shelfchip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; background: var(--row); border: 1px solid var(--line2); color: var(--text); font: 500 11px 'Archivo'; cursor: pointer; }
+.den .shelfchip:hover { background: var(--rowh); }
+.den .shelfchip .ct { font: 400 10px var(--mono); color: var(--dim); }
+.den .shelfchip.on { background: var(--sel); border-color: var(--ac); color: var(--hi); }
+.den .shelfchip.on .ct { color: var(--ac); }
 .den .cont { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 20px; }
 .den .ctile { display: flex; gap: 11px; padding: 9px; background: var(--row); border: 1px solid var(--line); cursor: pointer; }
 .den .ctile .cv { flex: none; width: 40px; aspect-ratio: 3/4; background: var(--bg); border: 1px solid var(--line2); display: flex; align-items: flex-end; padding: 4px; overflow: hidden; }
@@ -89,6 +98,8 @@ body { background: #15161a; overflow: hidden; }
 .den.d-compact .trow { padding: 6px 10px; }
 .den.d-compact .trow .cv { width: 30px; height: 40px; }
 .den.d-compact .ctile { padding: 7px; }
+.den.d-compact .shelfbar { padding: 7px 16px; }
+.den.d-compact .shelfchip { padding: 4px 9px; }
 .den.d-dense .trow { padding: 3px 10px; }
 .den.d-dense .trow .cv { width: 22px; height: 30px; }
 .den.d-dense .tt .au { display: none; }
@@ -97,3 +108,5 @@ body { background: #15161a; overflow: hidden; }
 .den.d-dense .ctile { padding: 6px; }
 .den.d-dense .ctile .cv { width: 34px; }
 .den.d-dense .lab { margin-bottom: 7px; }
+.den.d-dense .shelfbar { padding: 6px 16px; }
+.den.d-dense .shelfchip { padding: 3px 8px; font-size: 10px; }
