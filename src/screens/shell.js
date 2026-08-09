@@ -1,6 +1,7 @@
 import { go } from '../lib/router.js'
 import { loadFeel } from '../lib/store.js'
 import { $, $$ } from '../lib/dom.js'
+import { openPalette } from './palette.js'
 
 const SCHEME_CLASS = { Graphite: '', Ink: 's-ink', Paper: 's-paper', Phosphor: 's-phosphor', Ember: 's-ember' }
 const NAV_ROUTE = { library: '#/', discover: '#/discover', updates: '#/updates' }
@@ -65,4 +66,10 @@ export function mountShell() {
 
     $$('.sq .s').forEach(b => b.addEventListener('click', () => winAction(b.dataset.win)))
     $$('.ni').forEach(n => n.addEventListener('click', () => { const r = NAV_ROUTE[n.dataset.nav]; if (r) go(r) }))
+
+    const pal = $('#palbtn')
+    if (pal) {
+        pal.textContent = mac ? '⌘K' : 'Ctrl K'
+        pal.addEventListener('click', () => openPalette())
+    }
 }

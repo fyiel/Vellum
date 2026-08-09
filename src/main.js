@@ -8,6 +8,7 @@ import './styles/library.css'
 import './styles/discover.css'
 import './styles/updates.css'
 import './styles/series.css'
+import './styles/palette.css'
 
 import { startRouter, parseHash } from './lib/router.js'
 import { setupNative } from './lib/native.js'

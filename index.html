@@ -24,6 +24,7 @@
     </div>
     <span class="crumb"><b id="crumb">Library</b></span>
     <span class="sp"></span>
+    <button class="palbtn" id="palbtn" title="Jump">&#8984;K</button>
   </div>
   <div class="body">
     <aside class="side">
@@ -176,6 +177,23 @@
       <button data-lh="1.5">Normal</button>
       <button data-lh="1.8">Loose</button>
     </div>
+  </div>
+</div>
+
+<!-- command palette (jump) -->
+<div class="palette-backdrop" id="palette-backdrop"></div>
+<div class="palette" id="palette" role="dialog" aria-modal="true" aria-label="Jump">
+  <div class="palette-head">
+    <span class="pcaret">&#8250;</span>
+    <input id="p-q" inputmode="search" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Jump to a series, or type to search&hellip;">
+  </div>
+  <div class="palette-body">
+    <div class="palette-list" id="p-list" tabindex="-1"></div>
+    <div class="palette-rail" id="p-rail"></div>
+  </div>
+  <div class="palette-foot">
+    <span><b>&#8593;&#8595;</b> move&nbsp;&nbsp;<b>&#8629;</b> open&nbsp;&nbsp;<b>tab</b> actions&nbsp;&nbsp;<b>esc</b> close</span>
+    <span class="sp"></span>
   </div>
 </div>
 
