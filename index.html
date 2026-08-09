@@ -109,6 +109,7 @@
 
 <!-- reader (endless stream, scrolls the document, hidden until reading) -->
 <section class="reader" id="reader">
+  <div class="rtimerbar" id="rtimerbar"></div>
   <div class="rprogbar" id="rprogbar"></div>
   <div class="reader-chrome reader-top">
     <button class="riconbtn" id="r-back" title="Back">‹</button>
@@ -120,6 +121,11 @@
   <div class="reader-foot" id="reader-foot"></div>
   <div class="reader-chrome reader-bottom">
     <span class="rprog" id="r-pos"></span>
+    <span class="r-goalchip" id="r-goalchip" title="Reading goals"></span>
+    <span class="r-timer">
+      <span class="r-timertxt" id="r-timertxt">25:00</span>
+      <button class="riconbtn" id="r-timerbtn" title="Start focus">▶</button>
+    </span>
   </div>
 </section>
 
@@ -177,6 +183,68 @@
       <button data-lh="1.8">Loose</button>
     </div>
   </div>
+</div>
+
+<!-- focus sheet (timer + goals) -->
+<div class="sheet-backdrop" id="focus-sheet-backdrop"></div>
+<div class="sheet" id="focus-sheet">
+  <div class="grip"></div>
+  <div class="set-row">
+    <span class="set-label">Session</span>
+    <div class="seg" id="r-set-min">
+      <button data-min="15">15</button>
+      <button data-min="25">25</button>
+      <button data-min="45">45</button>
+      <button data-min="60">60</button>
+    </div>
+  </div>
+  <div class="set-row">
+    <span class="set-label">Daily goal</span>
+    <div class="seg" id="r-set-day">
+      <button data-day="0">Off</button>
+      <button data-day="15">15</button>
+      <button data-day="30">30</button>
+      <button data-day="45">45</button>
+      <button data-day="60">60</button>
+      <button data-day="90">90</button>
+    </div>
+  </div>
+  <div class="set-row">
+    <span class="set-label">Weekly goal</span>
+    <div class="seg" id="r-set-week">
+      <button data-week="0">Off</button>
+      <button data-week="180">3h</button>
+      <button data-week="300">5h</button>
+      <button data-week="420">7h</button>
+      <button data-week="600">10h</button>
+    </div>
+  </div>
+  <div class="r-focus-stat" id="r-focus-daystat">
+    <span class="r-focus-statlab">Today <b id="r-focus-daylabel">0/0m</b></span>
+    <div class="r-focus-bar"><div class="r-focus-fill" id="r-focus-dayfill"></div></div>
+  </div>
+  <div class="r-focus-stat" id="r-focus-weekstat">
+    <span class="r-focus-statlab">This week <b id="r-focus-weeklabel">0/0h</b></span>
+    <div class="r-focus-bar"><div class="r-focus-fill" id="r-focus-weekfill"></div></div>
+  </div>
+  <div class="r-focus-days" id="r-focus-days"></div>
+</div>
+
+<!-- focus completion (one shot per session, above the settings sheet) -->
+<div class="sheet-backdrop r-focus-done-bd" id="r-focus-done-backdrop"></div>
+<div class="sheet r-focus-done" id="r-focus-done">
+  <div class="r-focus-done-mark">(￣▽￣)v</div>
+  <div class="r-focus-done-title">focus complete</div>
+  <div class="r-focus-done-stats" id="r-focus-donestats"></div>
+  <div class="r-focus-done-goal" id="r-focus-donegoal"></div>
+  <button class="btn" id="r-focus-donebtn">done</button>
+</div>
+
+<!-- focus notice (kill recovery + multi window) -->
+<div class="r-focus-note" id="r-focus-note" hidden>
+  <span class="r-focus-note-txt" id="r-focus-note-txt"></span>
+  <button class="r-focus-note-btn" id="r-focus-note-resume" hidden>resume</button>
+  <button class="r-focus-note-btn" id="r-focus-note-discard" hidden>discard</button>
 </div>
 
 <script type="module" src="/src/main.js"></script>

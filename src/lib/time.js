@@ -1,3 +1,15 @@
+// local calendar day key for the reading stats buckets, YYYY-MM-DD
+export function localDayKey(ts = Date.now()) {
+    const d = new Date(ts)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// the day key that follows a key, for streak rolls in the stats archive
+export function dayAfter(key) {
+    const [y, m, d] = key.split('-').map(Number)
+    return localDayKey(new Date(y, m - 1, d + 1).getTime())
+}
+
 // relative time for library rows and update buckets, the library version carries the year branch
 export function relTime(ts) {
     if (!ts) return ''

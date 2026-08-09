@@ -1,3 +1,5 @@
+import { localDayKey, dayAfter } from './time.js'
+
 const NS = 'vellum'
 const lsGet = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb } catch { return fb } }
 const lsSet = (k, v) => {
@@ -72,3 +74,64 @@ export const saveLibSort = s => lsSet(`${NS}:libsort`, s)
 
 export const loadUpdLedger = () => lsGet(`${NS}:updates`, {})
 export const saveUpdLedger = l => lsSet(`${NS}:updates`, l)
+
+// ---- reading stats (daily buckets, the F5 contract) ----
+// vellum:stats:YYYY-MM-DD = { ms, ch }, written through the no-shed path. buckets older
+// than the 7-day weekly window roll into vellum:stats:archive = { ms, days, bestStreak }
+const STATS_NS = `${NS}:stats`
+const ARCHIVE_KEY = `${STATS_NS}:archive`
+
+export const statsGet = date => lsGet(`${STATS_NS}:${date}`, null)
+
+export const statsAdd = (date, ms, ch = 0) => {
+    const k = `${STATS_NS}:${date}`
+    const b = lsGet(k, null) || {}
+    const cur = { ms: Number.isFinite(b.ms) ? b.ms : 0, ch: Number.isFinite(b.ch) ? b.ch : 0 }
+    lsSet(k, { ms: cur.ms + Math.max(0, ms || 0), ch: cur.ch + Math.max(0, ch || 0) })
+}
+
+// roll every bucket outside the weekly window into the archive and refresh bestStreak,
+// the longest consecutive-day reading run seen so far
+export const statsSweep = () => {
+    const t = new Date()
+    const cutoff = localDayKey(new Date(t.getFullYear(), t.getMonth(), t.getDate() - 7).getTime())
+    const arch = lsGet(ARCHIVE_KEY, { ms: 0, days: 0, bestStreak: 0, lastDay: null, curStreak: 0 })
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i)
+        if (!k || !k.startsWith(`${STATS_NS}:`) || k === ARCHIVE_KEY) continue
+        const date = k.slice(STATS_NS.length + 1)
+        if (date >= cutoff) continue
+        const b = lsGet(k, null)
+        localStorage.removeItem(k)
+        if (!b || !(b.ms > 0)) continue
+        arch.ms += b.ms
+        arch.days += 1
+        arch.curStreak = arch.lastDay && dayAfter(arch.lastDay) === date ? arch.curStreak + 1 : 1
+        arch.lastDay = date
+        if (arch.curStreak > arch.bestStreak) arch.bestStreak = arch.curStreak
+    }
+    lsSet(ARCHIVE_KEY, arch)
+}
+
+// ---- focus session (timer state and goals in ONE blob, never vellum:settings) ----
+// the countdown is derived from timestamps: monotonic for the live tick (clock-jump safe)
+// and the persisted startWall for kill recovery; reading minutes accrue only while a
+// session runs and the reader is visible, latched per session by the live ticker
+export const FOCUS_KEY = `${NS}:focus`
+
+export const FOCUS_DEFAULT = {
+    focusMin: 25, goalDay: 0, goalWeek: 0,
+    sessionId: null, sessionMs: 0, startWall: 0, startDate: null,
+    endMonotonic: 0, elapsedSoFar: 0, pausedAt: null, pausedWall: null, acked: false,
+}
+
+export const loadFocus = () => {
+    const f = { ...FOCUS_DEFAULT, ...lsGet(FOCUS_KEY, {}) }
+    f.focusMin = num(f.focusMin, 1, 600, FOCUS_DEFAULT.focusMin)
+    f.goalDay = num(f.goalDay, 0, 1440, 0)
+    f.goalWeek = num(f.goalWeek, 0, 10080, 0)
+    f.elapsedSoFar = Math.max(0, Number(f.elapsedSoFar) || 0)
+    f.sessionMs = Math.max(0, Number(f.sessionMs) || 0)
+    return f
+}
+export const saveFocus = f => lsSet(FOCUS_KEY, f)

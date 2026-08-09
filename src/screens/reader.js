@@ -17,7 +17,14 @@ import {
   loadSettings,
   saveSettings,
   SET_DEFAULT,
+  statsGet,
+  statsAdd,
+  statsSweep,
+  loadFocus,
+  saveFocus,
+  FOCUS_KEY,
 } from "../lib/store.js";
+import { localDayKey } from "../lib/time.js";
 import { $, $$, esc } from "../lib/dom.js";
 
 let settings = loadSettings();
@@ -146,6 +153,7 @@ export const closeReader = () => {
   rd.gen++; // invalidate any pending chapter load so it can't keep mutating the hidden reader
   posSave();
   closeSheet();
+  closeFocusSheet();
   closeDrawer();
   R.classList.remove("active");
   document.documentElement.classList.remove("reading");
@@ -531,9 +539,17 @@ const onScrollIdle = () => {
   }
 };
 
-window.addEventListener("pagehide", posSave);
+window.addEventListener("pagehide", () => {
+  posSave();
+  flushAccrual();
+});
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") posSave();
+  if (document.visibilityState === "hidden") {
+    posSave();
+    flushAccrual();
+  } else {
+    fx.lastAcc = performance.now(); // a hidden gap must never be credited as reading time
+  }
 });
 
 R.addEventListener("click", (e) => {
@@ -642,6 +658,8 @@ function renderDrawer() {
 const sheet = $("#sheet"),
   backdrop = $("#sheet-backdrop");
 const openSheet = () => {
+  closeFocusSheet();
+  closeCelebration();
   syncSheet();
   sheet.classList.add("open");
   backdrop.classList.add("open");
@@ -709,3 +727,403 @@ const commit = () => {
   syncSheet();
   updateProgress();
 };
+
+// ---- focus timer + reading goals ----
+// the session lives in one vellum:focus blob and the countdown is always derived from
+// timestamps (monotonic for the live tick, the persisted startWall for kill recovery),
+// never decremented, so background throttling and wall clock jumps cannot corrupt it.
+// reading minutes accrue only while a session runs AND the reader is visible, through
+// the F5 no-shed statsAdd path, latched per session by the live ticker
+let focus = loadFocus();
+let fx = { ticker: null, lastAcc: 0, pendingMs: 0, accruedMs: 0 };
+
+const sessionMs = () => focus.sessionMs || focus.focusMin * 60000;
+const fmtClock = (ms) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+const fmtMin = (ms) => {
+  const m = Math.floor(ms / 60000);
+  return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m` : `${m}m`;
+};
+const fmtGoal = (min) => (min >= 60 ? `${Math.floor(min / 60)}h` : `${min}m`);
+
+const weekMs = () => {
+  const t = new Date();
+  let sum = 0;
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - i);
+    sum += statsGet(localDayKey(d.getTime()))?.ms ?? 0;
+  }
+  return sum;
+};
+
+const focusRemaining = () => {
+  if (!focus.sessionId || focus.acked) return focus.focusMin * 60000; // idle hint
+  if (focus.pausedAt != null) return Math.max(0, sessionMs() - focus.elapsedSoFar);
+  return Math.max(0, focus.endMonotonic - performance.now());
+};
+
+const startTicker = () => {
+  if (fx.ticker) return;
+  fx.lastAcc = performance.now();
+  fx.pendingMs = 0;
+  fx.accruedMs = 0;
+  fx.ticker = setInterval(focusTick, 1000);
+};
+const stopTicker = () => {
+  if (fx.ticker) {
+    clearInterval(fx.ticker);
+    fx.ticker = null;
+  }
+};
+
+const flushAccrual = () => {
+  if (fx.pendingMs < 1) return;
+  statsAdd(localDayKey(Date.now()), Math.round(fx.pendingMs), 0);
+  fx.pendingMs = 0;
+};
+
+const accrue = () => {
+  const now = performance.now();
+  if (document.visibilityState !== "visible" || state.view !== "reader") {
+    fx.lastAcc = now;
+    return;
+  }
+  const d = now - fx.lastAcc;
+  fx.lastAcc = now;
+  if (d > 3000 || d < 0) return; // a throttled gap must never be credited
+  fx.pendingMs += d;
+  fx.accruedMs += d;
+  flushAccrual();
+};
+
+const startSession = () => {
+  const wall = Date.now();
+  focus = {
+    ...focus,
+    sessionId: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    sessionMs: focus.focusMin * 60000,
+    startWall: wall,
+    startDate: localDayKey(wall),
+    endMonotonic: performance.now() + focus.focusMin * 60000,
+    elapsedSoFar: 0,
+    pausedAt: null,
+    pausedWall: null,
+    acked: false,
+  };
+  saveFocus(focus);
+  hideNote();
+  startTicker();
+  renderFocus();
+  askNotify(); // permission only on the start gesture
+};
+
+const pauseSession = () => {
+  if (!focus.sessionId || focus.pausedAt != null) return;
+  const rem = Math.max(0, focus.endMonotonic - performance.now());
+  focus = {
+    ...focus,
+    elapsedSoFar: Math.min(sessionMs(), sessionMs() - rem),
+    pausedAt: performance.now(),
+    pausedWall: Date.now(),
+    endMonotonic: 0,
+  };
+  saveFocus(focus);
+  stopTicker();
+  flushAccrual();
+  renderFocus();
+};
+
+const resumeSession = () => {
+  if (!focus.sessionId || focus.pausedAt == null) return;
+  const wall = Date.now();
+  focus = {
+    ...focus,
+    endMonotonic: performance.now() + Math.max(0, sessionMs() - focus.elapsedSoFar),
+    startWall: wall,
+    startDate: localDayKey(wall),
+    pausedAt: null,
+    pausedWall: null,
+  };
+  saveFocus(focus);
+  hideNote();
+  startTicker();
+  renderFocus();
+};
+
+const discardSession = () => {
+  stopTicker();
+  focus = { ...focus, sessionId: null, sessionMs: 0, startWall: 0, startDate: null,
+    endMonotonic: 0, elapsedSoFar: 0, pausedAt: null, pausedWall: null, acked: false };
+  saveFocus(focus);
+  hideNote();
+  renderFocus();
+};
+
+const completeSession = () => {
+  flushAccrual(); // write before celebrate, so the settled goal line is already in the bucket
+  const readMin = Math.floor(fx.accruedMs / 60000);
+  focus = { ...focus, elapsedSoFar: sessionMs(), endMonotonic: 0,
+    pausedAt: null, pausedWall: null, acked: true };
+  saveFocus(focus);
+  stopTicker();
+  renderFocus();
+  showCelebration(readMin);
+  notifyDone(readMin);
+};
+
+const focusTick = () => {
+  if (!focus.sessionId || focus.pausedAt != null) return;
+  if (focus.endMonotonic - performance.now() <= 0) {
+    completeSession();
+    return;
+  }
+  accrue();
+  renderFocus();
+};
+
+const renderFocus = () => {
+  renderTimer();
+  renderGoalChip();
+  renderStrip();
+  renderFocusStats();
+};
+
+const renderTimer = () => {
+  const btn = $("#r-timerbtn");
+  const txt = $("#r-timertxt");
+  const running = focus.sessionId != null && focus.pausedAt == null && !focus.acked && focusRemaining() > 0;
+  btn.textContent = running ? "❚❚" : "▶";
+  btn.title = !focus.sessionId ? "Start focus" : running ? "Pause focus" : "Resume focus";
+  txt.textContent = fmtClock(focusRemaining());
+  txt.classList.toggle("run", running);
+};
+
+const renderGoalChip = () => {
+  const chip = $("#r-goalchip");
+  if (!chip) return;
+  const on = focus.goalDay > 0 || focus.goalWeek > 0;
+  chip.hidden = !on;
+  if (!on) return;
+  chip.textContent =
+    focus.goalDay > 0
+      ? `◎ ${Math.floor((statsGet(localDayKey())?.ms ?? 0) / 60000)}/${focus.goalDay}m`
+      : `◎ ${fmtMin(weekMs())}/${fmtGoal(focus.goalWeek)}`;
+};
+
+const renderStrip = () => {
+  const s = $("#rtimerbar");
+  if (!s) return;
+  const active = focus.sessionId != null && !focus.acked;
+  s.classList.toggle("on", active);
+  s.style.width = active
+    ? `${Math.max(0, Math.min(100, (1 - focusRemaining() / sessionMs()) * 100))}%`
+    : "0%";
+};
+
+const renderFocusStats = () => {
+  const dayMs = statsGet(localDayKey())?.ms ?? 0;
+  const wk = weekMs();
+  const drow = $("#r-focus-daystat");
+  const wrow = $("#r-focus-weekstat");
+  if (drow) drow.hidden = !focus.goalDay;
+  if (wrow) wrow.hidden = !focus.goalWeek;
+  if (focus.goalDay) {
+    $("#r-focus-daylabel").textContent = `${Math.floor(dayMs / 60000)}/${focus.goalDay}m`;
+    $("#r-focus-dayfill").style.width = `${Math.min(100, (dayMs / (focus.goalDay * 60000)) * 100)}%`;
+  }
+  if (focus.goalWeek) {
+    $("#r-focus-weeklabel").textContent = `${fmtMin(wk)}/${fmtGoal(focus.goalWeek)}`;
+    $("#r-focus-weekfill").style.width = `${Math.min(100, (wk / (focus.goalWeek * 60000)) * 100)}%`;
+  }
+  const days = $("#r-focus-days");
+  if (days) {
+    const t = new Date();
+    const todayKey = localDayKey(t.getTime());
+    const cols = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - i);
+      const key = localDayKey(d.getTime());
+      cols.push({ key, ms: statsGet(key)?.ms ?? 0, today: key === todayKey });
+    }
+    const max = Math.max(1, ...cols.map((c) => c.ms));
+    days.innerHTML = cols
+      .map((c) => {
+        const h = c.ms > 0 ? Math.max(2, Math.round((c.ms / max) * 40)) : 1;
+        return `<span class="r-focus-day${c.ms > 0 ? " has" : ""}${c.today ? " today" : ""}" style="height:${h}px" title="${c.key} · ${Math.floor(c.ms / 60000)}m"></span>`;
+      })
+      .join("");
+  }
+};
+
+const focusSheet = $("#focus-sheet");
+const focusBd = $("#focus-sheet-backdrop");
+const openFocusSheet = () => {
+  closeSheet();
+  closeCelebration();
+  syncFocusConfig();
+  renderFocusStats();
+  focusSheet.classList.add("open");
+  focusBd.classList.add("open");
+};
+const closeFocusSheet = () => {
+  focusSheet.classList.remove("open");
+  focusBd.classList.remove("open");
+};
+$("#r-goalchip").onclick = (e) => {
+  e.stopPropagation();
+  openFocusSheet();
+};
+$("#r-timertxt").onclick = (e) => {
+  e.stopPropagation();
+  openFocusSheet();
+};
+focusBd.onclick = closeFocusSheet;
+
+const syncFocusConfig = () => {
+  $$("#r-set-min button").forEach((b) =>
+    b.classList.toggle("on", Number(b.dataset.min) === focus.focusMin),
+  );
+  $$("#r-set-day button").forEach((b) =>
+    b.classList.toggle("on", Number(b.dataset.day) === focus.goalDay),
+  );
+  $$("#r-set-week button").forEach((b) =>
+    b.classList.toggle("on", Number(b.dataset.week) === focus.goalWeek),
+  );
+};
+$("#r-set-min").onclick = (e) => {
+  const b = e.target.closest("[data-min]");
+  if (!b) return;
+  focus = { ...focus, focusMin: Number(b.dataset.min) };
+  saveFocus(focus);
+  syncFocusConfig();
+  renderFocus();
+};
+$("#r-set-day").onclick = (e) => {
+  const b = e.target.closest("[data-day]");
+  if (!b) return;
+  focus = { ...focus, goalDay: Number(b.dataset.day) };
+  saveFocus(focus);
+  syncFocusConfig();
+  renderFocus();
+};
+$("#r-set-week").onclick = (e) => {
+  const b = e.target.closest("[data-week]");
+  if (!b) return;
+  focus = { ...focus, goalWeek: Number(b.dataset.week) };
+  saveFocus(focus);
+  syncFocusConfig();
+  renderFocus();
+};
+$("#r-timerbtn").onclick = () => {
+  if (!focus.sessionId) startSession();
+  else if (focus.pausedAt != null) resumeSession();
+  else pauseSession();
+};
+
+const celebration = $("#r-focus-done");
+const celebrationBd = $("#r-focus-done-backdrop");
+const showCelebration = (readMin) => {
+  closeSheet();
+  closeFocusSheet();
+  $("#r-focus-donestats").textContent = `${fmtClock(sessionMs())} session · ${readMin}m read`;
+  const goal = $("#r-focus-donegoal");
+  const dayMs = statsGet(localDayKey())?.ms ?? 0;
+  if (focus.goalDay > 0) {
+    goal.hidden = false;
+    const m = Math.floor(dayMs / 60000);
+    goal.textContent =
+      dayMs >= focus.goalDay * 60000
+        ? `daily goal reached · ${m}/${focus.goalDay}m`
+        : `daily goal ${m}/${focus.goalDay}m`;
+  } else if (focus.goalWeek > 0) {
+    goal.hidden = false;
+    goal.textContent = `weekly goal ${fmtMin(weekMs())}/${fmtGoal(focus.goalWeek)}`;
+  } else goal.hidden = true;
+  celebration.classList.add("open");
+  celebrationBd.classList.add("open");
+};
+const closeCelebration = () => {
+  celebration.classList.remove("open");
+  celebrationBd.classList.remove("open");
+};
+$("#r-focus-donebtn").onclick = () => {
+  closeCelebration();
+  discardSession();
+};
+celebrationBd.onclick = () => {
+  closeCelebration();
+  discardSession();
+};
+
+const askNotify = () => {
+  try {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  } catch {}
+};
+const notifyDone = (readMin) => {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    new Notification("Focus complete", { body: `${fmtClock(sessionMs())} session · ${readMin}m read` });
+  } catch {}
+};
+
+let noteTimer = null;
+const hideNote = () => {
+  clearTimeout(noteTimer);
+  $("#r-focus-note").hidden = true;
+};
+const showNote = (text, { auto = false, resumeLabel = "resume", onResume = null } = {}) => {
+  const note = $("#r-focus-note");
+  clearTimeout(noteTimer);
+  note.hidden = false;
+  $("#r-focus-note-txt").textContent = text;
+  const resumeBtn = $("#r-focus-note-resume");
+  const discardBtn = $("#r-focus-note-discard");
+  resumeBtn.hidden = !onResume;
+  discardBtn.hidden = !onResume;
+  resumeBtn.textContent = resumeLabel;
+  resumeBtn.onclick = onResume;
+  discardBtn.onclick = discardSession;
+  if (auto) noteTimer = setTimeout(() => (note.hidden = true), 4000);
+};
+
+// boot recovery: a persisted session shows resume/discard, dead time is never credited
+const recoverSession = () => {
+  if (!focus.sessionId || focus.acked) return;
+  const rem = focus.pausedWall != null
+    ? Math.max(0, sessionMs() - focus.elapsedSoFar)
+    : Math.max(0, sessionMs() - focus.elapsedSoFar - (Date.now() - focus.startWall));
+  if (rem > 0) {
+    showNote("focus session in progress", {
+      resumeLabel: "resume",
+      onResume: () => { hideNote(); resumeSession(); },
+    });
+  } else {
+    showNote("focus session ended while away", {
+      resumeLabel: "start fresh",
+      onResume: () => { hideNote(); startSession(); },
+    });
+  }
+};
+
+// another window took over the session, stop ticking and say so
+window.addEventListener("storage", (e) => {
+  if (e.key !== FOCUS_KEY || !e.newValue) return;
+  const incoming = loadFocus();
+  if (fx.ticker && incoming.sessionId !== focus.sessionId) {
+    stopTicker();
+    showNote("session replaced in another window", { auto: true });
+  }
+  focus = incoming;
+  if (focus.acked) hideNote();
+  renderFocus();
+});
+
+statsSweep();
+recoverSession();
+syncFocusConfig();
+renderFocus();
