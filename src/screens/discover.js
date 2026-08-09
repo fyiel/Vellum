@@ -2,6 +2,7 @@ import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.
 import { srcIds, srcLabel } from '../lib/source.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
+import { openLinkIn } from '../lib/linkin.js'
 import { $, $$, esc } from '../lib/dom.js'
 
 let OPTIONS = []
@@ -314,6 +315,15 @@ function resetAll() {
 
 let searchTimer = null
 
+// a bare http(s) url is link-in material, never a catalog query; the hint is quiet so a
+// normal search is untouched the moment the input stops looking like a url
+const isUrlLike = v => /^https?:\/\/\S+$/i.test(v)
+
+function setUrlHint(on) {
+    const hint = $('#durlhint')
+    if (hint) hint.hidden = !on
+}
+
 function wire() {
     if (wired) return
     wired = true
@@ -321,7 +331,17 @@ function wire() {
     $('#dsearch').addEventListener('input', e => {
         clearTimeout(searchTimer)
         const v = e.target.value.trim()
+        const urlish = isUrlLike(v)
+        setUrlHint(urlish)
+        if (urlish) return // intake mode, the catalog search resumes once the input stops being a url
         searchTimer = setTimeout(() => { query = v; runSearch() }, 280)
+    })
+
+    $('#dsearch').addEventListener('keydown', e => {
+        if (e.key !== 'Enter' || !isUrlLike(e.target.value.trim())) return
+        e.preventDefault()
+        setUrlHint(false)
+        openLinkIn(e.target.value.trim())
     })
 
     const btn = $('#ftoggle'), panel = $('#fpanel')
@@ -390,6 +410,7 @@ function wire() {
 export function showDiscover() {
     wire()
     loadTaxonomy()
+    setUrlHint(false)
     // a pending debounce from a previous visit must not fire after the seed hijacks the feed
     clearTimeout(searchTimer)
 

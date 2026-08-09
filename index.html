@@ -22,6 +22,7 @@
       <span class="s yel" data-win="min" title="Minimize"></span>
       <span class="s grn" data-win="zoom" title="Zoom"></span>
     </div>
+    <button class="linkin-btn" id="linkin-btn" title="Open a novelupdates link">Link In</button>
     <span class="crumb"><b id="crumb">Library</b></span>
     <span class="sp"></span>
   </div>
@@ -59,6 +60,7 @@
       <div class="view disco" id="view-discover" hidden>
         <div class="tool">
           <div class="srch"><span class="pr">&#9906;</span><input id="dsearch" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Search every source&hellip;"></div>
+          <span class="durlhint" id="durlhint" hidden>open as link &#8629;</span>
           <button class="fbtn" id="ftoggle"><span class="chev">&#9662;</span>Filters<span class="fcount" id="fcount">0</span></button>
         </div>
         <div class="fpanel" id="fpanel">
@@ -104,6 +106,19 @@
       </div>
 
     </main>
+  </div>
+
+  <!-- link in intake sheet -->
+  <div class="sheet-backdrop linkin-bd" id="linkin-backdrop"></div>
+  <div class="sheet linkin" id="linkin" role="dialog" aria-modal="true" aria-labelledby="linkin-title">
+    <div class="grip"></div>
+    <div class="linkin-hd"><b id="linkin-title">Link In</b><span class="linkin-sub">open a novelupdates series or chapter</span></div>
+    <div class="linkin-srch">
+      <div class="srch"><input id="linkin-url" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Paste a novelupdates link&hellip;"></div>
+      <button class="btn" id="linkin-paste" type="button">Paste</button>
+    </div>
+    <div class="linkin-status" id="linkin-status" role="status" aria-live="polite"></div>
+    <div class="linkin-body" id="linkin-body"></div>
   </div>
 </div>
 

@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@capacitor/android": "^6",
+    "@capacitor/app": "^6",
     "@capacitor/core": "^6",
     "@capacitor/ios": "^6",
     "@fontsource/archivo": "^5",

@@ -6,7 +6,7 @@ import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 
-const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
+const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates', link: 'Link' }
 
 let wired = false
 let cur = null

@@ -75,6 +75,16 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
     }
 }
 
+// vellum:// launch urls arrive as a process argument when the OS opens the app for the scheme
+// (linux/windows). macOS delivers open-url as an apple event instead, which needs a native
+// listener (the deep-link plugin or a manual Info.plist + event handler), so mac deep links are
+// a documented limitation for now. the webview polls once at startup; links that arrive while
+// the app is already running spawn a second instance that this argv scan picks up.
+#[tauri::command]
+fn deep_link_url() -> Option<String> {
+    std::env::args().find(|a| a.starts_with("vellum://"))
+}
+
 fn nucover_response(app: &tauri::AppHandle, uri: &str) -> tauri::http::Response<Vec<u8>> {
     let fail = |code: u16| {
         tauri::http::Response::builder()
@@ -162,7 +172,7 @@ pub fn run() {
                 });
             },
         )
-        .invoke_handler(tauri::generate_handler![nu_refresh])
+        .invoke_handler(tauri::generate_handler![nu_refresh, deep_link_url])
         .setup(|app| {
             // logger on in release too, so the nucover diagnostics land in the app log file
             app.handle().plugin(

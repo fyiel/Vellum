@@ -1,0 +1,71 @@
+/* Link In intake sheet. self-contained sheet pattern (backdrop + bottom sheet + .open toggle)
+   so it works before the reader chunk ever loads, and scoped to .den so it follows the feel
+   tokens of whichever scheme is active. */
+
+/* top-bar entry */
+.den .linkin-btn { appearance: none; background: transparent; border: 1px solid var(--line2); color: var(--dim); font: 600 10px 'Archivo'; letter-spacing: .6px; text-transform: uppercase; padding: 4px 10px; cursor: pointer; }
+.den .linkin-btn:hover { color: var(--hi); border-color: var(--ac); }
+
+/* quiet discover hint for url-shaped queries */
+.den .durlhint { font: 400 10px var(--mono); color: var(--dim); white-space: nowrap; }
+
+.den .sheet-backdrop.linkin-bd {
+  position: fixed; inset: 0; z-index: 120; background: rgba(0, 0, 0, .55);
+  opacity: 0; pointer-events: none; transition: opacity .18s;
+}
+.den .sheet-backdrop.linkin-bd.open { opacity: 1; pointer-events: auto; }
+
+.den .sheet.linkin {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 121; margin: 0 auto;
+  max-width: 560px; padding: 8px 22px calc(var(--safe-b, 0px) + 20px);
+  background: var(--panel); border-top: 1px solid var(--line2); color: var(--text);
+  transform: translateY(110%); transition: transform .22s ease-out;
+}
+.den .sheet.linkin.open { transform: translateY(0); }
+.den .sheet.linkin .grip { width: 28px; height: 6px; background: var(--line2); margin: 4px auto 14px; }
+
+.den .linkin-hd { display: flex; align-items: baseline; gap: 10px; padding: 2px 2px 12px; }
+.den .linkin-hd b { font: 700 15px 'Archivo'; color: var(--hi); letter-spacing: -.2px; }
+.den .linkin-hd .linkin-sub { font: 400 11px var(--mono); color: var(--dim); }
+
+.den .linkin-srch { display: flex; align-items: stretch; gap: 8px; }
+.den .linkin-srch .srch { flex: 1; }
+.den .linkin-srch .btn { padding: 0 16px; font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; border: 1px solid var(--line2); background: transparent; color: var(--text); cursor: pointer; white-space: nowrap; }
+.den .linkin-srch .btn:hover { border-color: var(--ac); color: var(--hi); }
+
+.den .linkin-status { min-height: 18px; padding: 10px 2px 2px; font: 400 12px var(--mono); color: var(--dim); }
+.den .linkin-body { padding: 2px 2px 4px; }
+
+/* shared pieces */
+.den .linkin-raw { font: 400 11px var(--mono); color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.den .linkin-err { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 8px 2px 2px; font: 400 12px var(--mono); color: var(--bad); }
+.den .linkin-err .btn { color: var(--text); }
+.den .linkin-err .btn:hover { color: var(--hi); }
+
+/* confirm card */
+.den .linkin-card { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 2px; }
+.den .linkin-match { display: flex; gap: 12px; align-items: center; padding: 10px; background: var(--row); border: 1px solid var(--line); }
+.den .linkin-match .cv { flex: none; width: 40px; aspect-ratio: 3/4; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .linkin-match .cv img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.den .linkin-match .tt { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.den .linkin-match .tt .n { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .linkin-match .tt .au { font: 400 11px 'Archivo'; color: var(--dim); }
+.den .linkin-match .tt .pr { font: 400 10px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+.den .linkin-match .rt { flex: none; font: 400 12px var(--mono); color: var(--text); }
+.den .linkin-match .rt .st { color: var(--ac); }
+.den .linkin-actions { display: flex; gap: 8px; }
+.den .linkin-actions .btn { flex: 1; }
+
+/* ambiguous picker */
+.den .linkin-pick { display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 2px; }
+.den .linkin-picklab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+.den .linkin-row { display: flex; gap: 12px; align-items: center; padding: 9px 10px; background: var(--row); border: 1px solid var(--line); cursor: pointer; }
+.den .linkin-row:hover { background: var(--rowh); border-color: var(--ac); }
+.den .linkin-row .cv { flex: none; width: 32px; aspect-ratio: 3/4; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .linkin-row .cv img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.den .linkin-row .tt { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.den .linkin-row .tt .n { font: 500 13px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .linkin-row .tt .au { font: 400 11px 'Archivo'; color: var(--dim); }
+.den .linkin-row .tt .pr { font: 400 10px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .5px; }
+.den .linkin-row .rt { flex: none; font: 400 12px var(--mono); color: var(--text); }
+.den .linkin-row .rt .st { color: var(--ac); }

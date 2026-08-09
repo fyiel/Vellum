@@ -8,11 +8,13 @@ import './styles/library.css'
 import './styles/discover.css'
 import './styles/updates.css'
 import './styles/series.css'
+import './styles/linkin.css'
 
 import { startRouter, parseHash } from './lib/router.js'
 import { setupNative } from './lib/native.js'
 import { warmNuClearance } from './lib/nuwarm.js'
 import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
+import { initLinkIn, drainLink, openLinkIn } from './lib/linkin.js'
 import { showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
 import { showUpdates } from './screens/updates.js'
@@ -28,6 +30,11 @@ const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hi
 await setupNative()
 installCoverFallback()
 warmNuClearance()
+initLinkIn()
+// a link that arrived with the app (native launch) is consumed here, never auto-navigated:
+// the sheet overlays whatever first renders
+const coldLink = drainLink()
+if (coldLink) openLinkIn(coldLink)
 
 let origin = 'library'
 
@@ -46,10 +53,17 @@ startRouter(async route => {
     if (readerMod) {
         const { closeReader } = await readerMod
         if (parseHash().name !== 'read') closeReader()
+        // a link that arrived mid-read waits for the shell to come back
+        const deferred = drainLink()
+        if (deferred) openLinkIn(deferred)
     }
     if (parseHash().name !== route.name) return
 
-    if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
+    if (route.name === 'series') {
+        // a series opened from Link In shows the 'Link' crumb origin
+        if (sessionStorage.getItem('vellum:linkOrigin')) { sessionStorage.removeItem('vellum:linkOrigin'); origin = 'link' }
+        setActiveNav(origin); view('series'); showSeries(route.key, origin)
+    }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }
