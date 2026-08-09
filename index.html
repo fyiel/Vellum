@@ -32,7 +32,8 @@
         <span class="ni on" data-nav="library"><span class="ix">1</span>Library<span class="c" id="count-library"></span></span>
         <span class="ni" data-nav="discover"><span class="ix">2</span>Discover</span>
         <span class="ni" data-nav="manga"><span class="ix">3</span>Manga</span>
-        <span class="ni" data-nav="updates"><span class="ix">4</span>Updates<span class="c" id="count-updates"></span></span>
+        <span class="ni" data-nav="kdrama"><span class="ix">4</span>K-Drama</span>
+        <span class="ni" data-nav="updates"><span class="ix">5</span>Updates<span class="c" id="count-updates"></span></span>
       </nav>
       <div class="grow"></div>
     </aside>
@@ -54,6 +55,20 @@
           <div class="lab" id="cont-lab">Continue</div>
           <div class="cont" id="continue"></div>
           <div id="libtable"></div>
+        </div>
+      </div>
+
+      <div class="view kdrama" id="view-kdrama" hidden>
+        <div class="tool kdrama-tool">
+          <div class="srch"><span class="pr" aria-hidden="true">⌕</span><input id="ksearch" inputmode="search" autocomplete="off" autocapitalize="none" aria-label="Search Korean dramas" placeholder="Search Korean dramas&hellip;"></div>
+          <div class="seg kdrama-source" id="ksource" aria-label="K-drama source">
+            <button class="on" type="button" data-source="all" aria-pressed="true">All</button><button type="button" data-source="gp" aria-pressed="false">GoPlay</button><button type="button" data-source="dc" aria-pressed="false">DramaCool</button>
+          </div>
+        </div>
+        <div class="scroll kdrama-scroll">
+          <div class="lab" id="klab">Recently added</div>
+          <div class="kdrama-grid" id="klist" aria-live="polite" aria-busy="false"></div>
+          <button class="kdrama-more" id="kmore" type="button" hidden>Load more</button>
         </div>
       </div>
 
@@ -121,6 +136,11 @@
       <div class="view sdet" id="view-series" hidden>
         <section class="info" id="sinfo"></section>
         <section class="chapters" id="schapters"></section>
+      </div>
+
+      <div class="view kdrama-detail" id="view-kdrama-series" hidden>
+        <section class="kdrama-info" id="kinfo" aria-busy="false"></section>
+        <section class="kdrama-episodes" id="kepisodes" aria-live="polite" aria-busy="false"></section>
       </div>
 
     </main>

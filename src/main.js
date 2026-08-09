@@ -10,6 +10,7 @@ import './styles/updates.css'
 import './styles/series.css'
 import './styles/reader.css'
 import './styles/manga.css'
+import './styles/kdrama.css'
 
 import { startRouter, parseHash, back, go } from './lib/router.js'
 import { setupNative } from './lib/native.js'
@@ -21,6 +22,8 @@ import { showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
 import { showManga } from './screens/manga.js'
 import { showMangaSeries } from './screens/manga-series.js'
+import { showKDrama } from './screens/kdrama.js'
+import { closeKDramaSeries, showKDramaSeries } from './screens/kdrama-series.js'
 import { installCoverFallback } from './lib/cover.js'
 
 // the reader is the only heavy screen (it drags dompurify along), load it on first read
@@ -134,6 +137,7 @@ async function openMangaReader(route) {
 
 startRouter(async route => {
     mountShell()
+    if (route.name !== 'kdrama-series') closeKDramaSeries()
 
     if (route.name === 'read') {
         if (mangaReaderMod) (await mangaReaderMod).closeMangaReader()
@@ -174,6 +178,8 @@ startRouter(async route => {
         showMangaSeries(route.key, origin)
     }
     else if (route.name === 'manga') { origin = 'manga'; setCrumb('Manga'); setActiveNav('manga'); view('manga'); showManga() }
+    else if (route.name === 'kdrama-series') { origin = 'kdrama'; setActiveNav('kdrama'); view('kdrama-series'); showKDramaSeries(route.key) }
+    else if (route.name === 'kdrama') { origin = 'kdrama'; setCrumb('K-Drama'); setActiveNav('kdrama'); view('kdrama'); showKDrama() }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }

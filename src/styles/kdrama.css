@@ -1,0 +1,69 @@
+.den .kdrama-tool .pr { color: var(--dim); font: 400 14px var(--mono); }
+.den .kdrama .seg button { appearance: none; margin: 0; padding: 6px 11px; border: 0; border-right: 1px solid var(--line2); background: transparent; color: var(--dim); font: 500 11px 'Archivo'; cursor: pointer; }
+.den .kdrama .seg button:last-child { border-right: 0; }
+.den .kdrama .seg button.on { background: var(--sel); color: var(--hi); }
+.den .kdrama-scroll { padding-top: 18px; }
+.den .kdrama-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); gap: 22px 14px; }
+.den .kdrama-card { min-width: 0; color: inherit; text-decoration: none; }
+.den .kdrama-cover { position: relative; width: 100%; aspect-ratio: 2 / 3; overflow: hidden; border: 1px solid var(--line2); background: var(--row); }
+.den .kdrama-card:hover .kdrama-cover { border-color: var(--ac); }
+.den .kdrama-cover img { position: relative; width: 100%; height: 100%; object-fit: cover; display: block; }
+.den .kdrama-cover-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: .8px; }
+.den .kdrama-copy { padding: 9px 2px 0; }
+.den .kdrama-card h2 { margin: 0; overflow: hidden; color: var(--hi); font: 600 13px/1.3 'Archivo'; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.den .kdrama-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; margin-top: 5px; color: var(--dim); font: 500 9px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .45px; }
+.den .kdrama-meta span:first-child { color: var(--ac); }
+.den .kdrama-more, .den .kdrama-empty button { display: block; margin: 24px auto 4px; padding: 9px 16px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .kdrama-more[hidden] { display: none; }
+.den .kdrama-more:disabled { opacity: .55; cursor: progress; }
+.den .kdrama-empty { grid-column: 1 / -1; padding: 54px 12px; color: var(--dim); text-align: center; }
+.den .kdrama-error { color: var(--text); }
+.den .kdrama-notice { grid-column: 1 / -1; padding: 10px 12px; border: 1px solid var(--line2); color: var(--dim); font: 500 11px/1.4 'Archivo'; text-align: center; }
+.den .kdrama-skeleton { pointer-events: none; }
+.den .kdrama-skeleton .kdrama-cover, .den .kdrama-skeleton i { background: linear-gradient(100deg, var(--row) 20%, var(--sel) 42%, var(--row) 65%); background-size: 220% 100%; animation: kdrama-shimmer 1.2s linear infinite; }
+.den .kdrama-skeleton i { display: block; height: 10px; margin-bottom: 7px; }
+.den .kdrama-skeleton i:last-child { width: 62%; height: 7px; }
+@keyframes kdrama-shimmer { to { background-position-x: -220%; } }
+
+.den .kdrama-detail { flex-direction: row; }
+.den .kdrama-info { width: 344px; flex: none; overflow-y: auto; padding: 22px 20px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; }
+.den .kdrama-poster { position: relative; width: 148px; aspect-ratio: 2 / 3; overflow: hidden; border: 1px solid var(--line2); background: var(--row); color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; }
+.den .kdrama-poster > span { position: absolute; top: 8px; left: 9px; }
+.den .kdrama-poster img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.den .kdrama-title { color: var(--hi); font: 700 23px/1.12 'Archivo'; user-select: text; }
+.den .kdrama-series-meta { margin-top: -6px; color: var(--dim); font: 400 12px var(--mono); }
+.den .kdrama-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.den .kdrama-tag { padding: 3px 8px; border: 1px solid var(--line2); color: var(--text); font: 500 10px 'Archivo'; }
+.den .kdrama-section { color: var(--dim); font: 600 10px 'Archivo'; text-transform: uppercase; letter-spacing: 1px; }
+.den .kdrama-synopsis { color: var(--text); font: 400 13px/1.62 'Archivo'; user-select: text; }
+.den .kdrama-stats { border-top: 1px solid var(--line); }
+.den .kdrama-stats > div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.den .kdrama-stats span { color: var(--dim); font: 600 10px 'Archivo'; text-transform: uppercase; letter-spacing: .6px; }
+.den .kdrama-stats b { color: var(--text); font: 400 12px var(--mono); }
+.den .kdrama-episodes { flex: 1; min-width: 0; overflow-y: auto; padding: 16px; }
+.den .kepisode-head { padding: 0 10px 8px; color: var(--dim); font: 600 10px 'Archivo'; text-transform: uppercase; letter-spacing: 1px; }
+.den .kepisode-head span { font-weight: 400; letter-spacing: .5px; }
+.den .kepisode { display: grid; grid-template-columns: 100px minmax(0, 1fr) 110px; gap: 14px; align-items: center; min-height: 42px; padding: 9px 10px; border-bottom: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: auto 42px; }
+.den .kepisode-number { color: var(--ac); font: 500 11px var(--mono); }
+.den .kepisode-title { overflow: hidden; color: var(--hi); font: 500 13px 'Archivo'; text-overflow: ellipsis; white-space: nowrap; }
+.den .kepisode-date { color: var(--dim); font: 400 10px var(--mono); text-align: right; }
+
+@media (max-width: 640px) {
+  .den .side nav { grid-template-columns: repeat(5, 1fr); }
+  .den .kdrama-tool { align-items: stretch; flex-direction: column; }
+  .den .kdrama-source button { flex: 1; min-height: 36px; padding: 7px 4px; }
+  .den .kdrama-scroll { padding: 12px 10px 20px; }
+  .den .kdrama-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
+  .den .kdrama-detail { overflow-y: auto; flex-direction: column; }
+  .den .kdrama-info { width: 100%; overflow: visible; padding: 16px; border: 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
+  .den .kdrama-poster { width: 108px; grid-row: 1 / span 4; }
+  .den .kdrama-title { font-size: 20px; }
+  .den .kdrama-tags, .den .kdrama-section, .den .kdrama-synopsis, .den .kdrama-stats { grid-column: 1 / -1; }
+  .den .kdrama-episodes { overflow: visible; padding: 14px 8px 24px; }
+  .den .kepisode { grid-template-columns: 82px minmax(0, 1fr); gap: 10px; padding: 10px 8px; }
+  .den .kepisode-date { grid-column: 2; text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .den .kdrama-skeleton .kdrama-cover, .den .kdrama-skeleton i { animation: none; background: var(--row); }
+}
