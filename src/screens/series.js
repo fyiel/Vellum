@@ -1,4 +1,4 @@
-import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.js'
+import { getSeries, getChapters, prefetchChapter, seriesKey, discover } from '../lib/api.js'
 import { srcName } from '../lib/source.js'
 import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
@@ -60,6 +60,67 @@ function statsHtml(s, slug, count) {
     return `<div class="dstats">${rows}</div>`
 }
 
+// ---- more like this ----
+const MORE_TAKE = 6
+const MORE_MIN = 3
+
+// skeletons keep the same grid geometry as the real tiles, so the rail never jumps on swap
+function moreSecHtml(s) {
+    if (!Array.isArray(s.genres) || !s.genres.length) return ''
+    const tile = `<div class="mtile sk"><span class="cv"></span><div class="mbd"><div class="mn"></div><div class="mm"></div></div></div>`
+    return `<div class="more" id="moresec"><div class="seclab">More like this</div><div class="mgrid">${tile.repeat(4)}</div></div>`
+}
+
+function moreTileHtml(c, s, src) {
+    const shared = (s.genres || []).find(g => src.genres.includes(g)) || (s.genres || [])[0] || ''
+    const meta = []
+    if (typeof s.rating === 'number') meta.push(`&#9733;${s.rating.toFixed(1)}`)
+    if (shared) meta.push(esc(shared))
+    const fol = followed(s.nfSlug)
+    return `<a class="mtile" href="#/series/${encodeURIComponent(c.key)}">
+      <span class="cv">${coverImg(s.cover, s.title)}</span>
+      <div class="mbd"><div class="mn">${esc(s.title)}</div>${meta.length ? `<div class="mm">${meta.join(' · ')}</div>` : ''}</div>
+      ${fol ? `<span class="mfol">Following</span>` : ''}
+    </a>`
+}
+
+function hideMore() {
+    $('#moresec')?.remove()
+}
+
+async function loadMoreLike(mine) {
+    const src = cur
+    if (!Array.isArray(src?.series?.genres) || !src.series.genres.length) return
+    const self = seriesKey(src.key)
+
+    let data
+    try { data = await discover({ genres: [src.series.genres[0]], sort: 'rating', order: 'desc', limit: 30 }) }
+    catch (e) { if (mine === req) hideMore(); return }
+    if (mine !== req) return
+
+    const seen = new Set()
+    const cands = (data.results || []).filter(r => {
+        if (!r?.key || r.key === self || seen.has(r.key)) return false
+        seen.add(r.key)
+        return true
+    }).slice(0, MORE_TAKE)
+
+    // the existing 6h series cache dedupes inflight fetches, so parallel enrichment is free
+    const settled = await Promise.allSettled(cands.map(c => getSeries(seriesKey(c.key))))
+    if (mine !== req) return
+
+    const tiles = []
+    cands.forEach((c, i) => {
+        const s = settled[i].status === 'fulfilled' ? settled[i].value : null
+        if (!s?.title) return
+        tiles.push(moreTileHtml(c, s, src.series))
+    })
+    if (tiles.length < MORE_MIN) { hideMore(); return }
+
+    const sec = $('#moresec')
+    if (sec) sec.innerHTML = `<div class="seclab">More like this</div><div class="mgrid">${tiles.join('')}</div>`
+}
+
 function infoHtml(s, slug, count) {
     const cover = coverImg(s.cover, s.title) || `<span class="g">Cover</span>`
     const meta = [s.author, s.year, s.status || s.nfStatus].filter(Boolean).join(' · ')
@@ -78,7 +139,8 @@ function infoHtml(s, slug, count) {
         <button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button>
       </div>
       ${synopsisHtml(s)}
-      ${statsHtml(s, slug, count)}`
+      ${statsHtml(s, slug, count)}
+      ${moreSecHtml(s)}`
 }
 
 function chrow(c, read, curN) {
@@ -282,4 +344,5 @@ export async function showSeries(key, origin) {
     if (next != null) prefetchChapter(slug, next)
 
     loadChapters(slug, mine)
+    loadMoreLike(mine)
 }

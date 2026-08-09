@@ -48,6 +48,20 @@
 .den .dsyn.clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
 .den .dmore { font: 600 11px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; cursor: pointer; margin-top: -6px; }
 
+.den .more { display: flex; flex-direction: column; gap: 8px; }
+.den .mgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.den .mtile { position: relative; display: flex; gap: 10px; min-width: 0; padding: 8px; background: var(--row); border: 1px solid var(--line); text-decoration: none; cursor: pointer; }
+.den .mtile:hover { background: var(--rowh); border-color: var(--ac); }
+.den .mtile .cv { flex: none; width: 48px; height: 64px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .mtile .cv img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.den .mbd { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; justify-content: center; }
+.den .mtile .mn { font: 600 12px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .mtile .mm { font: 400 10px var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .mfol { position: absolute; top: 5px; right: 5px; font: 600 8px 'Archivo'; color: var(--ac); text-transform: uppercase; letter-spacing: .5px; border: 1px solid var(--ac); padding: 1px 4px; }
+.den .mtile.sk .cv, .den .mtile.sk .mn, .den .mtile.sk .mm { background: var(--track); border-color: transparent; }
+.den .mtile.sk .mn { height: 11px; width: 72%; }
+.den .mtile.sk .mm { height: 9px; width: 48%; }
+
 .den .dstats { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .den .drow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .den .drow .k { color: var(--dim); text-transform: uppercase; letter-spacing: .6px; font: 600 10px 'Archivo'; }
@@ -89,3 +103,8 @@
 .den.d-dense .chrow { padding: 4px 10px; contain-intrinsic-size: auto 28px; }
 .den.d-dense .chd { display: none; }
 .den.d-dense .info { gap: 12px; }
+.den.d-compact .mtile { padding: 6px; }
+.den.d-compact .mtile .cv { width: 42px; height: 56px; }
+.den.d-dense .mtile { padding: 5px; }
+.den.d-dense .mtile .cv { width: 34px; height: 46px; }
+.den.d-dense .mtile .mm { display: none; }
