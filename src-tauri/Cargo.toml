@@ -17,9 +17,12 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 log = "0.4"
-tauri = { version = "2.11.3", features = ["devtools"] }
+libloading = "0.7"
+parking_lot = "0.12"
+tauri = { version = "2.11.3", features = ["devtools", "tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-http = "2"
+tauri-plugin-single-instance = "2"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "gzip", "brotli"] }
 
 # smallest desktop footprint. optimise for size, strip symbols, abort on panic

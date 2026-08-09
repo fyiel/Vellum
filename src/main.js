@@ -12,6 +12,7 @@ import './styles/series.css'
 import { startRouter, parseHash } from './lib/router.js'
 import { setupNative } from './lib/native.js'
 import { warmNuClearance } from './lib/nuwarm.js'
+import { syncTray } from './lib/tray.js'
 import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
 import { showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
@@ -28,6 +29,7 @@ const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hi
 await setupNative()
 installCoverFallback()
 warmNuClearance()
+syncTray()
 
 let origin = 'library'
 

@@ -26,6 +26,12 @@ body { background: #15161a; overflow: hidden; }
 .den .s.red { background: #ff5f57; border-color: #ff5f57; }
 .den .s.yel { background: #febc2e; border-color: #febc2e; }
 .den .s.grn { background: #28c840; border-color: #28c840; }
+.den .toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 90;
+  padding: 8px 14px; border-radius: 8px; background: var(--panel);
+  border: 1px solid var(--line2); color: var(--text); font-size: 13px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+}
 .den .crumb { font: 500 11px 'Archivo'; color: var(--dim); letter-spacing: .4px; text-transform: uppercase; }
 .den .crumb b { color: var(--text); font-weight: 600; }
 .den .sp { flex: 1; }
