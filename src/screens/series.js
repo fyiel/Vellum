@@ -4,6 +4,7 @@ import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
+import { isLocal, getLocalMeta, mountLocalCovers, deleteBook } from '../lib/localbooks.js'
 import { $, $$, esc } from '../lib/dom.js'
 
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
@@ -98,6 +99,72 @@ function chaptersHtml(slug, chapters, count) {
       </div>
       <div class="chhead">Chapter list <span class="ct">&middot; ${count}</span></div>
       <div class="chscroll"><div class="chlist" id="chlist">${list}</div></div>`
+}
+
+const fmtSize = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes <= 0) return ''
+    return bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+function localInfoHtml(m) {
+    const metaRows = []
+    if (m.language) metaRows.push(['Language', m.language])
+    if (m.publisher) metaRows.push(['Publisher', m.publisher])
+    if (m.isbn) metaRows.push(['ISBN', m.isbn])
+    const size = fmtSize(m.size)
+    if (size) metaRows.push(['Size', size])
+    if (m.importedAt) metaRows.push(['Imported', new Date(m.importedAt).toLocaleDateString()])
+    const pos = posGet(cur.slug)
+    const cont = pos ? `Continue &middot; Ch ${esc(pos.n)}` : 'Start reading'
+
+    return `<div class="cover-lg"><span class="lcov" data-localcover="${esc(cur.slug)}"></span></div>
+      <div class="dtitle">${esc(m.title)}</div>
+      <div class="dmeta">${esc([m.author, m.language, m.publisher].filter(Boolean).join(' · '))}</div>
+      <div class="dstats">${metaRows.map(([k, v]) => `<div class="drow"><span class="k">${k}</span><span class="v copyable" title="Click to copy">${esc(v)}</span></div>`).join('')}</div>
+      <div class="dactions">
+        <button class="btn primary" id="contbtn">${cont}</button>
+        <button class="btn" id="replacebtn">Replace file</button>
+        <button class="btn" id="delbtn">Delete</button>
+      </div>
+      ${m.description ? `<div class="seclab">Synopsis</div><div class="synhost"><div class="dsyn clamp" id="syn">${esc(m.description)}</div></div><div class="dmore" id="synmore" style="display:none">Show more</div>` : ''}`
+}
+
+async function deleteLocalBook() {
+    const { confirmDialog } = await import('./importer.js')
+    const ok = await confirmDialog(`Delete “${cur.series.title}”?`, 'The book and your reading progress will be removed from this device.', [{ label: 'Cancel' }, { label: 'Delete', primary: true }])
+    if (ok !== 1) return
+    await deleteBook(cur.slug)
+    dropLibrary(cur.slug)
+    go('#/')
+}
+
+async function replaceLocalBook() {
+    const { openImport } = await import('./importer.js')
+    openImport({ replaceSlug: cur.slug })
+}
+
+async function showLocalSeries(key, origin) {
+    wire()
+    const mine = ++req
+    const info = $('#sinfo'), chaps = $('#schapters')
+    info.innerHTML = `<div class="void">loading&hellip;</div>`
+    chaps.innerHTML = ''
+
+    let meta = null
+    try { meta = await getLocalMeta(key) } catch {}
+    if (mine !== req) return
+    if (!meta) {
+        info.innerHTML = `<div class="void">this book is no longer on this device</div>`
+        return
+    }
+
+    cur = { key, slug: key, series: meta, chapters: meta.toc || [], count: meta.total ?? (meta.toc || []).length }
+    setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', meta.title, () => back())
+    info.innerHTML = localInfoHtml(meta)
+    chaps.innerHTML = chaptersHtml(key, cur.chapters, cur.count)
+    chRows = [...$$('#chlist .chrow')].map(el => ({ el, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
+    mountLocalCovers(info)
+    checkSynOverflow()
 }
 
 function checkSynOverflow() {
@@ -199,6 +266,8 @@ function wire() {
         if (e.target.closest('#tagall')) return toggleTags()
         if (e.target.closest('#followbtn')) return toggleFollow()
         if (e.target.closest('#contbtn')) return launchContinue()
+        if (e.target.closest('#replacebtn')) return replaceLocalBook()
+        if (e.target.closest('#delbtn')) return deleteLocalBook()
         const cp = e.target.closest('.copyable')
         if (cp) { e.stopPropagation(); return copyValue(cp) }
         const chip = e.target.closest('.gchip')
@@ -256,6 +325,7 @@ async function loadChapters(slug, mine) {
 }
 
 export async function showSeries(key, origin) {
+    if (isLocal(key)) return showLocalSeries(key, origin)
     wire()
     const mine = ++req
     const info = $('#sinfo'), chaps = $('#schapters')

@@ -86,6 +86,38 @@ body { background: #15161a; overflow: hidden; }
 
 .den .void { color: var(--dim); font: 400 13px 'Archivo'; padding: 40px 4px; text-align: center; }
 
+/* local (imported epub) books */
+.den .localtag { flex: none; display: inline-block; border: 1px solid var(--line2); color: var(--dim); font: 500 8px var(--mono); letter-spacing: .6px; text-transform: uppercase; padding: 1px 4px; line-height: 1.5; }
+.den .ctile .cv, .den .trow .cv { position: relative; }
+.den .lcov { position: absolute; inset: 0; display: flex; align-items: flex-end; padding: 4px; }
+.den .lcov img { position: static; }
+.den .cover-lg .lcov { align-items: stretch; padding: 0; }
+.den .cover-lg .lcov img { position: static; }
+
+/* import flow: drop overlay + progress / dialog sheet (app-wide, outside .den) */
+.imp-overlay, .imp-backdrop, .imp-sheet {
+  --bg: #15161a; --panel: #1a1c21; --text: #b6bac2; --hi: #f1f2f5; --dim: #6c7079;
+  --line: #ffffff10; --line2: #ffffff1c; --ac: #d8a24a;
+}
+.imp-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; }
+.imp-overlay[hidden] { display: none; }
+.imp-box { border: 2px dashed var(--ac); color: var(--hi); font: 500 14px 'Archivo'; letter-spacing: .4px; padding: 46px 64px; background: var(--panel); }
+.imp-backdrop { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.55); opacity: 0; pointer-events: none; transition: opacity .18s; }
+.imp-backdrop.open { opacity: 1; pointer-events: auto; }
+.imp-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 201; margin: 0 auto; max-width: 440px; background: var(--panel); border-top: 1px solid var(--line2); padding: 20px 22px calc(env(safe-area-inset-bottom) + 24px); transform: translateY(110%); transition: transform .22s ease-out; }
+.imp-sheet.open { transform: translateY(0); }
+.imp-title { font: 600 15px 'Archivo'; color: var(--hi); }
+.imp-body { font: 400 13px/1.55 'Archivo'; color: var(--text); margin-top: 9px; }
+.imp-prog { display: flex; align-items: center; gap: 11px; margin-top: 14px; font: 400 12px var(--mono); color: var(--dim); }
+.imp-actions { display: flex; gap: 9px; margin-top: 18px; }
+.imp-actions .btn { flex: 1; }
+.imp-sheet .btn { min-width: 0; padding: 11px 12px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 12px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.imp-sheet .btn:hover { border-color: var(--ac); color: var(--hi); }
+.imp-sheet .btn.primary { background: var(--ac); border-color: var(--ac); color: var(--bg); }
+.imp-sheet .btn.primary:hover { filter: brightness(1.07); color: var(--bg); }
+.impspin { flex: none; width: 17px; height: 17px; border: 2px solid var(--line2); border-top-color: var(--ac); border-radius: 50%; animation: impspin .8s linear infinite; }
+@keyframes impspin { to { transform: rotate(360deg); } }
+
 .den.d-compact .trow { padding: 6px 10px; }
 .den.d-compact .trow .cv { width: 30px; height: 40px; }
 .den.d-compact .ctile { padding: 7px; }

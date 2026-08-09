@@ -22,7 +22,8 @@ async function mapPool(list, n, fn) {
 }
 
 export async function buildFeed() {
-    const lib = library()
+    // local imports never update from the api and must not be probed
+    const lib = library().filter(e => e.kind !== 'local')
     const ledger = loadUpdLedger()
     const now = Date.now()
     const feed = []

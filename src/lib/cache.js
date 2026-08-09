@@ -10,16 +10,20 @@ const inflight = new Map()
 const refreshing = new Set()
 
 let dbp
-function db() {
+export function db() {
     if (dbp) return dbp
     dbp = new Promise((resolve, reject) => {
-        // version 2 drops the old store so a source swap (novelupdates to novelfire) cannot serve stale
-        // cross source results out of a previous build
-        const req = indexedDB.open(DB, 2)
-        req.onupgradeneeded = () => {
+        // version 3 adds the local books store; the cache store is only rebuilt when
+        // upgrading from before v2 (the version key already guards stale rows)
+        const req = indexedDB.open(DB, 3)
+        req.onupgradeneeded = (ev) => {
             const d = req.result
-            if (d.objectStoreNames.contains(STORE)) d.deleteObjectStore(STORE)
-            d.createObjectStore(STORE).createIndex('at', 'at')
+            // oldVersion lives on the event, not the database handle
+            if (ev.oldVersion < 2) {
+                if (d.objectStoreNames.contains(STORE)) d.deleteObjectStore(STORE)
+                d.createObjectStore(STORE).createIndex('at', 'at')
+            }
+            if (ev.oldVersion < 3 && !d.objectStoreNames.contains('books')) d.createObjectStore('books')
         }
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => reject(req.error)

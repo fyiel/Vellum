@@ -18,6 +18,13 @@ import {
   saveSettings,
   SET_DEFAULT,
 } from "../lib/store.js";
+import {
+  isLocal,
+  getLocalMeta,
+  getLocalChapters,
+  getLocalChapter,
+  localImageUrl,
+} from "../lib/localbooks.js";
 import { $, $$, esc } from "../lib/dom.js";
 
 let settings = loadSettings();
@@ -96,6 +103,15 @@ prose.addEventListener(
   true,
 );
 
+// broken chapter images (missing members, failed blobs) vanish without a trace
+prose.addEventListener(
+  "error",
+  (e) => {
+    if (e.target?.tagName === "IMG") e.target.style.display = "none";
+  },
+  true,
+);
+
 window.addEventListener("resize", rebuildOffsets);
 
 export async function showReader(slug, n) {
@@ -113,7 +129,9 @@ export async function showReader(slug, n) {
     prose.innerHTML = `<div class="spinner"></div>`;
     rfoot.innerHTML = "";
     try {
-      const { chapters } = await getChapters(slug);
+      const { chapters } = isLocal(slug)
+        ? await getLocalChapters(slug)
+        : await getChapters(slug);
       if (routeGen !== rd.gen) return; // closed or re navigated while the list was loading
       if (!Array.isArray(chapters)) throw new Error("couldn't load the chapter list");
       state.slug = slug;
@@ -133,6 +151,16 @@ export async function showReader(slug, n) {
 }
 
 async function hydrateSeries(slug) {
+  if (isLocal(slug)) {
+    try {
+      const meta = await getLocalMeta(slug);
+      if (!meta || rd.slug !== slug) return;
+      // cover lives in the books store, never carry a stale marker into touchLibrary
+      state.series = { ...meta, key: slug, nfSlug: slug, id: slug, cover: "", status: "", nfStatus: "" };
+      if (rd.cur >= 0) updateLibrary(rd.cur);
+    } catch {}
+    return;
+  }
   const key = seriesKey(slug);
   try {
     const s = await getSeries(key);
@@ -192,11 +220,15 @@ async function startAt(slug, idx, p = 0) {
   ensureBuffer();
 }
 
-const fetchChapter = (n) => getChapter(rd.slug, n);
+const fetchChapter = (n) =>
+  isLocal(rd.slug)
+    ? getLocalChapter(rd.slug, n).then((d) => d && ({ html: d.html, title: d.t, imgs: d.imgs || [] }))
+    : getChapter(rd.slug, n);
 
 const prefetch = (idx) => {
   const c = state.chapters[idx];
-  if (c) prefetchChapter(rd.slug, c.n);
+  // local chapters are one idb read away, prefetching only warms the api cache
+  if (c && !isLocal(rd.slug)) prefetchChapter(rd.slug, c.n);
 };
 
 // chapter html is third party scraped content, allow only the formatting the reader styles
@@ -243,12 +275,29 @@ const makeBlock = (idx, c, ch) => {
   // paragraphs as <div> not <p> so Safari doesn't flag the page as a Reader article (which kills our JS scroll)
   const body = cleanBody(rd.slug, c.n, ch.html);
   const title = ch.title || c.t;
+  const local = isLocal(rd.slug);
   block.innerHTML =
-    `<div class="reader-ch-meta">chapter ${esc(c.n)} of ${state.chapters.length}</div>` +
+    `<div class="reader-ch-meta">${local ? `part ${esc(c.n)} of ${state.chapters.length}` : `chapter ${esc(c.n)} of ${state.chapters.length}`}</div>` +
     (title ? `<h2>${esc(title)}</h2>` : "") +
     body;
+  if (local && ch.imgs?.length) relinkLocalImages(block, ch.imgs);
   return block;
 };
+
+// the sanitizer strips non-http image srcs, so for local books re-link the stored
+// blobs afterwards. `imgs` holds one resolved member name per <img> in the raw
+// chapter (null for data:/http refs), and sanitizing preserves element order, so
+// the k-th cleaned <img> corresponds to the k-th raw one.
+function relinkLocalImages(block, imgs) {
+  let k = 0;
+  for (const img of block.querySelectorAll("img")) {
+    const name = imgs[k++];
+    if (img.getAttribute("src") || !name) continue;
+    localImageUrl(rd.slug, name).then((url) => {
+      if (url && img.isConnected) img.src = url;
+    });
+  }
+}
 
 async function appendNext(gen = rd.gen) {
   if (rd.loading || rd.end || rd.failed) return false;
@@ -308,14 +357,23 @@ const renderFoot = () => {
       else ensureBuffer();
     };
   } else if (rd.end) {
-    const s = state.series;
-    const ongoing = /ongoing/i.test(s?.nfStatus || s?.status || "");
-    rfoot.innerHTML = `<div class="rfoot-end">
+    if (isLocal(rd.slug)) {
+      rfoot.innerHTML = `<div class="rfoot-end">
+            <div class="rfoot-end-mark">(￣▽￣)b</div>
+            <div class="rfoot-end-title">finished</div>
+            <div class="rfoot-end-sub">${state.chapters.length} sections</div>
+            <button class="btn" id="rfoot-back">back to library</button></div>`;
+      $("#rfoot-back").onclick = () => go("#/");
+    } else {
+      const s = state.series;
+      const ongoing = /ongoing/i.test(s?.nfStatus || s?.status || "");
+      rfoot.innerHTML = `<div class="rfoot-end">
           <div class="rfoot-end-mark">(￣▽￣)b</div>
           <div class="rfoot-end-title">all caught up</div>
           <div class="rfoot-end-sub">${ongoing ? "this novel is ongoing. new chapters will appear here." : `all ${state.chapters.length} chapters read.`}</div>
           <button class="btn" id="rfoot-back">back to series</button></div>`;
-    $("#rfoot-back").onclick = exitReader;
+      $("#rfoot-back").onclick = exitReader;
+    }
   } else if (rd.loading) {
     rfoot.innerHTML = `<div class="rfoot-load"><span class="minispin"></span></div>`;
   } else rfoot.innerHTML = "";

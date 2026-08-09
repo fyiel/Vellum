@@ -2,6 +2,7 @@ import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
+import { mountLocalCovers } from '../lib/localbooks.js'
 import { $, $$, esc } from '../lib/dom.js'
 import { relTime } from '../lib/time.js'
 
@@ -33,7 +34,11 @@ function sortEntries(list) {
     })
 }
 
-const cover = (e, ph) => coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>` : '')
+const cover = (e, ph) => e.kind === 'local'
+  ? `<span class="lcov" data-localcover="${esc(e.slug)}"></span>`
+  : coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>` : '')
+
+const localTag = (e) => e.kind === 'local' ? '<span class="localtag">local</span>' : ''
 
 const contTile = e => {
     const pct = pctOf(e)
@@ -41,7 +46,7 @@ const contTile = e => {
       <div class="cv">${cover(e, 'COV')}</div>
       <div class="cbd">
         <div class="ti">${esc(e.title)}</div>
-        <div class="mt">${esc(read(e))} / ${esc(total(e))}<span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
+        <div class="mt">${localTag(e)}${esc(read(e))} / ${esc(total(e))}<span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
       </div>
     </div>`
 }
@@ -57,7 +62,7 @@ const row = e => {
     const pct = pctOf(e)
     return `<div class="trow" data-slug="${esc(e.slug)}" data-n="${esc(resumeN(e))}">
       <span class="cv">${cover(e, '')}</span>
-      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(e.author || '')}</div></div>
+      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(e.author || '')}${localTag(e)}</div></div>
       <div class="pcell"><span class="bar"><span style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>
       <span class="chp">${esc(read(e))}/${esc(total(e))}</span>
       ${updCell(e)}
@@ -89,6 +94,8 @@ function render() {
     if (!all.length) table.innerHTML = `<div class="void">nothing in your library yet. find something to read and it shows up here</div>`
     else if (!rows.length) table.innerHTML = `<div class="void">no matches</div>`
     else table.innerHTML = rows.map(row).join('')
+
+    mountLocalCovers($('#view-library'))
 }
 
 function paintSort() {
@@ -118,7 +125,7 @@ function openEntry(el) {
     go(`#/series/${encodeURIComponent(slug)}`)
 }
 
-function wire() {
+async function wire() {
     if (wired) return
     wired = true
 
@@ -139,11 +146,19 @@ function wire() {
     $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) openEntry(t) })
     $('#libtable').addEventListener('click', e => { const r = e.target.closest('.trow'); if (r) openEntry(r) })
 
+    // local epub import: the parser is heavy, load it only when first used
+    const { installImportDrops } = await import('./importer.js')
+    installImportDrops()
+    $('#import-btn').addEventListener('click', async () => {
+        const { openImport } = await import('./importer.js')
+        openImport()
+    })
+
     paintSort()
 }
 
-export function showLibrary() {
-    wire()
+export async function showLibrary() {
+    await wire()
     render()
     checkUpdates()
 }

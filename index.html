@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#15161a">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover: blob:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -48,6 +48,7 @@
             <span data-sort="unread">Unread</span>
             <span class="dir" id="dir">&#9660;</span>
           </div>
+          <button class="fbtn" id="import-btn" title="Import an EPUB"><span class="chev">+</span>Import</button>
         </div>
         <div class="scroll">
           <div class="lab" id="cont-lab">Continue</div>
@@ -178,6 +179,13 @@
     </div>
   </div>
 </div>
+
+<!-- import: file drop overlay + progress / dialogs for local EPUBs -->
+<div class="imp-overlay" id="imp-overlay" hidden>
+  <div class="imp-box">Drop an EPUB to add it to your library</div>
+</div>
+<div class="imp-backdrop" id="impbd"></div>
+<div class="imp-sheet" id="impsheet"></div>
 
 <script type="module" src="/src/main.js"></script>
 </body>
