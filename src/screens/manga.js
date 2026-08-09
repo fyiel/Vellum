@@ -1,9 +1,8 @@
-import { discoverManga, searchManga } from '../lib/manga-api.js'
+import { discoverManga, mangaErrorMessage, mangaProviderName, mangaResponseNotice, searchManga } from '../lib/manga-api.js'
 import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 
-const SOURCE = { mf: 'MangaFire', mh: 'MangaHub' }
 const LIMIT = 30
 
 let wired = false
@@ -17,12 +16,15 @@ let loading = false
 let rows = []
 let gen = 0
 let searchTimer = null
+let ctrl = null
+let notice = ''
+let pageError = false
 
 const card = item => `<article class="manga-card" data-key="${esc(item.key)}">
-  <div class="manga-cover">${coverImg(item.cover, item.title) || '<span class="manga-cover-empty">No cover</span>'}</div>
+  <div class="manga-cover"><span class="manga-cover-empty">No cover</span>${coverImg(item.cover, item.title, false)}</div>
   <div class="manga-card-copy">
     <h2>${esc(item.title)}</h2>
-    <div class="manga-card-meta"><span>${esc(item.format)}</span><span>${esc(SOURCE[item.key.split(':')[0]] || 'Manga')}</span></div>
+    <div class="manga-card-meta"><span>${esc(item.format)}</span><span>${esc(mangaProviderName(item.key.split(':')[0]))}</span></div>
   </div>
 </article>`
 
@@ -37,44 +39,52 @@ function setControls() {
 }
 
 function paint() {
+    const status = notice ? `<div class="manga-notice">${esc(notice)}</div>` : ''
     $('#mlist').innerHTML = rows.length
-        ? rows.map(card).join('')
-        : `<div class="manga-empty">${query ? `No matches for “${esc(query)}”` : 'No manga available right now'}</div>`
+        ? status + rows.map(card).join('')
+        : `<div class="manga-empty">${status || (query ? `No matches for “${esc(query)}”` : 'No manga available right now')}</div>`
     const more = $('#mmore')
     more.hidden = !rows.length || !hasMore
     more.disabled = loading
-    more.textContent = loading ? 'Loading…' : 'Load more'
+    more.textContent = loading ? 'Loading…' : pageError ? 'Try again' : 'Load more'
 }
 
-async function fetchPage(nextPage, fresh, mine) {
-    const opts = { source, format, page: nextPage, limit: LIMIT }
-    const data = query
-        ? await searchManga(query, opts)
-        : await discoverManga({ ...opts, format: format === 'all' ? undefined : format })
+async function fetchPage(nextPage, fresh, mine, signal) {
+    const request = { query, source, format }
+    const opts = { source: request.source, format: request.format, page: nextPage, limit: LIMIT, signal }
+    const data = request.query
+        ? await searchManga(request.query, opts)
+        : await discoverManga({ source: request.source, format: request.format, page: nextPage, limit: LIMIT }, { signal })
     if (mine !== gen) return
 
     const seen = new Set(fresh ? [] : rows.map(item => item.key))
-    const incoming = data.results.filter(item => !seen.has(item.key) && (format === 'all' || item.format === format))
+    const incoming = data.results.filter(item => !seen.has(item.key))
     rows = fresh ? incoming : rows.concat(incoming)
     page = nextPage
-    hasMore = Boolean(data.hasMore) && incoming.length > 0
+    hasMore = Boolean(data.hasMore)
+    notice = mangaResponseNotice(data, request.source)
+    pageError = false
 }
 
 async function start() {
+    ctrl?.abort()
+    ctrl = new AbortController()
     const mine = ++gen
     page = 0
     rows = []
     hasMore = true
     loading = true
+    notice = ''
+    pageError = false
     setControls()
     $('#mlist').innerHTML = skeletons()
     $('#mmore').hidden = true
     try {
-        await fetchPage(1, true, mine)
+        await fetchPage(1, true, mine, ctrl.signal)
         if (mine === gen) paint()
-    } catch {
-        if (mine === gen) {
-            $('#mlist').innerHTML = '<div class="manga-empty">Couldn’t reach the manga shelves.<button id="mretry">Try again</button></div>'
+    } catch (error) {
+        if (mine === gen && error.name !== 'AbortError') {
+            $('#mlist').innerHTML = `<div class="manga-empty">${esc(mangaErrorMessage(error, 'Couldn’t reach the manga shelves.'))}<button id="mretry">Try again</button></div>`
             $('#mretry').onclick = start
         }
     } finally {
@@ -89,11 +99,15 @@ async function more() {
     if (loading || !hasMore) return
     const mine = gen
     loading = true
+    pageError = false
     paint()
     try {
-        await fetchPage(page + 1, false, mine)
-    } catch {
-        if (mine === gen) $('#mmore').textContent = 'Try again'
+        await fetchPage(page + 1, false, mine, ctrl.signal)
+    } catch (error) {
+        if (mine === gen && error.name !== 'AbortError') {
+            notice = mangaErrorMessage(error, 'Couldn’t load the next page.')
+            pageError = true
+        }
     } finally {
         if (mine === gen) {
             loading = false

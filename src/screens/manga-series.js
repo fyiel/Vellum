@@ -1,4 +1,4 @@
-import { getMangaChapters, getMangaSeries, parseMangaKey, prefetchMangaChapter } from '../lib/manga-api.js'
+import { getMangaChapters, getMangaSeries, mangaErrorMessage, mangaProviderName, orderMangaChapters, parseMangaKey, prefetchMangaChapter } from '../lib/manga-api.js'
 import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
@@ -44,13 +44,13 @@ function info(series) {
     const people = [...(series.authors || []), ...(series.artists || [])].filter(Boolean)
     const meta = [formatName(series.format), series.status, people[0]].filter(Boolean).join(' · ')
     const genres = (series.genres || []).map(item => `<span class="manga-tag">${esc(item)}</span>`).join('')
-    return `<div class="cover-lg">${coverImg(series.cover, series.title) || '<span class="g">Cover</span>'}</div>
+    return `<div class="cover-lg"><span class="g">Cover</span>${coverImg(series.cover, series.title, false)}</div>
       <div class="dtitle">${esc(series.title)}</div>
       ${meta ? `<div class="dmeta">${esc(meta)}</div>` : ''}
       ${genres ? `<div class="manga-tags">${genres}</div>` : ''}
       <div class="dactions"><button class="btn primary" id="manga-start" disabled>Loading chapters…</button><button class="btn${followed(series.key) ? ' on' : ''}" id="manga-follow">${followed(series.key) ? 'Following' : 'Follow'}</button><button class="btn manga-reset" id="manga-reset" ${posGet(series.key) || readSet(series.key).size ? '' : 'hidden'}>Reset progress</button></div>
       ${series.synopsis ? `<div class="seclab">Synopsis</div><div class="dsyn">${esc(series.synopsis)}</div>` : ''}
-      <div class="dstats"><div class="drow"><span class="k">Source</span><span class="v">${esc(SOURCE[ref?.provider] || 'Manga')}</span></div><div class="drow"><span class="k">Format</span><span class="v">${esc(formatName(series.format))}</span></div></div>`
+      <div class="dstats"><div class="drow"><span class="k">Source</span><span class="v">${esc(mangaProviderName(ref?.provider))}</span></div><div class="drow"><span class="k">Format</span><span class="v">${esc(formatName(series.format))}</span></div></div>`
 }
 
 function chapterRows(chapters, activeId) {
@@ -109,7 +109,7 @@ export async function showMangaSeries(key, origin = 'manga') {
     let series
     try { series = await getMangaSeries(key) }
     catch (error) {
-        if (mine === request && currentRouteIs(key)) $('#sinfo').innerHTML = `<div class="void">${esc(error.message)}</div>`
+        if (mine === request && currentRouteIs(key)) $('#sinfo').innerHTML = `<div class="void">${esc(mangaErrorMessage(error, 'Manga unavailable'))}</div>`
         return
     }
     if (mine !== request || !currentRouteIs(key)) return
@@ -121,7 +121,7 @@ export async function showMangaSeries(key, origin = 'manga') {
     try { chapterData = await getMangaChapters(key) }
     catch (error) {
         if (mine === request && currentRouteIs(key)) {
-            $('#schapters').innerHTML = `<div class="void">${esc(error.message)}<button class="manga-inline-retry" id="mchapter-retry">Try again</button></div>`
+            $('#schapters').innerHTML = `<div class="void">${esc(mangaErrorMessage(error, 'Chapter list unavailable'))}<button class="manga-inline-retry" id="mchapter-retry">Try again</button></div>`
             $('#mchapter-retry').onclick = () => showMangaSeries(key, origin)
         }
         return
@@ -130,7 +130,7 @@ export async function showMangaSeries(key, origin = 'manga') {
 
     const chapters = chapterData.chapters
     const saved = posGet(key)?.id
-    const first = saved ? chapters.find(chapter => chapter.id === saved) : chapters[chapters.length - 1]
+    const first = saved ? chapters.find(chapter => chapter.id === saved) : orderMangaChapters(chapters)[0]
     current = { key, series, chapters, first: first || chapters[0] }
     if (followed(key)) touchLibrary(entryFor(current))
     const start = $('#manga-start')

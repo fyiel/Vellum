@@ -1,4 +1,4 @@
-import { getMangaChapter, getMangaChapters, getMangaSeries, mangaPageUrl, parseMangaKey } from '../lib/manga-api.js'
+import { getMangaChapter, getMangaChapters, getMangaSeries, mangaErrorMessage, mangaPageUrl, orderMangaChapters, parseMangaKey } from '../lib/manga-api.js'
 import { go, parseHash } from '../lib/router.js'
 import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
@@ -31,12 +31,7 @@ const stillHere = (key, id, gen) => {
     return state.active && state.gen === gen && current.name === 'manga-read' && current.key === key && current.id === id
 }
 
-const ordered = () => [...state.chapters].sort((a, b) => {
-    if (a.number == null && b.number == null) return a.id.localeCompare(b.id)
-    if (a.number == null) return 1
-    if (b.number == null) return -1
-    return a.number - b.number || a.id.localeCompare(b.id)
-})
+const ordered = () => orderMangaChapters(state.chapters)
 
 function setChrome(hidden) {
     state.hidden = hidden
@@ -237,7 +232,7 @@ export async function showMangaReader(key, id) {
         posSet(key, { id, page: posGet(key)?.id === id ? posGet(key).page || 0 : 0, at: Date.now() })
         updateLibrary()
     } catch (error) {
-        if (stillHere(key, id, gen)) showError(error.name === 'AbortError' ? 'Chapter request stopped' : error.message || 'Couldn’t load this chapter')
+        if (stillHere(key, id, gen)) showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))
     }
 }
 

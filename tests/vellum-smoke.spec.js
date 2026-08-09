@@ -270,6 +270,129 @@ test('surfaces manga updates by opaque chapter id and opens the updated chapter'
   await expect.poll(() => page.evaluate(k => JSON.parse(localStorage.getItem('vellum:lib'))[0].lastId, key)).toBe(newId)
 })
 
+test('walks MangaHub chapter boundaries and recovers a failed image', async ({ page }) => {
+  const key = 'mh:stone'
+  const chapters = [
+    { id: 'chapter-2', number: 2, title: 'The next page' },
+    { id: 'chapter-1', number: 1, title: 'The first page' },
+  ]
+  const series = { key, kind: 'manga', format: 'manga', title: 'Stone', cover: null }
+  let firstImage = true
+
+  await page.route('**/read/api/manga/**', async route => {
+    const url = new URL(route.request().url())
+    if (url.pathname.includes('/series/')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify(series) })
+    if (url.pathname.endsWith('/chapters')) return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ key, chapters }) })
+    if (url.pathname.endsWith('/chapter')) {
+      const id = url.searchParams.get('id')
+      const chapter = chapters.find(item => item.id === id)
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        key,
+        chapter,
+        pages: [{ url: `/read/api/manga/image?key=mh%3Astone&id=${id}&page=0` }],
+      }) })
+    }
+    if (url.pathname.endsWith('/image')) {
+      if (firstImage) {
+        firstImage = false
+        return route.abort('failed')
+      }
+      return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"><rect width="100%" height="100%" fill="#171717"/></svg>' })
+    }
+    return route.abort()
+  })
+
+  await page.goto(`${app}#/manga/series/${encodeURIComponent(key)}`)
+  await expect(page.locator('#sinfo')).toContainText('MangaHub')
+  await page.locator('#manga-start').click()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 1')
+  await expect(page.locator('#mr-pages .manga-page')).toHaveClass(/failed/)
+  page._vellumErrors.length = 0
+  await page.locator('[data-page-retry="0"]').click()
+  await expect.poll(() => page.locator('#mr-pages img').evaluate(image => image.naturalWidth)).toBeGreaterThan(0)
+  await expect(page.locator('#mr-step a')).toHaveCount(1)
+  await expect(page.locator('#mr-step')).toContainText('Next')
+  await page.locator('#mr-step a').click()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+  await expect(page.locator('#mr-step a')).toHaveCount(1)
+  await expect(page.locator('#mr-step')).toContainText('Previous')
+})
+
+test('keeps manga pagination alive across filtered and duplicate provider rows', async ({ page }) => {
+  await page.route('**/read/api/manga/discover?**', route => {
+    const url = new URL(route.request().url())
+    const source = url.searchParams.get('source')
+    const requestedPage = Number(url.searchParams.get('page'))
+    const item = (key, title) => ({ key, kind: 'manga', format: 'manga', title })
+    let results = [item('mf:initial', 'Initial')]
+    let hasMore = false
+    if (source === 'mf' && requestedPage === 1) {
+      results = [item('mf:one', 'One'), item('mh:leak', 'Wrong provider')]
+      hasMore = true
+    } else if (source === 'mf' && requestedPage === 2) {
+      results = [item('mf:one', 'One')]
+      hasMore = true
+    } else if (source === 'mf' && requestedPage === 3) {
+      results = [item('mf:two', 'Two')]
+    }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ page: requestedPage, results, hasMore }) })
+  })
+
+  await page.locator('[data-nav="manga"]').click()
+  await expect(page.locator('#mlist')).toContainText('Initial')
+  await page.locator('#msource [data-source="mf"]').click()
+  await expect(page.locator('#mlist')).toContainText('One')
+  await expect(page.locator('#mlist')).not.toContainText('Wrong provider')
+  await expect(page.locator('#mlist')).toContainText('unexpected results were ignored')
+  await page.locator('#mmore').click()
+  await expect(page.locator('#mmore')).toBeVisible()
+  await page.locator('#mmore').click()
+  await expect(page.locator('#mlist')).toContainText('Two')
+  await expect(page.locator('#mlist .manga-card')).toHaveCount(2)
+  await expect(page.locator('#mmore')).toBeHidden()
+})
+
+test('ignores a stale manga search and names a selected provider outage', async ({ page }) => {
+  let releaseSlow
+  const slow = new Promise(resolve => { releaseSlow = resolve })
+  await page.route('**/read/api/manga/**', async route => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith('/discover') && url.searchParams.get('source') === 'mh') {
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        page: 1,
+        results: [],
+        hasMore: false,
+        partial: true,
+        errors: [{ provider: 'mh', code: 'provider_unavailable' }],
+      }) })
+    }
+    if (url.pathname.endsWith('/search')) {
+      const query = url.searchParams.get('q')
+      if (query === 'slow') await slow
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        page: 1,
+        results: [{ key: `mf:${query}`, kind: 'manga', format: 'manga', title: query }],
+        hasMore: false,
+      }) })
+    }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ page: 1, results: [], hasMore: false }) })
+  })
+
+  await page.locator('[data-nav="manga"]').click()
+  await page.locator('#msearch').fill('slow')
+  await page.waitForRequest(request => request.url().includes('/manga/search?') && request.url().includes('q=slow'))
+  await page.locator('#msearch').fill('fast')
+  await expect(page.locator('#mlist')).toContainText('fast')
+  releaseSlow()
+  await page.waitForTimeout(100)
+  await expect(page.locator('#mlist')).toContainText('fast')
+  await expect(page.locator('#mlist')).not.toContainText('slow')
+
+  await page.locator('#msearch').fill('')
+  await page.locator('#msource [data-source="mh"]').click()
+  await expect(page.locator('#mlist')).toContainText('MangaHub is unavailable right now')
+})
+
 test('does not duplicate a chapter after rapid reader navigation', async ({ page }) => {
   let releaseFirst = () => {}
   let releaseSecond
@@ -512,6 +635,7 @@ test('validates manga identities and never accepts an empty image chapter', asyn
       chapter: validMangaChapter(chapter, key, '9349687'),
       directPage: validMangaChapter({ ...chapter, pages: [{ url: 'https://o48.mfcdn2.xyz/page.jpg' }] }, key, '9349687'),
       wrongPage: validMangaChapter({ ...chapter, pages: [{ url: '/read/api/manga/image?key=mf%3A72NO8&id=9349687&page=1' }] }, key, '9349687'),
+      badDimensions: validMangaChapter({ ...chapter, pages: [{ ...chapter.pages[0], width: '940' }] }, key, '9349687'),
       pageUrl: mangaPageUrl(chapter.pages[0]),
       emptyChapter: validMangaChapter({ ...chapter, pages: [] }, key, '9349687'),
       wrongChapter: validMangaChapter(chapter, key, '9339335'),
@@ -532,9 +656,57 @@ test('validates manga identities and never accepts an empty image chapter', asyn
     chapter: true,
     directPage: false,
     wrongPage: false,
+    badDimensions: false,
     pageUrl: '/read/api/manga/image?key=mf%3A72NO8&id=9349687&page=0',
     emptyChapter: false,
     wrongChapter: false,
+  })
+})
+
+test('validates manga response boundaries and orders both provider chapter ids', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { orderMangaChapters, searchManga, validMangaSeries } = await import('/src/lib/manga-api.js')
+    const { setTransport } = await import('/src/lib/http.js')
+    let calls = 0
+    setTransport(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        calls++
+        if (calls === 1) return { page: 1, results: [], hasMore: false }
+        return {
+          page: 2,
+          results: [
+            { key: 'mf:kept', kind: 'manga', format: 'manga', title: 'Kept' },
+            { key: 'mh:dropped', kind: 'manga', format: 'manga', title: 'Dropped' },
+          ],
+          hasMore: true,
+        }
+      },
+    }))
+
+    const nonce = Date.now()
+    const mismatch = await searchManga(`page-${nonce}`, { source: 'mf', page: 2 }).then(() => 'resolved', error => error.message)
+    const filtered = await searchManga(`page-${nonce}`, { source: 'mf', page: 2 })
+    return {
+      calls,
+      mismatch,
+      keys: filtered.results.map(item => item.key),
+      partial: filtered.partial,
+      badGenres: validMangaSeries({ key: 'mh:bad', kind: 'manga', format: 'manga', title: 'Bad', genres: {} }),
+      mangaFire: orderMangaChapters([{ id: '20', number: 2 }, { id: '10', number: 1 }]).map(item => item.id),
+      mangaHub: orderMangaChapters([{ id: 'chapter-special', number: null }, { id: 'chapter-2', number: 2 }, { id: 'chapter-1', number: 1 }]).map(item => item.id),
+    }
+  })
+
+  expect(result).toEqual({
+    calls: 2,
+    mismatch: 'manga search unavailable',
+    keys: ['mf:kept'],
+    partial: true,
+    badGenres: false,
+    mangaFire: ['10', '20'],
+    mangaHub: ['chapter-1', 'chapter-2', 'chapter-special'],
   })
 })
 
@@ -627,6 +799,48 @@ test('does not cache incomplete manga results or chapter lists', async ({ page }
     secondSearch: 'Recovered',
     firstChapters: 'chapter list unavailable',
     secondChapters: 2,
+  })
+})
+
+test('does not cache partial manga metadata or image chapters', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { getMangaChapter, getMangaSeries } = await import('/src/lib/manga-api.js')
+    const { setTransport } = await import('/src/lib/http.js')
+    const key = `mh:partial-${Date.now()}`
+    const id = 'chapter-1'
+    const series = { key, kind: 'manga', format: 'manhwa', title: 'Recovered' }
+    const chapter = {
+      key,
+      chapter: { id, number: 1 },
+      pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=0` }],
+    }
+    let seriesCalls = 0
+    let chapterCalls = 0
+    setTransport(async url => {
+      const isChapter = String(url).includes('/manga/chapter?')
+      const call = isChapter ? ++chapterCalls : ++seriesCalls
+      const value = isChapter ? chapter : series
+      return {
+        ok: true,
+        status: 200,
+        json: async () => call === 1 ? { ...value, partial: true, errors: [{ provider: 'mh' }] } : value,
+      }
+    })
+
+    const firstSeries = await getMangaSeries(key).then(() => 'resolved', error => error.message)
+    const secondSeries = await getMangaSeries(key)
+    const firstChapter = await getMangaChapter(key, id).then(() => 'resolved', error => error.message)
+    const secondChapter = await getMangaChapter(key, id)
+    return { seriesCalls, chapterCalls, firstSeries, seriesTitle: secondSeries.title, firstChapter, pages: secondChapter.pages.length }
+  })
+
+  expect(result).toEqual({
+    seriesCalls: 2,
+    chapterCalls: 2,
+    firstSeries: 'manga unavailable',
+    seriesTitle: 'Recovered',
+    firstChapter: 'chapter unavailable',
+    pages: 1,
   })
 })
 
