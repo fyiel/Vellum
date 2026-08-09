@@ -25,6 +25,13 @@ export const saveRead = (slug, set) => lsSet(`${NS}:read:${slug}`, [...set])
 export const posGet = slug => lsGet(`${NS}:pos:${slug}`, null)
 export const posSet = (slug, pos) => lsSet(`${NS}:pos:${slug}`, pos)
 
+// marginalia: one array of {id,n,p,s,e,excerpt,color,note,at} per book, rewritten per edit
+export const hlGet = slug => {
+    const v = lsGet(`${NS}:hl:${slug}`, [])
+    return Array.isArray(v) ? v : []
+}
+export const saveHls = (slug, arr) => lsSet(`${NS}:hl:${slug}`, arr)
+
 export const library = () => lsGet(`${NS}:lib`, [])
 
 export const touchLibrary = entry => {
@@ -45,6 +52,8 @@ export const dropLibrary = slug => {
         delete ledger[slug]
         saveUpdLedger(ledger)
     }
+    // and the marginalia for that book, they are meaningless outside the follow
+    localStorage.removeItem(`${NS}:hl:${slug}`)
 }
 
 export const SET_DEFAULT = { theme: 'black', font: 'sans', size: 17, lh: 1.3, width: 'normal' }

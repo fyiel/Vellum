@@ -114,6 +114,7 @@
     <button class="riconbtn" id="r-back" title="Back">‹</button>
     <span class="rtitle" id="r-title"></span>
     <button class="riconbtn" id="r-list" title="Chapters">☰</button>
+    <button class="riconbtn" id="r-marks" title="Marginalia">❝</button>
     <button class="riconbtn" id="r-settings" title="Display">Aa</button>
   </div>
   <article class="reader-prose" id="reader-prose"></article>
@@ -177,6 +178,32 @@
       <button data-lh="1.8">Loose</button>
     </div>
   </div>
+</div>
+
+<!-- marginalia note sheet (opened from a mark tap) -->
+<div class="sheet" id="note-sheet">
+  <div class="grip"></div>
+  <div class="hl-note-head">chapter <span id="hln-ch"></span></div>
+  <div class="hl-note-quote" id="hln-quote">
+    <span class="hlq-text" id="hln-quote-text"></span>
+  </div>
+  <textarea id="hln-text" autocomplete="off" placeholder="note&hellip;"></textarea>
+  <div class="hl-note-row">
+    <button class="hl-ghost" id="hln-remove">remove</button>
+    <span class="sp"></span>
+    <button class="btn" id="hln-save">save note</button>
+  </div>
+</div>
+
+<!-- marginalia review sheet (reader chrome only) -->
+<div class="sheet marks-sheet" id="marks-sheet">
+  <div class="grip"></div>
+  <div class="marks-head">
+    <span class="marks-title">marginalia</span>
+    <span class="marks-count" id="marks-count"></span>
+    <span class="marks-cap" id="marks-cap"></span>
+  </div>
+  <div class="marks-list" id="marks-list"></div>
 </div>
 
 <script type="module" src="/src/main.js"></script>

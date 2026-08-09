@@ -17,6 +17,8 @@ import {
   loadSettings,
   saveSettings,
   SET_DEFAULT,
+  hlGet,
+  saveHls,
 } from "../lib/store.js";
 import { $, $$, esc } from "../lib/dom.js";
 
@@ -96,7 +98,10 @@ prose.addEventListener(
   true,
 );
 
-window.addEventListener("resize", rebuildOffsets);
+window.addEventListener("resize", () => {
+  hideHlbar();
+  rebuildOffsets();
+});
 
 export async function showReader(slug, n) {
   const routeGen = ++rd.gen;
@@ -147,6 +152,7 @@ export const closeReader = () => {
   posSave();
   closeSheet();
   closeDrawer();
+  hideHlbar();
   R.classList.remove("active");
   document.documentElement.classList.remove("reading");
   document.body.classList.remove("reading");
@@ -247,6 +253,8 @@ const makeBlock = (idx, c, ch) => {
     `<div class="reader-ch-meta">chapter ${esc(c.n)} of ${state.chapters.length}</div>` +
     (title ? `<h2>${esc(title)}</h2>` : "") +
     body;
+  // marginalia marks ride along on every mount, before the caller rebuilds offsets
+  applyMarks(block, idx);
   return block;
 };
 
@@ -503,6 +511,7 @@ window.addEventListener(
   "scroll",
   () => {
     if (state.view !== "reader") return;
+    if (hlbar?.classList.contains("open")) hideHlbar();
     if (!ticking) {
       ticking = true;
       requestAnimationFrame(() => {
@@ -537,9 +546,15 @@ document.addEventListener("visibilitychange", () => {
 });
 
 R.addEventListener("click", (e) => {
-  if (e.target.closest("a, button")) return;
+  // marks open the note sheet and the hlbar is chrome of its own, neither toggles the reader chrome
+  if (e.target.closest("a, button, .hl, .hlbar")) return;
   if (String(window.getSelection?.() ?? "")) return;
   setChrome(!chromeHidden);
+});
+
+prose.addEventListener("click", (e) => {
+  const m = e.target.closest("mark.hl");
+  if (m && m._hl) openNoteSheet(m._hl);
 });
 
 const exitReader = () => {
@@ -554,7 +569,12 @@ const jumpBy = (d) => {
   if (c) go(`#/read/${hashSlug(rd.slug)}/${c.n}`);
 };
 window.addEventListener("keydown", (e) => {
-  if (state.view !== "reader" || e.target.closest("input")) return;
+  if (state.view !== "reader" || e.target.closest("input, textarea")) return;
+  if (e.key === "Escape") {
+    hideHlbar();
+    closeAnySheet();
+    return;
+  }
   if (e.key === "ArrowRight") jumpBy(1);
   if (e.key === "ArrowLeft") jumpBy(-1);
 });
@@ -640,16 +660,24 @@ function renderDrawer() {
 }
 
 const sheet = $("#sheet"),
-  backdrop = $("#sheet-backdrop");
-const openSheet = () => {
-  syncSheet();
-  sheet.classList.add("open");
+  backdrop = $("#sheet-backdrop"),
+  noteSheet = $("#note-sheet"),
+  marksSheet = $("#marks-sheet");
+const allSheets = [sheet, noteSheet, marksSheet];
+// one backdrop for every sheet, opening one closes the rest
+const openAnySheet = (el) => {
+  allSheets.forEach((s) => s.classList.toggle("open", s === el));
   backdrop.classList.add("open");
 };
-const closeSheet = () => {
-  sheet.classList.remove("open");
+const closeAnySheet = () => {
+  allSheets.forEach((s) => s.classList.remove("open"));
   backdrop.classList.remove("open");
 };
+const openSheet = () => {
+  syncSheet();
+  openAnySheet(sheet);
+};
+const closeSheet = () => closeAnySheet();
 $("#r-settings").onclick = openSheet;
 backdrop.onclick = closeSheet;
 
@@ -708,4 +736,417 @@ const commit = () => {
   rebuildOffsets(); // size and spacing changes reflow every block
   syncSheet();
   updateProgress();
+};
+
+/* ---------------------------------------------------------------- marginalia */
+
+const LEAF_SEL = ".rp, p, li, td, blockquote";
+const HL_MAX = 500;
+const HL_MAX_LEN = 2000;
+
+const leafAt = (block, p) => block.querySelectorAll(LEAF_SEL)[p] ?? null;
+
+// verify a stored record against the mounted chapter: exact offsets while the text at
+// p,s..e still matches the excerpt head/tail, else a substring scan, else orphaned
+const resolveRecord = (container, r) => {
+  const text = container.textContent;
+  // exact offsets while the text at p,s..e still matches the excerpt head/tail
+  const at = r.s >= 0 && r.e <= text.length && r.s < r.e ? text.slice(r.s, r.e) : "";
+  if (
+    at.slice(0, 24) === r.excerpt.slice(0, 24) &&
+    at.slice(-24) === r.excerpt.slice(-24)
+  ) {
+    return { s: r.s, e: r.e };
+  }
+  // the chapter may have shifted, hunt for the excerpt anywhere in the container
+  const i = text.indexOf(r.excerpt);
+  return i >= 0 ? { s: i, e: i + r.excerpt.length } : null;
+};
+
+// re-anchor every mark of this chapter on each mount; marks never add text nodes so
+// the offsets stay valid no matter how many marks wrap the same container
+const applyMarks = (block, idx) => {
+  const c = state.chapters[idx];
+  if (!c) return;
+  const all = hlGet(rd.slug);
+  const recs = all
+    .filter((r) => r.n === c.n)
+    .sort((a, b) => (a.at || 0) - (b.at || 0));
+  if (!recs.length) return;
+  let dirty = false;
+  for (const r of recs) {
+    const container = leafAt(block, r.p);
+    const pos = container && resolveRecord(container, r);
+    if (!container || !pos) {
+      if (!r.orphan) {
+        r.orphan = true;
+        dirty = true;
+      }
+      continue;
+    }
+    if (r.orphan || r.s !== pos.s || r.e !== pos.e) {
+      r.orphan = false;
+      r.s = pos.s;
+      r.e = pos.e;
+      dirty = true;
+    }
+    drawMark(container, r);
+  }
+  // persist corrected anchors and orphan flags, one write per mount
+  if (dirty) saveHls(rd.slug, all);
+};
+
+const textNodeAt = (root, target) => {
+  let left = target;
+  let hit = null;
+  (function walk(el) {
+    if (hit) return;
+    for (const c of el.childNodes) {
+      if (hit) return;
+      if (c.nodeType === 3) {
+        if (left <= c.length) {
+          hit = { node: c, off: left };
+          return;
+        }
+        left -= c.length;
+      } else walk(c);
+    }
+  })(root);
+  return hit;
+};
+
+const rangeFromOffsets = (container, s, e) => {
+  if (!(e > s)) return null;
+  const a = textNodeAt(container, s);
+  const b = textNodeAt(container, e);
+  if (!a || !b) return null;
+  const range = document.createRange();
+  range.setStart(a.node, a.off);
+  range.setEnd(b.node, b.off);
+  return range;
+};
+
+// wrap each covered text node in its own <mark> via extractContents; a range is
+// never forced across a partial node, so marks stay class-only and add no text
+const drawMark = (container, rec) => {
+  const range = rangeFromOffsets(container, rec.s, rec.e);
+  if (!range) return false;
+  const color = Math.min(4, Math.max(1, rec.color || 1));
+  const parts = [];
+  (function walk(el) {
+    for (const c of el.childNodes) {
+      if (c.nodeType === 3) {
+        if (!range.intersectsNode(c)) continue;
+        let a = 0;
+        let b = c.length;
+        if (range.startContainer === c) a = range.startOffset;
+        if (range.endContainer === c) b = range.endOffset;
+        if (a < b) parts.push({ node: c, a, b });
+      } else walk(c);
+    }
+  })(container);
+  let drew = false;
+  for (const { node, a, b } of parts) {
+    const r = document.createRange();
+    r.setStart(node, a);
+    r.setEnd(node, b);
+    const frag = r.extractContents();
+    const m = document.createElement("mark");
+    m.className = "hl c" + color;
+    m._hl = rec;
+    m.appendChild(frag);
+    r.insertNode(m);
+    drew = true;
+  }
+  return drew;
+};
+
+const blockOf = (node) =>
+  node.nodeType === 1
+    ? node.closest(".ch-block")
+    : (node.parentElement?.closest(".ch-block") ?? null);
+
+const leafContainerOf = (node, block) => {
+  let n = node;
+  while (n && n !== block && n !== prose) {
+    if (n.nodeType === 1 && n.matches(LEAF_SEL)) return n;
+    n = n.parentElement;
+  }
+  return null;
+};
+
+const rangeOffsets = (container, range) => {
+  const pre = document.createRange();
+  pre.setStart(container, 0);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const s = pre.toString().length;
+  pre.setEnd(range.endContainer, range.endOffset);
+  return { s, e: pre.toString().length };
+};
+
+const clearSel = () => window.getSelection()?.removeAllRanges();
+
+const copyText = (text) => {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  } else {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+    } catch {}
+    ta.remove();
+  }
+};
+
+let hlSel = null;
+let hlLastColor = 1;
+let hlCapShed = false;
+let hlTimer = null;
+
+document.addEventListener("selectionchange", () => {
+  if (state.view !== "reader") return;
+  clearTimeout(hlTimer);
+  hlTimer = setTimeout(handleSelection, 150);
+});
+
+function handleSelection() {
+  if (state.view !== "reader") return;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
+    hideHlbar();
+    return;
+  }
+  const range = sel.getRangeAt(0);
+  if (range.collapsed) {
+    hideHlbar();
+    return;
+  }
+  const startBlock = blockOf(range.startContainer);
+  if (!startBlock || !prose.contains(startBlock)) {
+    hideHlbar();
+    return;
+  }
+  // a drag that spills into another chapter clamps silently to the anchor block
+  let r = range.cloneRange();
+  if (blockOf(range.endContainer) !== startBlock) {
+    r.setEnd(startBlock, startBlock.childNodes.length);
+  }
+  const container = leafContainerOf(r.startContainer, startBlock);
+  if (!container) {
+    hideHlbar();
+    return;
+  }
+  // and to the anchor leaf container, a cross paragraph drag stays in the first
+  if (!container.contains(r.endContainer)) {
+    r.setEnd(container, container.childNodes.length);
+  }
+  const text = r.toString();
+  if (text.trim().length < 2 || text.length > HL_MAX_LEN) {
+    hideHlbar();
+    return;
+  }
+  const { s, e } = rangeOffsets(container, r);
+  const lead = text.length - text.trimStart().length;
+  const tail = text.length - text.trimEnd().length;
+  showHlbar(
+    { container, s: s + lead, e: e - tail, excerpt: text.trim() },
+    r,
+  );
+}
+
+let hlbar = null;
+const ensureHlbar = () => {
+  if (hlbar) return;
+  hlbar = document.createElement("div");
+  hlbar.className = "hlbar";
+  hlbar.innerHTML =
+    `<button class="hlsw on c1" data-c="1" title="mark yellow"></button>` +
+    `<button class="hlsw c2" data-c="2" title="mark green"></button>` +
+    `<button class="hlsw c3" data-c="3" title="mark blue"></button>` +
+    `<button class="hlsw c4" data-c="4" title="mark pink"></button>` +
+    `<button class="hlb" data-act="note" title="mark with a note">✎</button>` +
+    `<button class="hlb" data-act="copy" title="copy">⧉</button>` +
+    `<button class="hlb" data-act="close" title="dismiss">✕</button>`;
+  hlbar.addEventListener("click", (e) => {
+    const sw = e.target.closest(".hlsw");
+    if (sw) {
+      hlLastColor = Number(sw.dataset.c);
+      if (hlSel) createHl(hlSel, hlLastColor);
+      hideHlbar();
+      clearSel();
+      return;
+    }
+    const act = e.target.closest(".hlb")?.dataset.act;
+    if (act === "note") {
+      const rec = hlSel ? createHl(hlSel, hlLastColor) : null;
+      hideHlbar();
+      clearSel();
+      if (rec) openNoteSheet(rec);
+    } else if (act === "copy") {
+      if (hlSel) copyText(hlSel.excerpt);
+    } else if (act === "close") {
+      hideHlbar();
+      clearSel();
+    }
+  });
+  document.body.appendChild(hlbar);
+};
+
+const hideHlbar = () => {
+  hlSel = null;
+  hlbar?.classList.remove("open");
+};
+
+const showHlbar = (info, range) => {
+  ensureHlbar();
+  hlSel = info;
+  hlbar.querySelectorAll(".hlsw").forEach((b) =>
+    b.classList.toggle("on", Number(b.dataset.c) === hlLastColor),
+  );
+  const rr = range.cloneRange();
+  rr.collapse(false);
+  const rect = rr.getBoundingClientRect();
+  hlbar.classList.remove("open");
+  hlbar.style.visibility = "hidden";
+  const w = hlbar.offsetWidth;
+  const h = hlbar.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, Math.round(rect.left)));
+  // above the range end, flipped below when the selection ends near the top edge
+  const top =
+    rect.top < 150 ? Math.round(rect.bottom) + 8 : Math.round(rect.top) - h - 8;
+  hlbar.style.left = left + "px";
+  hlbar.style.top = Math.max(8, top) + "px";
+  hlbar.style.visibility = "visible";
+  void hlbar.offsetWidth; // commit the hidden->visible state so the open transition runs
+  hlbar.classList.add("open");
+};
+
+const createHl = (info, color) => {
+  const arr = hlGet(rd.slug);
+  if (arr.length >= HL_MAX) {
+    arr.sort((a, b) => (a.at || 0) - (b.at || 0));
+    arr.shift(); // cap at HL_MAX marks per book, shed the oldest
+    hlCapShed = true;
+  }
+  const block = info.container.closest(".ch-block");
+  const c = state.chapters[Number(block.dataset.idx)];
+  const p = [...block.querySelectorAll(LEAF_SEL)].indexOf(info.container);
+  if (!c || p < 0) return null;
+  const rec = {
+    id: "hl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+    n: c.n,
+    p,
+    s: info.s,
+    e: info.e,
+    excerpt: info.excerpt,
+    color,
+    note: "",
+    at: Date.now(),
+  };
+  arr.push(rec);
+  saveHls(rd.slug, arr);
+  drawMark(info.container, rec);
+  return rec;
+};
+
+let curHl = null;
+const openNoteSheet = (rec) => {
+  curHl = rec;
+  $("#hln-ch").textContent = rec.n;
+  const c = Math.min(4, Math.max(1, rec.color || 1));
+  $("#hln-quote").style.setProperty("--hlq", `var(--hl${c})`);
+  $("#hln-quote-text").textContent = rec.excerpt;
+  $("#hln-text").value = rec.note || "";
+  openAnySheet(noteSheet);
+};
+const saveNote = () => {
+  if (!curHl) return;
+  const arr = hlGet(rd.slug);
+  const rec = arr.find((x) => x.id === curHl.id);
+  if (!rec) return;
+  rec.note = $("#hln-text").value.trim();
+  saveHls(rd.slug, arr);
+  closeAnySheet();
+};
+const removeNote = () => {
+  if (!curHl) return;
+  saveHls(rd.slug, hlGet(rd.slug).filter((x) => x.id !== curHl.id));
+  $$("mark.hl").forEach((m) => {
+    if (m._hl && m._hl.id === curHl.id) m.remove();
+  });
+  closeAnySheet();
+};
+$("#hln-save").onclick = saveNote;
+$("#hln-remove").onclick = removeNote;
+
+const renderMarksSheet = () => {
+  const arr = hlGet(rd.slug);
+  $("#marks-count").textContent = `${arr.length} mark${arr.length === 1 ? "" : "s"}`;
+  $("#marks-cap").textContent = hlCapShed ? "500 mark cap — oldest removed" : "";
+  const groups = new Map();
+  for (const r of [...arr].sort((a, b) => (a.at || 0) - (b.at || 0))) {
+    if (!groups.has(r.n)) groups.set(r.n, []);
+    groups.get(r.n).push(r);
+  }
+  const rows = [];
+  for (const [n, list] of [...groups].sort((a, b) => a[0] - b[0])) {
+    rows.push(`<div class="marks-g">chapter ${esc(n)}</div>`);
+    for (const r of list) {
+      const c = Math.min(4, Math.max(1, r.color || 1));
+      rows.push(
+        `<button class="mark-row" data-id="${esc(r.id)}" style="--hlq: var(--hl${c})">` +
+          `<span class="mr-bar"></span><span class="mr-txt">` +
+          `<span class="mr-q">${esc(r.excerpt)}</span>` +
+          (r.note ? `<span class="mr-note">${esc(r.note)}</span>` : "") +
+          (r.orphan ? `<span class="mr-moved">moved</span>` : "") +
+          `</span><span class="mr-n">#${esc(n)}</span></button>`,
+      );
+    }
+  }
+  $("#marks-list").innerHTML = rows.length
+    ? rows.join("")
+    : `<div class="empty">(・ω・)\n\nno marks yet — select text in a chapter to add one</div>`;
+};
+$("#r-marks").onclick = () => {
+  renderMarksSheet();
+  openAnySheet(marksSheet);
+};
+
+$("#marks-list").addEventListener("click", (e) => {
+  const row = e.target.closest(".mark-row");
+  if (!row) return;
+  const rec = hlGet(rd.slug).find((r) => r.id === row.dataset.id);
+  if (rec) gotoMark(rec);
+});
+
+// close the sheet, mount the chapter if trimTop shed it, then scroll to and flash the mark
+const gotoMark = async (rec) => {
+  closeAnySheet();
+  const idx = chapterIndex(rec.n);
+  if (idx < 0) return;
+  let guard = 0;
+  while (rd.first > idx && guard++ < 300) {
+    const before = rd.first;
+    await loadPrev();
+    if (rd.first === before) break;
+  }
+  guard = 0;
+  while (rd.last < idx && guard++ < 300) {
+    if (!(await appendNext())) break;
+  }
+  const block = blockFor(idx);
+  if (!block) return;
+  const segs = $$("mark.hl", block).filter((m) => m._hl && m._hl.id === rec.id);
+  if (segs.length) {
+    segs[0].scrollIntoView({ block: "center" });
+    segs.forEach((m) => m.classList.add("flash"));
+    setTimeout(() => segs.forEach((m) => m.classList.remove("flash")), 800);
+  } else {
+    block.scrollIntoView({ block: "start" });
+  }
 };
