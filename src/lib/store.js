@@ -37,6 +37,11 @@ export const touchLibrary = entry => {
     lsSet(`${NS}:lib`, rest.slice(0, 60))
 }
 
+export const saveLibrary = list => lsSet(`${NS}:lib`, Array.isArray(list) ? list.slice(0, 60) : [])
+
+export const loadLastBackup = () => lsGet(`${NS}:lastbackup`, 0)
+export const saveLastBackup = ts => lsSet(`${NS}:lastbackup`, ts)
+
 export const dropLibrary = slug => {
     lsSet(`${NS}:lib`, library().filter(e => e.slug !== slug))
     // unfollowing ends the alert relationship, drop the ledger entry so it cannot grow forever

@@ -34,6 +34,7 @@
         <span class="ni" data-nav="updates"><span class="ix">3</span>Updates<span class="c" id="count-updates"></span></span>
       </nav>
       <div class="grow"></div>
+      <span class="ni" id="data-row"><span class="ix">§</span>Data</span>
     </aside>
     <main class="main">
 
@@ -175,6 +176,28 @@
       <button data-lh="1.3">Tight</button>
       <button data-lh="1.5">Normal</button>
       <button data-lh="1.8">Loose</button>
+    </div>
+  </div>
+</div>
+
+<!-- data sheet (backup & restore) -->
+<div id="data-backdrop"></div>
+<div class="data-sheet" id="data-sheet">
+  <div class="grip"></div>
+  <div class="ds-head">Data</div>
+  <div class="ds-sum" id="ds-sum"></div>
+  <div class="ds-act" id="ds-act">
+    <button class="btn primary" id="ds-export">Export backup</button>
+    <button class="btn" id="ds-restore">Restore backup</button>
+    <input type="file" id="ds-file" accept=".json,application/json" hidden>
+  </div>
+  <div class="ds-err" id="ds-err" hidden></div>
+  <div class="ds-prev" id="ds-prev" style="display:none">
+    <div class="ds-prev-info" id="ds-prev-info"></div>
+    <div class="ds-prev-warn" id="ds-prev-warn"></div>
+    <div class="ds-prev-act">
+      <button class="btn" id="ds-cancel">Cancel</button>
+      <button class="btn primary" id="ds-replace">Replace</button>
     </div>
   </div>
 </div>

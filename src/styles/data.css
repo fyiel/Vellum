@@ -1,0 +1,36 @@
+/* data sheet (backup & restore) — own classes; the reader sheet css lives in a lazy chunk and is not reused */
+#data-backdrop { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.55);
+  opacity: 0; pointer-events: none; transition: opacity .18s; }
+#data-backdrop.open { opacity: 1; pointer-events: auto; }
+
+.data-sheet {
+  --bg-a: #1a1c21; --bg-b: #1e2126; --bg-d: #2d3138; --bg-d2: #23262d;
+  --text: #b6bac2; --text-hi: #f1f2f5; --dim: #6c7079;
+  --border: #ffffff10; --border-hi: #ffffff1c;
+  --ac: #d8a24a; --err: #e57373;
+  --mono: 'IBM Plex Mono', monospace;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 121;
+  background: var(--bg-b); border-top: 1px solid var(--border-hi);
+  padding: 10px 18px calc(env(safe-area-inset-bottom, 0px) + 22px);
+  transform: translateY(110%); transition: transform .22s ease-out;
+  max-width: 680px; margin: 0 auto;
+  color: var(--text); font: 400 13px/1.45 'Archivo', system-ui, sans-serif;
+}
+.data-sheet.open { transform: translateY(0); }
+.data-sheet .grip { width: 28px; height: 6px; background: var(--bg-d); margin: 4px auto 14px; }
+.data-sheet .ds-head { font: 600 11px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
+.data-sheet .ds-sum { font: 400 12px var(--mono); color: var(--dim); }
+.data-sheet .ds-act { display: flex; gap: 10px; margin-top: 14px; }
+.data-sheet .ds-err { font: 400 11px var(--mono); color: var(--err); margin-top: 10px; }
+.data-sheet .ds-prev { margin-top: 14px; }
+.data-sheet .ds-prev-info { font: 400 12px var(--mono); color: var(--text); }
+.data-sheet .ds-prev-warn { font: 400 11px var(--mono); color: var(--err); margin-top: 6px; }
+.data-sheet .ds-prev-act { display: flex; gap: 10px; margin-top: 12px; }
+
+.data-sheet .btn { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 12px; border: 1px solid var(--border-hi); background: transparent; color: var(--text);
+  font: 600 12px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.data-sheet .btn:hover { border-color: var(--ac); color: var(--text-hi); }
+.data-sheet .btn.primary { background: var(--ac); border-color: var(--ac); color: var(--bg-b); }
+.data-sheet .btn.primary:hover { filter: brightness(1.07); color: var(--bg-b); }

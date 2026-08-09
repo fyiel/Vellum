@@ -8,11 +8,13 @@ import './styles/library.css'
 import './styles/discover.css'
 import './styles/updates.css'
 import './styles/series.css'
+import './styles/data.css'
 
 import { startRouter, parseHash } from './lib/router.js'
 import { setupNative } from './lib/native.js'
 import { warmNuClearance } from './lib/nuwarm.js'
 import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
+import { mountData } from './screens/data.js'
 import { showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
 import { showUpdates } from './screens/updates.js'
@@ -28,6 +30,7 @@ const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hi
 await setupNative()
 installCoverFallback()
 warmNuClearance()
+mountData()
 
 let origin = 'library'
 
