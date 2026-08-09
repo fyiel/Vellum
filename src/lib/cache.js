@@ -9,21 +9,29 @@ const mem = new Map()
 const inflight = new Map()
 const refreshing = new Set()
 
-let dbp
-function db() {
-    if (dbp) return dbp
-    dbp = new Promise((resolve, reject) => {
-        // version 2 drops the old store so a source swap (novelupdates to novelfire) cannot serve stale
-        // cross source results out of a previous build
-        const req = indexedDB.open(DB, 2)
+export function openDB() {
+    return new Promise((resolve, reject) => {
+        // v3 keeps the cache store (v2 dropped it so a source swap cannot serve stale cross source
+        // results out of a previous build) and adds the durable downloads store, which is
+        // version independent and must survive every app version bump
+        const req = indexedDB.open(DB, 3)
         req.onupgradeneeded = () => {
             const d = req.result
-            if (d.objectStoreNames.contains(STORE)) d.deleteObjectStore(STORE)
-            d.createObjectStore(STORE).createIndex('at', 'at')
+            if (d.oldVersion < 2) {
+                if (d.objectStoreNames.contains(STORE)) d.deleteObjectStore(STORE)
+            }
+            if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE).createIndex('at', 'at')
+            if (!d.objectStoreNames.contains('downloads')) d.createObjectStore('downloads')
         }
         req.onsuccess = () => resolve(req.result)
         req.onerror = () => reject(req.error)
-    }).catch(() => null)
+    })
+}
+
+let dbp
+function db() {
+    if (dbp) return dbp
+    dbp = openDB().catch(() => null)
     return dbp
 }
 

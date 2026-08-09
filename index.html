@@ -32,6 +32,7 @@
         <span class="ni on" data-nav="library"><span class="ix">1</span>Library<span class="c" id="count-library"></span></span>
         <span class="ni" data-nav="discover"><span class="ix">2</span>Discover</span>
         <span class="ni" data-nav="updates"><span class="ix">3</span>Updates<span class="c" id="count-updates"></span></span>
+        <span class="ni" data-nav="downloads"><span class="ix">4</span>Downloads</span>
       </nav>
       <div class="grow"></div>
     </aside>
@@ -103,7 +104,31 @@
         <section class="chapters" id="schapters"></section>
       </div>
 
+      <div class="view" id="view-downloads" hidden>
+        <div class="tool">
+          <span class="sortlbl">Offline shelf</span>
+          <span class="sp"></span>
+        </div>
+        <div class="scroll">
+          <div class="dlquota" id="dlquota"></div>
+          <div id="dllist"></div>
+        </div>
+      </div>
+
     </main>
+  </div>
+
+  <!-- download confirm sheet -->
+  <div class="sheet-backdrop" id="dl-sheet-backdrop"></div>
+  <div class="sheet" id="dl-sheet">
+    <div class="grip"></div>
+    <div class="dl-sheet-title" id="dl-sheet-title"></div>
+    <div class="dl-sheet-sub" id="dl-sheet-sub"></div>
+    <div class="dl-sheet-opts">
+      <button class="btn" data-dl="all" id="dl-sheet-all"><span class="o"></span><span class="m"></span></button>
+      <button class="btn" data-dl="from" id="dl-sheet-from"><span class="o"></span><span class="m"></span></button>
+      <button class="btn" data-dl="next" id="dl-sheet-next"><span class="o"></span><span class="m"></span></button>
+    </div>
   </div>
 </div>
 

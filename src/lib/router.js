@@ -14,6 +14,7 @@ export function parseHash() {
 
     if (h.startsWith('#/discover')) return { name: 'discover' }
     if (h.startsWith('#/updates')) return { name: 'updates' }
+    if (h.startsWith('#/downloads')) return { name: 'downloads' }
 
     return { name: 'home' }
 }

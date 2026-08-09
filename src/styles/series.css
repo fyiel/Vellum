@@ -41,6 +41,31 @@
 .den .btn.primary { background: var(--ac); border-color: var(--ac); color: var(--bg); }
 .den .btn.primary:hover { filter: brightness(1.07); color: var(--bg); }
 .den .btn.on { border-color: var(--ac); color: var(--ac); }
+
+.den .dlcap { min-height: 15px; font: 400 11px var(--mono); color: var(--dim); text-align: center; }
+.den .dlcap button { appearance: none; background: none; border: none; padding: 0 0 0 8px; font: 400 11px var(--mono); color: var(--dim); cursor: pointer; text-decoration: underline; }
+.den .dlcap button:hover { color: var(--ac); }
+.den .dlerr { color: var(--ac); }
+
+/* offline shelf sheet (den themed, scoped so the reader's own sheets are untouched) */
+.den .sheet-backdrop { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.55); opacity: 0; pointer-events: none; transition: opacity .18s; }
+.den .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
+.den .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 121; background: var(--panel); border-top: 1px solid var(--line2); padding: 10px 18px 22px; transform: translateY(110%); transition: transform .22s ease-out; max-width: 680px; margin: 0 auto; }
+.den .sheet.open { transform: translateY(0); }
+.den .sheet .grip { width: 28px; height: 6px; background: var(--line2); margin: 4px auto 14px; }
+.den .dl-sheet-title { font: 600 15px 'Archivo'; color: var(--hi); }
+.den .dl-sheet-sub { font: 400 11px var(--mono); color: var(--dim); margin: 5px 0 14px; }
+.den .dl-sheet-opts { display: flex; flex-direction: column; gap: 8px; }
+.den .dl-sheet-opts .btn { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 12px 14px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 12px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.den .dl-sheet-opts .btn:hover { border-color: var(--ac); color: var(--hi); }
+.den .dl-sheet-opts .btn .m { font: 400 11px var(--mono); color: var(--dim); text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.den .dl-sheet-opts .btn:hover .m { color: var(--ac); }
+
+.den .minispin { position: relative; width: 6px; height: 6px; flex: none; background: var(--ac); animation: sq .4s ease infinite alternate; animation-delay: .15s; }
+.den .minispin::before, .den .minispin::after { content: ''; position: absolute; top: 0; width: 6px; height: 6px; background: var(--ac); animation: sq .4s ease infinite alternate; }
+.den .minispin::before { left: -10px; animation-delay: 0s; }
+.den .minispin::after { left: 10px; animation-delay: .3s; }
+@keyframes sq { from { opacity: .15; } to { opacity: 1; } }
 .den .seclab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
 
 .den .synhost { margin-top: -8px; }

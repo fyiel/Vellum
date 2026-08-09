@@ -8,6 +8,7 @@ import './styles/library.css'
 import './styles/discover.css'
 import './styles/updates.css'
 import './styles/series.css'
+import './styles/downloads.css'
 
 import { startRouter, parseHash } from './lib/router.js'
 import { setupNative } from './lib/native.js'
@@ -16,6 +17,7 @@ import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
 import { showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
 import { showUpdates } from './screens/updates.js'
+import { showDownloads } from './screens/downloads.js'
 import { showSeries } from './screens/series.js'
 import { installCoverFallback } from './lib/cover.js'
 
@@ -52,5 +54,6 @@ startRouter(async route => {
     if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
+    else if (route.name === 'downloads') { origin = 'downloads'; setCrumb('Downloads'); setActiveNav('downloads'); view('downloads'); showDownloads() }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }
 })

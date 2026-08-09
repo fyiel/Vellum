@@ -1,0 +1,17 @@
+.den .dlquota { display: flex; align-items: center; gap: 14px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--line); background: var(--row); }
+.den .dq-t { font: 400 11px var(--mono); color: var(--dim); flex: none; }
+.den .dlquota .bar { flex: 1; height: 5px; background: var(--track); }
+.den .dlquota .bar > span { display: block; height: 100%; background: var(--ac); }
+
+.den .trow.dlrow { grid-template-columns: 48px minmax(0, 1fr) 110px 70px 70px; }
+.den .dlrow .dlsize { font: 400 11px var(--mono); color: var(--text); text-align: right; }
+.den .dlrow .dlch { font: 400 12px var(--mono); color: var(--text); text-align: right; }
+.den .dlrow .dlrm { appearance: none; background: none; border: none; padding: 0; font: 400 11px var(--mono); color: var(--dim); cursor: pointer; text-align: right; justify-self: end; }
+.den .dlrow .dlrm:hover { color: var(--ac); }
+
+.den .au { display: flex; align-items: center; gap: 10px; margin-top: 3px; min-width: 0; }
+.den .au .tog { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font: 400 11px 'Archivo'; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .au .tog input { appearance: none; width: 12px; height: 12px; flex: none; border: 1px solid var(--line2); cursor: pointer; position: relative; }
+.den .au .tog.on input { border-color: var(--ac); }
+.den .au .tog.on input::after { content: '\2713'; position: absolute; inset: -2px; color: var(--ac); font: 700 10px var(--mono); display: grid; place-items: center; }
+.den .au .pend { color: var(--ac); font: 400 11px var(--mono); flex: none; }

@@ -1,16 +1,25 @@
-import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.js'
+import { getSeries, getChapters, getChapter, prefetchChapter, seriesKey } from '../lib/api.js'
+import { dlGet, dlJob, downloadSeries, deleteSeries, onDl, fmtBytes, byteLen, totalBytes, WARN_DL_BYTES } from '../lib/downloads.js'
 import { srcName } from '../lib/source.js'
 import { go, back, hashSlug } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
+import { relTime } from '../lib/time.js'
 import { $, $$, esc } from '../lib/dom.js'
 
-const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
+const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates', downloads: 'Downloads' }
 
 let wired = false
 let cur = null
 let req = 0
+
+// offline shelf bookkeeping for the current series
+let dlEst = null      // measured bytes of one chapter, for the size estimate
+let dlEstSlug = null
+let dlEstBusy = false
+let dlMsg = null      // transient download error surfaced in the caption
+let dlSet = new Set() // downloaded chapter numbers for the row markers
 
 const followed = slug => library().some(e => e.slug === slug)
 
@@ -76,6 +85,8 @@ function infoHtml(s, slug, count) {
       <div class="dactions">
         <button class="btn primary" id="contbtn">${cont}</button>
         <button class="btn${isFol ? ' on' : ''}" id="followbtn">${isFol ? 'Following' : 'Follow'}</button>
+        <button class="btn" id="dlbtn">Download</button>
+        <div class="dlcap" id="dlcap"></div>
       </div>
       ${synopsisHtml(s)}
       ${statsHtml(s, slug, count)}`
@@ -83,7 +94,8 @@ function infoHtml(s, slug, count) {
 
 function chrow(c, read, curN) {
     const cls = ['chrow', read.has(c.n) && 'read', c.n === curN && 'cur'].filter(Boolean).join(' ')
-    return `<div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>`
+    const dl = dlSet.has(c.n) ? '↓' : ''
+    return `<div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd">${dl}</span><span class="chdot"></span></div>`
 }
 
 function chaptersHtml(slug, chapters, count) {
@@ -190,6 +202,187 @@ function launchContinue() {
     launchChapter(pos ? pos.n : (first ? first.n : (cur.series.firstChapter ?? 1)))
 }
 
+// ---- offline shelf ----
+const syncedLabel = at => {
+    const startToday = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime()
+    return at >= startToday ? 'today' : relTime(at)
+}
+
+function markDlRows() {
+    for (const r of chRows) {
+        const cell = r.el.querySelector('.chd')
+        if (cell) cell.textContent = dlSet.has(Number(r.n)) ? '↓' : ''
+    }
+}
+
+function renderDl() {
+    const cap = $('#dlcap'), btn = $('#dlbtn')
+    if (!cap || !btn || !cur?.slug) return
+    const slug = cur.slug
+    const job = dlJob(slug)
+    const m = dlGet(slug)
+    const err = dlMsg ? `<div class="dlerr">${esc(dlMsg)}</div>` : ''
+    if (job) {
+        btn.classList.add('on')
+        const pct = Math.round((100 * job.done) / Math.max(1, job.total))
+        btn.innerHTML = `<span class="minispin"></span>&#x2913; ${pct}% &middot; ${job.done}/${job.total}`
+        cap.innerHTML = err
+        return
+    }
+    btn.classList.remove('on')
+    btn.textContent = 'Download'
+    if (m?.chapters?.length) {
+        btn.textContent = 'Downloaded'
+        const synced = m.at ? syncedLabel(m.at) : ''
+        // the remove action is delegated in wire(), do not double bind it here
+        cap.innerHTML = `${err}&darr; ${m.chapters.length} ch &middot; ${fmtBytes(m.bytes)} &middot; synced ${esc(synced)} <button id="dl-remove">remove</button>`
+        return
+    }
+    if (err) { cap.innerHTML = err; return }
+    const count = cur.count ?? (cur.chapters.length || null)
+    if (dlEst && count) cap.innerHTML = `≈ ${fmtBytes(dlEst * count)} &middot; ${count} chapters`
+    else if (dlEstBusy) cap.innerHTML = 'measuring&hellip;'
+    else cap.innerHTML = ''
+}
+
+async function measureDl() {
+    const slug = cur.slug
+    if (!slug || dlEstBusy) return
+    if (dlEstSlug === slug && dlEst != null) return
+    if (dlGet(slug)?.chapters?.length) return
+    dlEstBusy = true
+    try {
+        // fetch chapter one and extrapolate, so the caption can promise a size before
+        // any download starts
+        const list = [...cur.chapters].sort((a, b) => a.n - b.n)
+        const n = list[0]?.n ?? cur.series.firstChapter ?? 1
+        const d = await getChapter(slug, n)
+        if (cur.slug === slug) { dlEst = byteLen(d?.html || ''); dlEstSlug = slug }
+        else dlEstSlug = null
+    } catch { dlEstSlug = null } finally { dlEstBusy = false }
+    renderDl()
+}
+
+async function removeDownload() {
+    const slug = cur.slug
+    await deleteSeries(slug)
+    dlSet = new Set()
+    markDlRows()
+    dlEst = null
+    dlEstSlug = null
+    renderDl()
+    measureDl()
+}
+
+function startDownload(kind) {
+    const slug = cur.slug
+    const list = [...cur.chapters].sort((a, b) => a.n - b.n)
+    const total = list.length
+    let nums = []
+    if (list.length) {
+        const pos = posGet(slug)?.n
+        const fromN = pos && list.some(c => c.n >= pos) ? pos : list[0].n
+        if (kind === 'all') nums = list.map(c => c.n)
+        else if (kind === 'from') nums = list.filter(c => c.n >= fromN).map(c => c.n)
+        else nums = list.filter(c => c.n >= fromN).slice(0, 200).map(c => c.n)
+    }
+    // an empty list (chapters failed to load) still starts a full download, the job
+    // fetches the snapshot itself
+    if (!nums.length) nums = null
+    dlMsg = null
+    downloadSeries(slug, nums || [], {
+        sizeHint: dlEst || undefined,
+        meta: cur.series,
+        list: list.length ? list.map(c => ({ n: c.n, t: c.t })) : undefined,
+        total: total || undefined,
+    }).catch(() => {})
+    closeDlSheet()
+    renderDl()
+}
+
+function openDlSheet() {
+    const slug = cur.slug
+    const list = [...cur.chapters].sort((a, b) => a.n - b.n)
+    const total = list.length || cur.count || 0
+    const firstN = list[0]?.n ?? cur.series.firstChapter ?? 1
+    const pos = posGet(slug)?.n
+    const fromN = pos && list.some(c => c.n >= pos) ? pos : firstN
+    const fromIdx = list.findIndex(c => c.n >= fromN)
+    const fromCount = fromIdx >= 0 ? total - fromIdx : total
+    const nextCount = Math.min(200, fromCount)
+    // prefer the measured chapter size, fall back to the average of what is stored so
+    // resume and incremental downloads still show a real estimate
+    const dl = dlGet(slug)
+    const est = dlEst ?? (dl?.chapters?.length ? dl.bytes / dl.chapters.length : 0)
+
+    $('#dl-sheet-title').textContent = `Download ${cur.series.title}?`
+    $('#dl-sheet-all .o').textContent = 'All chapters'
+    $('#dl-sheet-all .m').textContent = `${total} · ≈ ${fmtBytes(est * total)}`
+    $('#dl-sheet-from .o').textContent = `From chapter ${fromN}`
+    $('#dl-sheet-from .m').textContent = `${fromCount} · ≈ ${fmtBytes(est * fromCount)}`
+    $('#dl-sheet-next .o').textContent = 'Next 200'
+    $('#dl-sheet-next .m').textContent = `${nextCount} · ≈ ${fmtBytes(est * nextCount)}`
+    const proj = (dlGet(slug)?.bytes || 0) + est * total
+    const warn = totalBytes() + proj > WARN_DL_BYTES
+    $('#dl-sheet-sub').textContent = warn
+        ? `adds ≈ ${fmtBytes(proj)} — the whole offline shelf would cross ${fmtBytes(WARN_DL_BYTES)}`
+        : `adds ≈ ${fmtBytes(proj)} to the offline shelf`
+    $('#dl-sheet').classList.add('open')
+    $('#dl-sheet-backdrop').classList.add('open')
+}
+
+function closeDlSheet() {
+    $('#dl-sheet').classList.remove('open')
+    $('#dl-sheet-backdrop').classList.remove('open')
+}
+
+function openDl() {
+    if (dlJob(cur.slug)) return
+    const list = [...cur.chapters].sort((a, b) => a.n - b.n)
+    const total = list.length || cur.count || 0
+    const dl = dlGet(cur.slug)
+    const perCh = dlEst ?? (dl?.chapters?.length ? dl.bytes / dl.chapters.length : 0)
+    const proj = (dl?.bytes || 0) + perCh * Math.max(total, 1)
+    // a small series downloads outright, anything big or heavy goes through the sheet
+    if (total > 200 || proj > WARN_DL_BYTES) openDlSheet()
+    else startDownload('all')
+}
+
+function wireDlEvents() {
+    onDl(ev => {
+        if (!cur || ev.slug !== cur.slug) return
+        if (ev.type === 'progress') {
+            if (Number.isFinite(ev.n)) {
+                dlSet.add(ev.n)
+                // only the just stored chapter changed, avoid a full marker pass per chapter
+                const row = chRows.find(r => Number(r.n) === ev.n)
+                const cell = row && row.el.querySelector('.chd')
+                if (cell) cell.textContent = '↓'
+            }
+            renderDl()
+        } else if (ev.type === 'error') {
+            dlMsg = ev.message
+            const m = dlGet(cur.slug)
+            dlSet = new Set(m?.chapters || [])
+            markDlRows()
+            renderDl()
+        } else if (ev.type === 'done') {
+            dlMsg = null
+            const m = dlGet(cur.slug)
+            dlSet = new Set(m?.chapters || [])
+            markDlRows()
+            renderDl()
+        } else if (ev.type === 'removed') {
+            dlSet = new Set()
+            markDlRows()
+            dlEst = null
+            dlEstSlug = null
+            renderDl()
+            measureDl()
+        }
+    })
+}
+
 function wire() {
     if (wired) return
     wired = true
@@ -199,11 +392,21 @@ function wire() {
         if (e.target.closest('#tagall')) return toggleTags()
         if (e.target.closest('#followbtn')) return toggleFollow()
         if (e.target.closest('#contbtn')) return launchContinue()
+        if (e.target.closest('#dlbtn')) return openDl()
+        if (e.target.closest('#dl-remove')) return removeDownload()
         const cp = e.target.closest('.copyable')
         if (cp) { e.stopPropagation(); return copyValue(cp) }
         const chip = e.target.closest('.gchip')
         if (chip) { sessionStorage.setItem('vellum:discoverSeed', chip.textContent); go('#/discover') }
     })
+
+    $('#dl-sheet-backdrop').addEventListener('click', closeDlSheet)
+    $('#dl-sheet').addEventListener('click', e => {
+        const b = e.target.closest('.btn[data-dl]')
+        if (b) startDownload(b.dataset.dl)
+    })
+
+    wireDlEvents()
 
     $('#schapters').addEventListener('click', e => {
         const seg = e.target.closest('#chorder span')
@@ -241,8 +444,11 @@ async function loadChapters(slug, mine) {
     // a follow may have landed before the count was known, backfill the total so updates can alert
     if (followed(slug)) touchLibrary({ slug, total: count })
 
+    const m = dlGet(slug)
+    dlSet = new Set(m?.chapters || [])
     $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
     chRows = [...$$('#chlist .chrow')].map(el => ({ el, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
+    markDlRows()
 
     const stat = $('#chstat')
     if (stat) {
@@ -253,6 +459,9 @@ async function loadChapters(slug, mine) {
 
     const sc = $('.chscroll')
     if (sc) sc.scrollTop = sc.scrollHeight
+
+    renderDl()
+    measureDl()
 }
 
 export async function showSeries(key, origin) {
@@ -274,6 +483,12 @@ export async function showSeries(key, origin) {
     setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => back())
     info.innerHTML = infoHtml(series, slug, null)
     chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
+    dlEst = null
+    dlEstSlug = null
+    dlMsg = null
+    dlSet = new Set(dlGet(slug)?.chapters || [])
+    renderDl()
+    measureDl()
 
     checkSynOverflow()
     if (document.fonts?.ready) document.fonts.ready.then(() => { if (mine === req) checkSynOverflow() })

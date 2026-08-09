@@ -8,6 +8,7 @@ import {
   seriesKey,
 } from "../lib/api.js";
 import { go, back, hashSlug } from "../lib/router.js";
+import { dlGet, getChapterRaw } from "../lib/downloads.js";
 import {
   readSet,
   saveRead,
@@ -62,6 +63,7 @@ const rd = {
   buffering: false,
   end: false,
   failed: false,
+  offline: false,
 };
 
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
@@ -120,8 +122,18 @@ export async function showReader(slug, n) {
       state.chapters = chapters;
     } catch (e) {
       if (routeGen !== rd.gen) return; // a dead route must not render into the live view
-      prose.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
-      return;
+      // offline boot: the download manifest snapshots the chapter list and series meta,
+      // so a downloaded series is readable with no connection at all
+      const m = dlGet(slug);
+      if (m?.list?.length) {
+        state.slug = slug;
+        state.chapters = m.list.map(c => ({ n: c.n, t: c.t || "" })).sort((a, b) => a.n - b.n);
+        const key = seriesKey(slug);
+        if (m.meta) state.series = { ...m.meta, key: m.meta.key ?? key };
+      } else {
+        prose.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+        return;
+      }
     }
   }
   if (document.fonts?.ready) document.fonts.ready.then(rebuildOffsets);
@@ -167,6 +179,7 @@ async function startAt(slug, idx, p = 0) {
     buffering: false,
     end: false,
     failed: false,
+    offline: false,
   });
   prose.innerHTML = `<div class="spinner" id="boot-spin"></div>`;
   rfoot.innerHTML = "";
@@ -176,7 +189,9 @@ async function startAt(slug, idx, p = 0) {
   if (gen !== rd.gen) return;
   $("#boot-spin")?.remove();
   if (!ok) {
-    prose.innerHTML = `<div class="empty">(x_x)\n\ncouldn’t load this chapter</div>`;
+    // an offline boot failure already rendered its boundary in the footer, do not
+    // paint the generic error over it
+    if (!rd.offline) prose.innerHTML = `<div class="empty">(x_x)\n\ncouldn’t load this chapter</div>`;
     return;
   }
 
@@ -192,7 +207,13 @@ async function startAt(slug, idx, p = 0) {
   ensureBuffer();
 }
 
-const fetchChapter = (n) => getChapter(rd.slug, n);
+// downloads first: a stored chapter never touches the network, everything else falls
+// through to the regular cache, and both paths render the same sanitized html
+const fetchChapter = async (n) => {
+  const raw = await getChapterRaw(rd.slug, n);
+  if (raw != null) return { html: raw };
+  return getChapter(rd.slug, n);
+};
 
 const prefetch = (idx) => {
   const c = state.chapters[idx];
@@ -296,17 +317,36 @@ async function appendNext(gen = rd.gen) {
   return true;
 }
 
+// the manifest can be large (a chapter title snapshot), memoize the read so footer
+// renders during a binge do not re parse it on every chapter
+let dlMemo = { slug: null, m: null, at: 0 };
+const dlInfo = (slug) => {
+  const now = Date.now();
+  if (dlMemo.slug !== slug || now - dlMemo.at > 1500) dlMemo = { slug, m: dlGet(slug), at: now };
+  return dlMemo.m;
+};
+
 const renderFoot = () => {
   if (rd.failed) {
     const c = state.chapters[rd.last + 1];
-    rfoot.innerHTML = `<div class="rfoot-err">(x_x) couldn’t load ${esc(c ? c.t : "the next chapter")}<button class="btn" id="rfoot-retry">retry</button></div>`;
-    $("#rfoot-retry").onclick = () => {
-      rd.failed = false;
-      renderFoot();
-      // boot failure never rendered a block, restart it so chrome and progress come up
-      if (rd.last < rd.first) startAt(rd.slug, rd.first, 0);
-      else ensureBuffer();
-    };
+    const m = dlInfo(rd.slug);
+    // a series with downloads that hits a chapter it does not have while the network
+    // is down is an offline boundary, not a retryable hiccup
+    if (m && c && !m.chapters.includes(c.n)) {
+      rd.offline = true;
+      rfoot.innerHTML = `<div class="rfoot-err">(x_x) offline — chapter ${esc(c.n)} isn't downloaded<button class="btn" id="rfoot-back">back to series</button></div>`;
+      $("#rfoot-back").onclick = exitReader;
+    } else {
+      rd.offline = false;
+      rfoot.innerHTML = `<div class="rfoot-err">(x_x) couldn’t load ${esc(c ? c.t : "the next chapter")}<button class="btn" id="rfoot-retry">retry</button></div>`;
+      $("#rfoot-retry").onclick = () => {
+        rd.failed = false;
+        renderFoot();
+        // boot failure never rendered a block, restart it so chrome and progress come up
+        if (rd.last < rd.first) startAt(rd.slug, rd.first, 0);
+        else ensureBuffer();
+      };
+    }
   } else if (rd.end) {
     const s = state.series;
     const ongoing = /ongoing/i.test(s?.nfStatus || s?.status || "");
