@@ -15,6 +15,7 @@ async function loadTaxonomy() {
         const t = await discoverTaxonomy()
         OPTIONS = (t.genres || []).map(g => ({ v: g.value ?? g, k: 'genre' })).concat((t.tags || []).map(g => ({ v: g.value ?? g, k: 'tag' })))
         taxoLoaded = true
+        renderGenreShelf()
         const input = $('#toksearch')
         if (input && document.activeElement === input) input.dispatchEvent(new Event('input'))
     } catch (e) {} finally {
@@ -157,6 +158,7 @@ let emptyPages = 0
 async function startFeed() {
     const gen = ++feedGen
     appliedFiltersState = currentFilters()
+    updatePending()
     active = !!(query || hasFilters())
     page = 0
     items = []
@@ -242,6 +244,14 @@ function paintSort() {
     $('#ddir').textContent = dsort.dir === 'asc' ? '▲' : '▼'
 }
 
+const filtersSig = f => JSON.stringify([f.length, f.status, f.minRating, [...f.sources].sort(), [...f.tokens].sort()])
+
+function updatePending() {
+    const btn = $('#fapply')
+    if (!btn) return
+    btn.classList.toggle('pending', appliedFiltersState !== null && filtersSig(appliedFiltersState) !== filtersSig(currentFilters()))
+}
+
 function updateCount() {
     let n = tokens.size + $$('#dsource .chip.on:not([data-all])').length
     $$('.fseg').forEach(seg => {
@@ -251,6 +261,17 @@ function updateCount() {
     const c = $('#fcount')
     c.textContent = n
     c.style.display = n ? '' : 'none'
+    updatePending()
+}
+
+function renderGenreShelf() {
+    const shelf = $('#dgenres')
+    if (!shelf) return
+    if (!taxoLoaded) { shelf.style.display = 'none'; shelf.innerHTML = ''; return }
+    const genres = OPTIONS.filter(o => o.k === 'genre').slice(0, 12)
+    shelf.style.display = genres.length ? '' : 'none'
+    shelf.innerHTML = genres.map(g =>
+        `<span class="chip${tokens.has(g.v) ? ' on' : ''}" data-genre="${esc(g.v)}">${esc(g.v)}</span>`).join('')
 }
 
 function renderTokens() {
@@ -267,6 +288,7 @@ function renderTokens() {
         el.appendChild(x)
         field.insertBefore(el, input)
     }
+    renderGenreShelf()
 }
 
 function wireTokens() {
@@ -364,6 +386,17 @@ function wire() {
         updateCount()
     })
 
+    $('#dgenres').addEventListener('click', e => {
+        const c = e.target.closest('.chip')
+        if (!c) return
+        const v = c.dataset.genre
+        if (tokens.has(v)) tokens.delete(v); else tokens.add(v)
+        renderTokens()
+        updateCount()
+    })
+
+    $('#fmore').addEventListener('click', () => $('#fmore').classList.toggle('open'))
+
     wireTokens()
     $('#fapply').addEventListener('click', runSearch)
     $('#freset').addEventListener('click', resetAll)
@@ -384,6 +417,7 @@ function wire() {
     }, { passive: true })
 
     paintSort()
+    renderGenreShelf()
     updateCount()
 }
 

@@ -66,19 +66,24 @@
             <div class="fsec"><div class="fk">Sort by</div><div class="fv"><div class="seg" id="dsort">
               <span class="on" data-sort="relevance">Relevance</span><span data-sort="rating">Rating</span><span data-sort="chapters">Chapters</span><span data-sort="updated">Updated</span><span data-sort="newest">Newest</span><span data-sort="title">Title</span><span class="dir" id="ddir">&#9660;</span>
             </div></div></div>
-            <div class="fsec"><div class="fk">Genre &amp; tags</div><div class="fv" style="align-items:flex-start"><div class="tokwrap"><div class="tokfield" id="tokfield"><input id="toksearch" placeholder="Search genres &amp; tags&hellip;" autocomplete="off"></div><div class="tokdrop" id="tokdrop"></div></div></div></div>
+            <div class="fsec"><div class="fk">Genres</div><div class="fv"><div class="chips" id="dgenres"></div></div></div>
+            <div class="fsec stack"><div class="fk">Tags</div><div class="fv"><div class="tokwrap"><div class="tokfield" id="tokfield"><input id="toksearch" placeholder="Search genres &amp; tags&hellip;" autocomplete="off"></div><div class="tokdrop" id="tokdrop"></div></div></div></div>
             <div class="fsec"><div class="fk">Status</div><div class="fv"><div class="seg fseg" data-filter="status">
-              <span class="on" data-v="all">All</span><span data-v="ongoing">Ongoing</span><span data-v="complete">Complete</span><span data-v="hiatus">Hiatus</span>
-            </div></div></div>
-            <div class="fsec"><div class="fk">Min rating</div><div class="fv"><div class="seg fseg" data-filter="minrating">
-              <span class="on" data-v="any">Any</span><span data-v="3.5">3.5+</span><span data-v="4.0">4.0+</span><span data-v="4.5">4.5+</span>
-            </div></div></div>
-            <div class="fsec"><div class="fk">Length</div><div class="fv"><div class="seg fseg" data-filter="length">
-              <span class="on" data-v="any">Any</span><span data-v="short">Short</span><span data-v="medium">Medium</span><span data-v="long">Long</span><span data-v="epic">Epic</span>
+              <!-- dropped/cancelled/paused ride on the backend status field; the server may not rank them yet, the client sends them honestly -->
+              <span class="on" data-v="all">All</span><span data-v="ongoing">Ongoing</span><span data-v="complete">Complete</span><span data-v="hiatus">Hiatus</span><span data-v="dropped">Dropped</span><span data-v="cancelled">Cancelled</span><span data-v="paused">Paused</span>
             </div></div></div>
             <div class="fsec"><div class="fk">Source</div><div class="fv chips" id="dsource">
               <span class="chip on" data-all>All</span><span class="chip" data-src="novelfire">Novelfire</span><span class="chip" data-src="mangabaka">MangaBaka</span><span class="chip" data-src="dreamy">Dreamy</span><span class="chip" data-src="dawn">Dawn</span>
             </div></div>
+            <div class="fmore open" id="fmore"><span>Refine</span><span class="chev">&#9662;</span></div>
+            <div class="frefine" id="frefine">
+              <div class="fsec"><div class="fk">Min rating</div><div class="fv"><div class="seg fseg" data-filter="minrating">
+                <span class="on" data-v="any">Any</span><span data-v="3.5">3.5+</span><span data-v="4.0">4.0+</span><span data-v="4.5">4.5+</span>
+              </div></div></div>
+              <div class="fsec"><div class="fk">Length</div><div class="fv"><div class="seg fseg" data-filter="length">
+                <span class="on" data-v="any">Any</span><span data-v="short">Short</span><span data-v="medium">Medium</span><span data-v="long">Long</span><span data-v="epic">Epic</span>
+              </div></div></div>
+            </div>
             <div class="ffoot"><span class="rescount" id="rescount"></span><span class="sp"></span><button class="freset" id="fapply">Apply filters</button><button class="freset" id="freset">Reset all</button></div>
           </div>
         </div>

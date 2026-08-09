@@ -7,10 +7,16 @@
 .den .fbtn.open .chev { transform: rotate(180deg); color: var(--ac); }
 .den .fbtn .fcount { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; background: var(--ac); color: var(--bg); font: 600 10px var(--mono); }
 
-.den .fpanel { flex: none; background: var(--panel); border-bottom: 1px solid var(--line); }
+.den .fpanel { flex: none; background: var(--panel); border-bottom: 1px solid var(--line); max-height: calc(100vh - 160px); overflow-y: auto; }
 .den .fpanel:not(.open) { display: none; }
 .den .fpanel-in { padding: 4px 16px 10px; }
 .den .fsec { display: grid; grid-template-columns: 96px 1fr; gap: 16px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.den .fsec.stack { align-items: flex-start; }
+.den .fmore { display: flex; align-items: center; gap: 8px; margin-top: -1px; padding: 10px 0 2px; border-top: 1px solid var(--line); font: 600 10px 'Archivo'; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; cursor: pointer; user-select: none; }
+.den .fmore:hover { color: var(--hi); }
+.den .fmore .chev { font-family: var(--mono); font-size: 11px; color: var(--dim); transition: transform .15s; }
+.den .fmore.open .chev { transform: rotate(180deg); color: var(--ac); }
+.den .fmore:not(.open) + .frefine { display: none; }
 .den .fk { font: 600 10px 'Archivo'; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
 .den .fv { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .den .ffoot { display: flex; align-items: center; gap: 12px; padding: 12px 0 2px; }
@@ -18,6 +24,8 @@
 .den .ffoot .sp { flex: 1; }
 .den .freset { padding: 6px 12px; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
 .den .freset:hover { color: var(--hi); border-color: var(--ac); }
+.den .freset.pending { background: var(--ac); color: var(--bg); border-color: var(--ac); }
+.den .freset.pending:hover { color: var(--bg); }
 
 .den .chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .den .chip { padding: 4px 10px; border: 1px solid var(--line2); font: 500 11px 'Archivo'; color: var(--dim); cursor: pointer; white-space: nowrap; }
