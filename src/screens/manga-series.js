@@ -77,6 +77,8 @@ function renderChapterList() {
     $('#mchapter-list').innerHTML = shown.length
         ? `${chapterRows(shown, current.saved)}${shown.length < filtered.length ? `<button type="button" class="manga-chapter-more" id="mchapter-more">Show ${Math.min(CHAPTER_BATCH, filtered.length - shown.length)} more <span>${shown.length} of ${filtered.length}</span></button>` : ''}`
         : '<div class="manga-chapter-empty" role="status">No matching chapters</div>'
+    const status = $('#mchapter-status')
+    if (status) status.textContent = shown.length ? `Showing ${shown.length} of ${filtered.length} chapters` : ''
 }
 
 function revealMore() {
@@ -192,7 +194,7 @@ export async function showMangaSeries(key, origin = 'manga') {
     start.textContent = saved ? `Continue · ${chapterLabel(current.first)}` : 'Start reading'
     $('#schapters').innerHTML = `<div class="chtool"><div class="srch"><input id="mchsearch" inputmode="search" autocomplete="off" aria-label="Find a chapter" placeholder="Find a chapter…"></div></div>
       <div class="chhead">Chapter list <span class="ct">· ${chapters.length}</span></div>
-      <div class="chscroll"><div id="mchapter-list"></div></div>`
+      <div class="chscroll"><div id="mchapter-list"></div><div class="sronly" id="mchapter-status" role="status"></div></div>`
     renderChapterList()
     $('#schapters').setAttribute('aria-busy', 'false')
     prefetchMangaChapter(key, current.first.id)
