@@ -38,7 +38,9 @@ async function fetchJson(fetchImpl, input, init, parent) {
 }
 
 const MEDIA_FIELDS = `id title { romaji english native userPreferred } synonyms description status format season seasonYear episodes duration genres studios(isMain: true) { nodes { name } } coverImage { extraLarge large } bannerImage`
-const PAGE_QUERY = `query($page:Int,$perPage:Int,$search:String,$format:MediaFormat){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,search:$search,format:$format,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
+// status_not keeps unreleased trending titles out of the feed; format is filtered client-side
+// because AniList returns empty when search is combined with an explicit null format
+const PAGE_QUERY = `query($page:Int,$perPage:Int,$search:String){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,search:$search,status_not:NOT_YET_RELEASED,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
 const SERIES_QUERY = `query($id:Int){Media(id:$id,type:ANIME){${MEDIA_FIELDS}}}`
 
 const cleanDescription = value => str(value)?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || null
@@ -310,8 +312,9 @@ const miruro = {
     kinds: ['anime'],
     source: 'Miruro · pewe (AniDB App)',
     async discover(ctx, { page, limit, format, search }) {
-        const data = await anilist(ctx.fetchImpl, PAGE_QUERY, { page, perPage: limit, search, format }, ctx.request.signal)
-        const results = (data?.data?.Page?.media || []).map(anime).filter(Boolean).map(item => ({ ...item, poster: item.cover }))
+        const data = await anilist(ctx.fetchImpl, PAGE_QUERY, { page, perPage: limit, search }, ctx.request.signal)
+        let results = (data?.data?.Page?.media || []).map(anime).filter(Boolean).map(item => ({ ...item, poster: item.cover }))
+        if (format) results = results.filter(item => item.format === format.toLowerCase())
         return { rows: results, hasMore: Boolean(data?.data?.Page?.pageInfo?.hasNextPage), partial: false, error: null }
     },
     async series(ctx, key) {
@@ -370,8 +373,9 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
             const search = route === 'search' ? url.searchParams.get('q')?.trim() : null
             if (route === 'search' && !search) return failure(400, 'invalid_request', 'Search query is required')
             if (format && !FORMATS.has(format)) return failure(400, 'invalid_request', 'Invalid anime format')
-            const data = await anilist(fetchImpl, PAGE_QUERY, { page, perPage: limit, search, format }, request.signal)
-            const results = (data?.data?.Page?.media || []).map(anime).filter(Boolean)
+            const data = await anilist(fetchImpl, PAGE_QUERY, { page, perPage: limit, search }, request.signal)
+            let results = (data?.data?.Page?.media || []).map(anime).filter(Boolean)
+            if (format) results = results.filter(item => item.format === format.toLowerCase())
             return json({ page, results, hasMore: Boolean(data?.data?.Page?.pageInfo?.hasNextPage) })
         }
 

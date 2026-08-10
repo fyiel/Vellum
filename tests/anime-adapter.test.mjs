@@ -24,6 +24,10 @@ test('normalizes AniList metadata without requiring playback configuration', asy
     })
     assert.equal(body.variables.search, 'one piece')
     assert.equal(body.variables.page, 2)
+    // AniList returns empty when search is combined with an explicit null format, and the feed
+    // must not surface NOT_YET_RELEASED titles: the query must omit format and filter them out
+    assert.doesNotMatch(body.query, /\$format/)
+    assert.match(body.query, /status_not:\s*NOT_YET_RELEASED/)
 })
 
 test('keeps opaque episode ids exact across the owned playback seam', async () => {
