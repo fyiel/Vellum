@@ -24,10 +24,21 @@ test('normalizes AniList metadata without requiring playback configuration', asy
     })
     assert.equal(body.variables.search, 'one piece')
     assert.equal(body.variables.page, 2)
-    // AniList returns empty when search is combined with an explicit null format, and the feed
-    // must not surface NOT_YET_RELEASED titles: the query must omit format and filter them out
+    // AniList returns empty when search is combined with an explicit null format, and search
+    // must stay unfiltered (miruro parity): the query omits format and does NOT filter status
     assert.doesNotMatch(body.query, /\$format/)
+    assert.doesNotMatch(body.query, /status_not/)
+})
+
+test('feed query excludes NOT_YET_RELEASED titles', async () => {
+    let body
+    const fetchImpl = async (_url, init) => {
+        body = JSON.parse(init.body)
+        return response({ data: { Page: { pageInfo: { hasNextPage: false }, media: [] } } })
+    }
+    await handleAnimeRequest(request('/read/api/anime/discover?page=1&limit=12'), {}, fetchImpl)
     assert.match(body.query, /status_not:\s*NOT_YET_RELEASED/)
+    assert.doesNotMatch(body.query, /\$search/)
 })
 
 test('keeps opaque episode ids exact across the owned playback seam', async () => {
