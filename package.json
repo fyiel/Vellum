@@ -1,7 +1,7 @@
 {
   "name": "vellum",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "type": "module",
   "description": "a reading app that feels native everywhere",
   "license": "CC-BY-NC-SA-4.0",
