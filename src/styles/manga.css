@@ -67,6 +67,8 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 .manga-page-loading { position: absolute; inset: 0; display: grid; place-items: center; background: linear-gradient(100deg, #0b0b0b 20%, #141414 42%, #0b0b0b 65%); background-size: 220% 100%; animation: manga-shimmer 1.2s linear infinite; color: #555; font: 500 10px 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .6px; }
 .manga-page.loaded .manga-page-loading, .manga-page.failed .manga-page-loading, .manga-page.dormant .manga-page-loading { display: none; }
 .mreader-loading { min-height: 70vh; display: grid; place-items: center; align-content: center; color: #777; font: 500 12px 'IBM Plex Mono', monospace; }
+.mr-chapter-divider { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 46px 12px 36px; color: #777; font: 600 11px 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .6px; }
+.mr-chapter-divider::before, .mr-chapter-divider::after { content: ''; flex: 1; max-width: 120px; height: 1px; background: #ffffff14; }
 .mreader-loading .spinner { margin: 40px auto 20px; }
 .mreader-empty { min-height: 70vh; display: grid; place-items: center; align-content: center; gap: 16px; color: #777; font: 500 13px 'Archivo'; text-align: center; }
 .mreader-step { width: min(100%, 980px); margin: 0 auto; padding: 20px 12px calc(env(safe-area-inset-bottom, 0px) + 92px); display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

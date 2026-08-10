@@ -27,6 +27,9 @@ const state = {
     loadObserver: null,
     pageObserver: null,
     nextPrefetched: false,
+    streaming: false,
+    pageBase: 0,
+    pageSeq: 0,
     firstImageMeasured: false,
     drawerFocus: null,
     drawerLimit: DRAWER_BATCH,
@@ -78,7 +81,7 @@ function setChrome(hidden) {
 }
 
 function pageElement(index) {
-    return pages.querySelector(`[data-page="${index}"]`)
+    return pages.querySelector(`[data-page="${state.pageBase + index}"]`)
 }
 
 function loadPage(index, bust = false) {
@@ -98,8 +101,10 @@ function loadPage(index, bust = false) {
 }
 
 function trimImages(center) {
-    pages.querySelectorAll('.manga-page').forEach((figure, index) => {
-        if (Math.abs(index - center) <= 7) return
+    // figure data-page is global across streamed chapters, the trim window is chapter relative
+    const anchor = state.pageBase + center
+    pages.querySelectorAll('.manga-page').forEach(figure => {
+        if (Math.abs(Number(figure.dataset.page) - anchor) <= 7) return
         const image = figure.querySelector('img')
         if (!image?.complete || !image.naturalWidth) return
         image.removeAttribute('src')
@@ -107,6 +112,23 @@ function trimImages(center) {
         figure.classList.add('dormant')
         figure.setAttribute('aria-busy', 'false')
     })
+    trimChapters()
+}
+
+function trimChapters() {
+    // hard DOM bound of ~2 chapters (current plus one behind), the oldest chapter
+    // drops wholesale, no virtualization library, just slice it off the front
+    while (pages.querySelectorAll('.mr-chapter-divider').length > 1) {
+        const cutoff = pages.querySelector('.mr-chapter-divider')
+        const height = document.documentElement.scrollHeight
+        for (let node = cutoff.previousSibling; node;) {
+            const prev = node.previousSibling
+            node.remove()
+            node = prev
+        }
+        cutoff.remove()
+        window.scrollTo(0, Math.max(0, scrollY - (height - document.documentElement.scrollHeight)))
+    }
 }
 
 function prefetchNextChapter() {
@@ -123,6 +145,41 @@ function prefetchNextChapter() {
     }).catch(() => {})
 }
 
+async function maybeStreamNext() {
+    if (!state.active || state.streaming) return
+    const gen = state.gen
+    const key = state.key
+    const next = adjacentChapter(1)
+    if (!next) return
+    state.streaming = true
+    try {
+        // the fetch hits the prefetchNextChapter cache, or starts it when saveData skipped that
+        const content = await getMangaChapter(key, next.id)
+        if (!state.active || state.gen !== gen || !content?.pages.length) return
+        // the finished chapter is marked read and parked at its end (setCurrent pattern, reader.js:427-446)
+        const done = state.id
+        const read = readSet(key)
+        if (!read.has(done)) { read.add(done); saveRead(key, read) }
+        posSet(key, { id: done, page: state.content.pages.length - 1, at: Date.now() })
+        state.id = next.id
+        state.chapter = next
+        state.content = content
+        state.page = 0
+        state.pageBase = state.pageSeq
+        state.pageSeq += content.pages.length
+        const total = content.pages.length
+        pages.insertAdjacentHTML('beforeend', `<div class="mr-chapter-divider" role="separator"><span>${esc(chapterLabel(next))}</span></div>${content.pages.map((page, index) => figureHtml(page, state.pageBase + index, total)).join('')}`)
+        // the URL deliberately stays on the landing chapter, stillHere must keep matching
+        $('#mr-title').textContent = `${state.series.title} · ${chapterLabel(next)}`
+        observePages()
+        setPage(0)
+        updateLibrary()
+    } catch {} finally {
+        state.nextPrefetched = false
+        if (state.gen === gen) state.streaming = false
+    }
+}
+
 function setPage(index) {
     if (!state.content?.pages.length) return
     const next = Math.min(state.content.pages.length - 1, Math.max(0, index))
@@ -132,6 +189,7 @@ function setPage(index) {
     for (let i = Math.max(0, next - 2); i <= Math.min(state.content.pages.length - 1, next + 3); i++) loadPage(i)
     trimImages(next)
     if (next >= state.content.pages.length - 2) prefetchNextChapter()
+    if (next >= state.content.pages.length - 1) maybeStreamNext()
 }
 
 function saveProgress() {
@@ -180,15 +238,20 @@ function renderSteps() {
 function observePages() {
     state.loadObserver?.disconnect()
     state.pageObserver?.disconnect()
+    // figures from streamed chapters are also observed, only the current chapter may drive pages
+    const inChapter = index => index >= 0 && index < (state.content?.pages.length || 0)
     state.loadObserver = new IntersectionObserver(entries => {
         entries.forEach(entry => {
-            if (entry.isIntersecting) loadPage(Number(entry.target.dataset.page))
+            const index = Number(entry.target.dataset.page) - state.pageBase
+            if (inChapter(index)) loadPage(index)
         })
     }, { rootMargin: '150% 0px' })
     state.pageObserver = new IntersectionObserver(entries => {
         const visible = entries.filter(entry => entry.isIntersecting)
-            .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
-        if (visible) setPage(Number(visible.target.dataset.page))
+            .map(entry => ({ entry, index: Number(entry.target.dataset.page) - state.pageBase }))
+            .filter(item => inChapter(item.index))
+            .sort((a, b) => b.entry.intersectionRatio - a.entry.intersectionRatio)[0]
+        if (visible) setPage(visible.index)
     }, { rootMargin: '-48% 0px -48% 0px', threshold: 0 })
     pages.querySelectorAll('.manga-page').forEach(figure => {
         state.loadObserver.observe(figure)
@@ -196,17 +259,22 @@ function observePages() {
     })
 }
 
+const figureHtml = (page, pageIndex, total) => {
+    const local = pageIndex - state.pageBase
+    const ratio = page.width && page.height ? ` style="aspect-ratio:${esc(page.width)} / ${esc(page.height)}"` : ''
+    const size = `${page.width ? ` width="${esc(page.width)}"` : ''}${page.height ? ` height="${esc(page.height)}"` : ''}`
+    return `<figure class="manga-page" data-page="${pageIndex}" aria-busy="true"${ratio}>
+      <img data-src="${esc(mangaPageUrl(page))}"${size} decoding="async" alt="Page ${local + 1} of ${total}">
+      <figcaption><span>Page ${local + 1} couldn’t load</span><button type="button" data-page-retry="${local}">Retry page ${local + 1}</button></figcaption>
+      <div class="manga-page-loading" aria-hidden="true"><span>Loading page ${local + 1}</span></div>
+    </figure>`
+}
+
 function renderPages(content) {
     const total = content.pages.length
-    pages.innerHTML = content.pages.map((page, index) => {
-        const ratio = page.width && page.height ? ` style="aspect-ratio:${esc(page.width)} / ${esc(page.height)}"` : ''
-        const size = `${page.width ? ` width="${esc(page.width)}"` : ''}${page.height ? ` height="${esc(page.height)}"` : ''}`
-        return `<figure class="manga-page" data-page="${index}" aria-busy="true"${ratio}>
-          <img data-src="${esc(mangaPageUrl(page))}"${size} decoding="async" alt="Page ${index + 1} of ${total}">
-          <figcaption><span>Page ${index + 1} couldn’t load</span><button type="button" data-page-retry="${index}">Retry page ${index + 1}</button></figcaption>
-          <div class="manga-page-loading" aria-hidden="true"><span>Loading page ${index + 1}</span></div>
-        </figure>`
-    }).join('')
+    state.pageBase = 0
+    state.pageSeq = total
+    pages.innerHTML = content.pages.map((page, index) => figureHtml(page, index, total)).join('')
     renderSteps()
     observePages()
 
@@ -365,7 +433,7 @@ export async function showMangaReader(key, id) {
     const gen = ++state.gen
     Object.assign(state, {
         active: true, key, id, ctrl, series: null, chapters: [], chapter: null, content: null,
-        page: 0, nextPrefetched: false, firstImageMeasured: false,
+        page: 0, nextPrefetched: false, streaming: false, firstImageMeasured: false,
     })
     beginMeasure()
     reader.classList.add('active')
