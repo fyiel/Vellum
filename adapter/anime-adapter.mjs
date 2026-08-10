@@ -2,7 +2,7 @@ import { dramacooli } from './providers/dramacooli.mjs'
 import { cineby } from './providers/cineby.mjs'
 import { goplay } from './providers/goplay.mjs'
 
-const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
+const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }
 const ANILIST = 'https://graphql.anilist.co'
 const ANIDB = 'https://anidb.app'
 const FORMATS = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'MUSIC'])
@@ -231,6 +231,10 @@ async function animeDbMedia(env, fetchImpl, media, request) {
             const value = response.headers.get(name)
             if (value) headers.set(name, value)
         }
+        // Chromium's ORB blocks cross-origin no-cors media it does not trust; slipgate's own
+        // content-type is not a recognized media type, so force the known anidb HLS chain types
+        if (/\.m3u8(?:$|\?)/i.test(media)) headers.set('content-type', 'application/vnd.apple.mpegurl')
+        else if (/\.xls(?:$|\?)/i.test(media)) headers.set('content-type', 'video/mp2t')
         headers.set('access-control-allow-origin', '*')
         headers.set('access-control-allow-methods', 'GET, HEAD, OPTIONS')
         headers.set('access-control-allow-headers', 'Range')
