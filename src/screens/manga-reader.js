@@ -28,6 +28,8 @@ const state = {
     pageObserver: null,
     nextPrefetched: false,
     streaming: false,
+    scrolled: false,
+    pagePrimed: false,
     pageBase: 0,
     pageSeq: 0,
     firstImageMeasured: false,
@@ -187,7 +189,7 @@ async function maybeStreamNext() {
     }
 }
 
-function setPage(index) {
+function setPage(index, fromScroll = false) {
     if (!state.content?.pages.length) return
     const next = Math.min(state.content.pages.length - 1, Math.max(0, index))
     state.page = next
@@ -196,7 +198,9 @@ function setPage(index) {
     for (let i = Math.max(0, next - 2); i <= Math.min(state.content.pages.length - 1, next + 3); i++) loadPage(i)
     trimImages(next)
     if (next >= state.content.pages.length - 2) prefetchNextChapter()
-    if (next >= state.content.pages.length - 1) maybeStreamNext()
+    // streaming needs real scroll-to-the-last-page evidence, an open (or restored)
+    // chapter must never auto-stream
+    if (next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
 }
 
 function saveProgress() {
@@ -245,7 +249,10 @@ function renderSteps() {
 function observePages() {
     state.loadObserver?.disconnect()
     state.pageObserver?.disconnect()
-    // figures from streamed chapters are also observed, only the current chapter may drive pages
+    state.scrolled = false
+    state.pagePrimed = false
+    // figures from streamed chapters are observed too and stay loadable when scrolled
+    // back into, but only the current chapter may drive pagination
     const inChapter = index => index >= 0 && index < (state.content?.pages.length || 0)
     state.loadObserver = new IntersectionObserver(entries => {
         entries.forEach(entry => {
@@ -253,11 +260,13 @@ function observePages() {
         })
     }, { rootMargin: '150% 0px' })
     state.pageObserver = new IntersectionObserver(entries => {
+        const primed = state.pagePrimed
+        state.pagePrimed = true
         const visible = entries.filter(entry => entry.isIntersecting)
             .map(entry => ({ entry, index: Number(entry.target.dataset.page) - state.pageBase }))
             .filter(item => inChapter(item.index))
             .sort((a, b) => b.entry.intersectionRatio - a.entry.intersectionRatio)[0]
-        if (visible) setPage(visible.index)
+        if (visible) setPage(visible.index, primed)
     }, { rootMargin: '-48% 0px -48% 0px', threshold: 0 })
     pages.querySelectorAll('.manga-page').forEach(figure => {
         state.loadObserver.observe(figure)
@@ -410,6 +419,7 @@ function wire() {
     })
     window.addEventListener('scroll', () => {
         if (!state.active) return
+        state.scrolled = true
         if (!state.hidden && scrollY > 40 && !document.activeElement.closest('.mreader-chrome')) setChrome(true)
         clearTimeout(idleTimer)
         idleTimer = setTimeout(saveProgress, 200)
