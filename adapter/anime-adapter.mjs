@@ -219,6 +219,10 @@ async function playback(env, fetchImpl, path, request) {
     }, request.signal)
 }
 
+const decodeKey = value => {
+    try { return decodeURIComponent(value) } catch { throw Object.assign(new Error('Invalid anime key'), { code: 'invalid_request' }) }
+}
+
 const keyInfo = value => {
     const match = String(value || '').match(PROVIDER_KEY)
     if (!match) return { unknown: true, provider: null, id: null }
@@ -330,7 +334,7 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
         }
 
         if (route.startsWith('series/')) {
-            const key = decodeURIComponent(route.slice(7))
+            const key = decodeKey(route.slice(7))
             const entry = routeEntry(keyInfo(key), 'Invalid anime key')
             if (entry instanceof Response) return entry
             activeProvider = entry.key
@@ -415,7 +419,7 @@ export async function handleAnimeVideoRequest(request, env = {}, fetchImpl = fet
         }
 
         if (route.startsWith('series/')) {
-            const key = decodeURIComponent(route.slice(7))
+            const key = decodeKey(route.slice(7))
             const entry = routeEntry(keyInfo(key), 'Invalid anime key')
             if (entry instanceof Response) return entry
             activeProvider = entry.key
