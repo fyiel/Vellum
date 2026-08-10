@@ -172,7 +172,10 @@ async function maybeStreamNext() {
         state.pageSeq += content.pages.length
         const total = content.pages.length
         pages.insertAdjacentHTML('beforeend', `<div class="mr-chapter-divider" role="separator"><span>${esc(chapterLabel(next))}</span></div>${content.pages.map((page, index) => figureHtml(page, state.pageBase + index, total)).join('')}`)
-        // the URL deliberately stays on the landing chapter, stillHere must keep matching
+        // replace the URL with the streamed chapter so a refresh resumes it, stillHere
+        // keeps matching because it checks the current hash, id and generation
+        history.replaceState(null, '', route(state.key, next.id))
+        posSet(state.key, { id: state.id, page: state.page, at: Date.now() })
         $('#mr-title').textContent = `${state.series.title} · ${chapterLabel(next)}`
         renderSteps()
         observePages()
