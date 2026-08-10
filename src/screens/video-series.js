@@ -8,6 +8,8 @@ import { $, esc } from '../lib/dom.js'
 const BATCH = 200
 const ORIGIN_LABEL = { library: 'Library', updates: 'Updates', watch: 'Watch' }
 const ORIGIN_ROUTE = { library: '#/', updates: '#/updates', watch: '#/watch' }
+const PROVIDER_LABEL = { miruro: 'Miruro', dc: 'DramaCooli', gp: 'GoPlay', goplay: 'GoPlay', cineby: 'Cineby' }
+export const videoProviderLabel = key => PROVIDER_LABEL[String(key || '').toLowerCase()] || null
 const kindName = kind => kind === 'drama' ? 'K-drama' : 'Anime'
 const route = (key, id) => `#/watch/play/${encodeURIComponent(key)}/${encodeURIComponent(id)}`
 const followed = key => library().some(entry => entry.slug === key)
@@ -153,10 +155,19 @@ export async function showVideoSeries(key, origin = 'watch') {
         $('#vepisodes').setAttribute('aria-busy', 'false')
     } catch (error) {
         if (mine !== request || !currentRouteIs(key)) return
-        const message = navigator.onLine ? error.message || 'Series unavailable' : 'You’re offline. Reconnect to load this series.'
-        $('#vinfo').innerHTML = `<div class="video-state" role="status">${esc(message)}<button id="video-series-retry" type="button">Try again</button></div>`
+        const provider = videoProviderLabel(error.provider) || videoProviderLabel(parseVideoKey(key)?.provider)
+        const degraded = provider && (error.code === 'provider_unconfigured' || error.retryable === false)
+        const message = !navigator.onLine ? 'You’re offline. Reconnect to load this series.'
+            : degraded ? `${provider} isn’t available in this build right now`
+                : error.message || 'Series unavailable'
+        const action = degraded
+            ? `<a id="video-series-back" href="${ORIGIN_ROUTE[origin] || '#/watch'}">Back to ${ORIGIN_LABEL[origin] || 'Watch'}</a>`
+            : `<button id="video-series-retry" type="button">Try again</button>`
+        $('#vinfo').innerHTML = `<div class="video-state" role="status">${esc(message)}${action}</div>`
         $('#vepisodes').innerHTML = ''
-        $('#video-series-retry').onclick = () => showVideoSeries(key, origin)
+        const back = $('#video-series-back')
+        if (back) back.addEventListener('click', event => { event.preventDefault(); go(ORIGIN_ROUTE[origin] || '#/watch') })
+        else $('#video-series-retry').onclick = () => showVideoSeries(key, origin)
         $('#vinfo').setAttribute('aria-busy', 'false')
         $('#vepisodes').setAttribute('aria-busy', 'false')
     }
