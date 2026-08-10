@@ -2,6 +2,7 @@ import { discoverVideo } from '../lib/video-api.js'
 import { library } from '../lib/store.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
+import { videoProviderLabel } from './video-series.js'
 
 const LIMIT = 30
 const isVideo = entry => entry.kind === 'anime' || entry.kind === 'drama'
@@ -72,7 +73,12 @@ async function fetchPage(next, fresh, mine) {
     const incoming = data.results.filter(item => !seen.has(item.key))
     const matched = query ? incoming.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : incoming
     rows = fresh ? matched : rows.concat(matched)
-    if (fresh) notice = data.partial ? [...new Set((data.errors || []).map(error => error?.message).filter(Boolean))].join(' · ') : ''
+    if (fresh) {
+        const providers = [...new Set((data.errors || []).map(error => videoProviderLabel(error?.provider)).filter(Boolean))]
+        notice = data.partial && providers.length
+            ? `${providers.join(' and ')} ${providers.length > 1 ? 'are' : 'is'} temporarily unavailable; others still show`
+            : ''
+    }
     page = next
     hasMore = Boolean(data.hasMore) && (query ? incoming.length > 0 : matched.length > 0)
 }
