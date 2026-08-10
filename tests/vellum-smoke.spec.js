@@ -447,21 +447,21 @@ test('walks MangaHub chapter boundaries and recovers a failed image', async ({ p
 })
 
 test('keeps manga pagination alive across filtered and duplicate provider rows', async ({ page }) => {
+  const cover = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="600" height="900"/%3E'
   await page.route('**/read/api/manga/discover?**', route => {
     const url = new URL(route.request().url())
     const source = url.searchParams.get('source')
     const requestedPage = Number(url.searchParams.get('page'))
-    const item = (key, title) => ({ key, kind: 'manga', format: 'manga', title })
-    let results = [item('mf:initial', 'Initial')]
+    const item = (key, title) => ({ key, kind: 'manga', format: 'manga', title, cover })
+    let results = []
     let hasMore = false
-    if (source === 'mf' && requestedPage === 1) {
+    if (source === 'all' && requestedPage === 1) {
+      results = [item('mf:initial', 'Initial')]
+    } else if (source === 'mf' && requestedPage === 1) {
       results = [item('mf:one', 'One'), item('mh:leak', 'Wrong provider')]
       hasMore = true
     } else if (source === 'mf' && requestedPage === 2) {
-      results = [item('mf:one', 'One')]
-      hasMore = true
-    } else if (source === 'mf' && requestedPage === 3) {
-      results = [item('mf:two', 'Two')]
+      results = [item('mf:one', 'One'), item('mf:two', 'Two')]
     }
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ page: requestedPage, results, hasMore }) })
   })
@@ -472,10 +472,12 @@ test('keeps manga pagination alive across filtered and duplicate provider rows',
   await expect(page.locator('#mlist')).toContainText('One')
   await expect(page.locator('#mlist')).not.toContainText('Wrong provider')
   await expect(page.locator('#mlist')).toContainText('unexpected results were ignored')
-  await page.locator('#mmore').click()
-  await expect(page.locator('#mmore')).toBeVisible()
-  await page.locator('#mmore').click()
+  await page.locator('#mscroll').evaluate(element => {
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event('scroll'))
+  })
   await expect(page.locator('#mlist')).toContainText('Two')
+  await expect(page.locator('#mlist')).not.toContainText('Wrong provider')
   await expect(page.locator('#mlist .manga-card')).toHaveCount(2)
   await expect(page.locator('#mmore')).toBeHidden()
 })
