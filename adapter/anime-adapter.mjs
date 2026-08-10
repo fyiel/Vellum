@@ -235,7 +235,7 @@ const decodeKey = value => {
 
 const keyInfo = value => {
     const match = String(value || '').match(PROVIDER_KEY)
-    if (!match) return { unknown: true, provider: null, id: null }
+    if (!match) return { unknown: true, provider: String(value || '').split(':')[0], id: null }
     const provider = match[1]
     const id = match[2]
     if (!PROVIDER_IDS[provider].test(id)) return { unknown: false, provider, id: null }
@@ -320,7 +320,7 @@ const REGISTRY = new Map([
 ])
 
 const routeEntry = (info, invalid) => {
-    if (info.unknown) return failure(400, 'invalid_request', 'Unknown video provider')
+    if (info.unknown) return failure(400, 'invalid_request', 'Unknown video provider', false, info.provider)
     if (info.id == null) return failure(400, 'invalid_request', invalid)
     return REGISTRY.get(info.provider)
 }
