@@ -237,9 +237,12 @@ test('bounds a large manga chapter list without hiding searchable chapters', asy
 
   await page.goto(`${app}#/manga/series/mf%3Alarge-series`)
   await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
-  await expect(page.locator('#mchapter-more')).toContainText('250 of 1001')
-  await page.locator('#mchapter-more').click()
+  await page.locator('#schapters .chscroll').evaluate(element => {
+    element.scrollTop = element.scrollHeight
+    element.dispatchEvent(new Event('scroll'))
+  })
   await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(500)
+  await expect(page.locator('#mchapter-more')).toBeHidden()
   await page.locator('#mchsearch').fill('Chapter 777')
   await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(1)
   await expect(page.locator('#mchapter-list .mchrow')).toContainText('Ch. 777')
