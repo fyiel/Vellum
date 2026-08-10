@@ -168,7 +168,7 @@ function renderEmbed(playback, source) {
         const frame = document.createElement('iframe')
         frame.className = 'video-embed-frame'
         frame.title = `${playback.providerLabel} player for ${episodeLabel(state.episode)}`
-        frame.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation')
+        frame.setAttribute('sandbox', 'allow-scripts allow-presentation')
         frame.referrerPolicy = 'no-referrer'
         frame.allow = 'fullscreen; picture-in-picture; encrypted-media'
         frame.allowFullscreen = true
