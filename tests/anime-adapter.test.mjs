@@ -51,6 +51,14 @@ test('returns an explicit unavailable state when playback is not configured', as
     assert.deepEqual(await result.json(), { error: { provider: 'miruro', code: 'provider_unconfigured', message: 'Anime playback service is not configured', retryable: false } })
 })
 
+test('fails closed when the owned playback service emits an embed', async () => {
+    const fetchImpl = async () => response({ sources: [{ url: 'https://embed.test/watch?v=1', type: 'embed' }], subtitles: [] })
+    const env = { VELLUM_ANIME_PLAYBACK_URL: 'https://playback.vellum.test/' }
+    const result = await handleAnimeRequest(request('/read/api/anime/watch?key=miruro%3A21&language=sub&id=opaque'), env, fetchImpl)
+    assert.equal(result.status, 502)
+    assert.equal((await result.json()).error.code, 'stream_unavailable')
+})
+
 test('rejects non-HTTPS playback sources at the boundary', async () => {
     const env = { VELLUM_ANIME_PLAYBACK_URL: 'https://playback.vellum.test/' }
     const result = await handleAnimeRequest(request('/read/api/anime/watch?key=miruro%3A21&language=sub&id=opaque'), env, () => response({ sources: [{ url: 'http://media.test/video.mp4' }] }))

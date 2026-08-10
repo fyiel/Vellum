@@ -277,6 +277,10 @@ async function animeForKey(key, request, fetchImpl) {
     return row
 }
 
+// embeds from the owned playback service are allowlisted and must not point back at the app
+// origin (appHost above); empty today — the service emits direct HLS only. ponytail: add hosts
+// here if a provider ever emits legit embeds.
+const OWNED_EMBED_HOSTS = new Set([])
 const ownedSources = (data, request) => (Array.isArray(data?.sources) ? data.sources : []).map(source => {
     const sourceUrl = str(source?.url)
     let target
@@ -285,6 +289,7 @@ const ownedSources = (data, request) => (Array.isArray(data?.sources) ? data.sou
     if (source?.type === 'embed') {
         const origin = appHost(request)
         if (target.hostname === new URL(request.url).hostname || (origin && target.hostname === origin)) return null
+        if (![...OWNED_EMBED_HOSTS].some(base => target.hostname === base || target.hostname.endsWith(`.${base}`))) return null
         return { kind: 'embed', url: target.href }
     }
     const type = source?.type === 'hls' || /\.m3u8(?:$|\?)/i.test(sourceUrl) ? 'application/x-mpegURL' : 'video/mp4'
