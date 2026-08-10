@@ -363,3 +363,159 @@ test('names an offline player failure and recovers from a lazy chunk failure', a
   await expect(page.locator('#video-player-load-retry')).toBeVisible()
   page._vellumErrors.length = 0
 })
+
+test('keeps provider prefixes intact through parseVideoKey', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { parseVideoKey } = await import('/src/lib/video-api.js')
+    return ['mock:signal-season', 'dc:a-shop-for-killers', 'cineby:love-lies', 'goplay:dark-city', 'nokey']
+      .map(key => ({ key, parsed: parseVideoKey(key) }))
+  })
+  expect(result).toEqual([
+    { key: 'mock:signal-season', parsed: { provider: 'mock', id: 'signal-season' } },
+    { key: 'dc:a-shop-for-killers', parsed: { provider: 'dc', id: 'a-shop-for-killers' } },
+    { key: 'cineby:love-lies', parsed: { provider: 'cineby', id: 'love-lies' } },
+    { key: 'goplay:dark-city', parsed: { provider: 'goplay', id: 'dark-city' } },
+    { key: 'nokey', parsed: null },
+  ])
+})
+
+test('renders DramaCooli rows in the K-drama tab with provider-prefixed keys', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const drama = {
+    key: 'dc:blood-free', kind: 'drama', title: 'Blood Free', poster,
+    year: 2026, status: 'Ongoing', source: 'DramaCooli', synopsis: 'A chef chases the truth.',
+    genres: ['Thriller'], episodes: [episode(1), episode(2)],
+  }
+  await page.route('**/read/api/video/discover?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ results: [drama], hasMore: false, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/video/series/**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(drama) }))
+  await page.route('**/read/api/video/playback?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      key: drama.key, episodeId: id, providerLabel: 'DramaCooli',
+      sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
+    }) })
+  })
+
+  await page.locator('[data-nav="watch"]').click()
+  const dramaRequest = page.waitForRequest(request => request.url().includes('/video/discover?') && request.url().includes('kind=drama'))
+  await page.locator('#vkind [data-kind="drama"]').click()
+  await dramaRequest
+  await expect(page.locator('#vkind [data-kind="drama"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#vlist .watch-card')).toHaveCount(1)
+  await expect(page.locator('#vlist .watch-card')).toHaveAttribute('href', '#/watch/series/dc%3Ablood-free')
+  await expect(page.locator('#vlist .watch-card')).toHaveAttribute('aria-label', 'Blood Free, K-drama')
+  await page.locator('#vlist .watch-card').click()
+  await expect(page.locator('#vinfo')).toContainText('Blood Free')
+  await expect(page.locator('#vinfo .video-stats')).toContainText('DramaCooli')
+  await expect(page.locator('#video-episode-list .video-episode-row')).toHaveCount(2)
+})
+
+test('merges provider rows on Watch and names the unconfigured provider', async ({ page }) => {
+  const anime = {
+    key: 'mock:signal-season', kind: 'anime', title: 'Signal Season', poster,
+    year: 2026, status: 'Releasing', source: 'Mock catalogue', synopsis: 'A clean provider-neutral fixture.',
+    genres: ['Mystery'], episodes: [episode(1)],
+  }
+  const drama = {
+    key: 'dc:blood-free', kind: 'drama', title: 'Blood Free', poster,
+    year: 2026, status: 'Ongoing', source: 'DramaCooli', synopsis: 'A chef chases the truth.',
+    genres: ['Thriller'], episodes: [episode(1)],
+  }
+  await page.route('**/read/api/video/discover?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      results: [drama, anime], hasMore: false, partial: true,
+      errors: [{ provider: 'goplay', code: 'provider_unconfigured', message: 'GoPlay playback is not configured' }],
+    }),
+  }))
+
+  await page.locator('[data-nav="watch"]').click()
+  await expect(page.locator('#vlist .watch-card')).toHaveCount(2)
+  await expect(page.locator('#vlist')).toContainText('Blood Free')
+  await expect(page.locator('#vlist')).toContainText('Signal Season')
+  await expect(page.locator('.watch-notice')).toContainText('GoPlay playback is not configured')
+  await expect(page.locator('#vlist a[href="#/watch/series/dc%3Ablood-free"]')).toHaveCount(1)
+  await expect(page.locator('#vlist a[href="#/watch/series/mock%3Asignal-season"]')).toHaveCount(1)
+})
+
+test('reaches a ready player through a sandboxed provider embed with its badge', async ({ page }) => {
+  const key = 'cineby:love-lies'
+  const state = { episodes: [episode(1), episode(2)] }
+  let embedRequests = 0
+  await page.route('**/read/api/video/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({
+      key, kind: 'drama', title: 'Love Lies', poster, year: 2026, status: 'Ongoing',
+      source: 'Cineby', synopsis: 'A romance built on omissions.', genres: ['Romance'], episodes: state.episodes,
+    }),
+  }))
+  await page.route('**/read/api/video/playback?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      key, episodeId: id, providerLabel: 'Cineby',
+      sources: [{ kind: 'embed', url: `https://embed.example/player?e=${id}` }],
+    }) })
+  })
+  await page.route('https://embed.example/player?**', route => {
+    embedRequests++
+    return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Mock player</title><p>ready</p>' })
+  })
+
+  await page.goto(`${app}#/watch/play/cineby%3Alove-lies/episode-1`)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('.video-provider-label')).toHaveText('Provided by Cineby')
+  await expect(page.locator('.video-embed-load')).toBeVisible()
+  await page.locator('.video-embed-load').click()
+  const frame = page.locator('.video-embed-frame')
+  await expect(frame).toHaveCount(1)
+  await expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation')
+  await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer')
+  await expect(frame).toHaveAttribute('allow', 'fullscreen; picture-in-picture; encrypted-media')
+  await expect.poll(() => embedRequests).toBe(1)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('.video-provider-label')).toHaveText('Provided by Cineby')
+})
+
+test('names a degraded GoPlay playback and leaves other providers playable', async ({ page }) => {
+  const goplay = {
+    key: 'goplay:dark-city', kind: 'anime', title: 'Dark City', poster,
+    year: 2026, status: 'Complete', source: 'GoPlay', synopsis: 'A provider that lost its upstream.',
+    genres: ['Action'], episodes: [episode(1)],
+  }
+  const healthy = {
+    key: 'mock:signal-season', kind: 'anime', title: 'Signal Season', poster,
+    year: 2026, status: 'Releasing', source: 'Mock catalogue', synopsis: 'A clean provider-neutral fixture.',
+    genres: ['Mystery'], episodes: [episode(1)],
+  }
+  await page.route('**/read/api/video/series/**', route => {
+    const seriesKey = decodeURIComponent(route.request().url().split('/series/')[1])
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(seriesKey === goplay.key ? goplay : healthy) })
+  })
+  await page.route('**/read/api/video/playback?**', route => {
+    const keyParam = new URL(route.request().url()).searchParams.get('key')
+    if (keyParam === goplay.key) return route.fulfill({
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ error: { provider: 'goplay', code: 'provider_unconfigured', message: 'GoPlay playback is not configured', retryable: false } }),
+    })
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      key: healthy.key, episodeId: id, providerLabel: 'Mock Stream',
+      sources: [{ kind: 'direct', url: `/read/api/video/media/${id}.mp4`, type: 'video/mp4' }],
+    }) })
+  })
+  await page.route('**/read/api/video/media/**', route => route.fulfill({ contentType: 'video/mp4', body: '' }))
+
+  await page.goto(`${app}#/watch/play/goplay%3Adark-city/episode-1`)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'error')
+  await expect(page.locator('#video-player-retry')).toBeVisible()
+  await expect(page.locator('#vp-stage')).toContainText('GoPlay playback is not configured')
+  await expect(page.locator('.video-provider-label')).toContainText('GoPlay')
+  page._vellumErrors.length = 0
+
+  await page.evaluate(() => { location.hash = '#/watch/play/mock%3Asignal-season/episode-1' })
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('.video-provider-label')).toHaveText('Provided by Mock Stream')
+})
