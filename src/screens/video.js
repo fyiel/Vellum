@@ -70,10 +70,11 @@ async function fetchPage(next, fresh, mine) {
     if (mine !== gen) return
     const seen = new Set(fresh ? [] : rows.map(item => item.key))
     const incoming = data.results.filter(item => !seen.has(item.key))
-    rows = fresh ? incoming : rows.concat(incoming)
+    const matched = query ? incoming.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : incoming
+    rows = fresh ? matched : rows.concat(matched)
     if (fresh) notice = data.partial ? [...new Set((data.errors || []).map(error => error?.message).filter(Boolean))].join(' · ') : ''
     page = next
-    hasMore = Boolean(data.hasMore) && incoming.length > 0
+    hasMore = Boolean(data.hasMore) && (query ? incoming.length > 0 : matched.length > 0)
 }
 
 async function start() {
