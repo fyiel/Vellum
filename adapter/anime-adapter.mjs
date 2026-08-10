@@ -80,10 +80,20 @@ export const cached = (fetchImpl, key, ttl, load) => {
     let cache = providerCache.get(fetchImpl)
     if (!cache) { cache = new Map(); providerCache.set(fetchImpl, cache) }
     const hit = cache.get(key)
-    if (hit && hit.expires > Date.now()) return hit.value
+    if (hit && hit.expires > Date.now()) {
+        cache.delete(key)
+        cache.set(key, hit)
+        return hit.value
+    }
     const value = load().catch(error => { cache.delete(key); throw error })
-    if (cache.size >= 100) cache.delete(cache.keys().next().value)
-    cache.set(key, { value, expires: Date.now() + ttl })
+    if (cache.size >= 100) {
+        let victim
+        for (const entryKey of [...cache.keys()].reverse()) {
+            if (!cache.get(entryKey).hit) { victim = entryKey; break }
+        }
+        cache.delete(victim ?? cache.keys().next().value)
+    }
+    cache.set(key, { value, expires: Date.now() + ttl, hit: false })
     return value
 }
 
