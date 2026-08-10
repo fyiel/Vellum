@@ -1,9 +1,11 @@
 # Anime adapter
 
 `anime-adapter.mjs` is a dependency-free Fetch handler for Vellum's
-`/read/api/anime/*` contract. It reads public metadata directly from AniList and
-keeps playback behind a Vellum-owned service. It does not call Miruro's private
-secure pipe and contains no Miruro obfuscation values.
+`/read/api/anime/*` and shared `/read/api/video/*` contracts. It reads public
+metadata directly from AniList and keeps playback behind Vellum's Slipgate. It
+does not call Miruro's private secure pipe or contain Miruro obfuscation values;
+the fallback preserves Miruro's current `pewe` IDs and resolves them through the
+matching AniDB App upstream.
 
 Deploy the module in any Web Fetch API runtime (Cloudflare Workers, Bun, or a
 small Node wrapper) and route `/read/api/anime/*` to `handleAnimeRequest`.
@@ -16,6 +18,13 @@ Server environment:
 - `VELLUM_ANIME_PLAYBACK_KEY` — optional bearer token, held only by the server.
 - `VELLUM_ANIME_PROVIDER` — optional provider name sent to the owned service;
   defaults to `default`.
+- `VELLUM_SLIPGATE_URL` — Slipgate base URL used when the owned playback service
+  is absent.
+- `VELLUM_SLIPGATE_KEY` — optional `X-Slipgate-Key`, held only by the server.
+
+The Slipgate fallback maps an exact AniDB App title, emits Miruro-compatible
+`anidbapp:<series>:<episode>` IDs, verifies `pewe`/category/source identity on
+playback, and exposes HLS only through `/read/api/video/media/*`.
 
 The owned playback service must expose two GET routes:
 
