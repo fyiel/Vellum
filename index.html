@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vellum">
 <link rel="preconnect" href="https://pumg.fyi" crossorigin>
-<style>.sheet{visibility:hidden}</style>
+<style>.sheet{visibility:hidden}.sronly{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}</style>
 <title>Vellum</title>
 </head>
 <body>
@@ -73,7 +73,8 @@
           </div>
         </div>
         <div class="scroll manga-scroll" id="mscroll">
-          <div class="manga-grid" id="mlist" aria-live="polite" aria-busy="false"></div>
+          <div class="manga-grid" id="mlist" aria-busy="false"></div>
+          <div class="sronly" id="mstatus" role="status"></div>
           <div class="manga-sentinel" id="mmore-sentinel" aria-hidden="true"></div>
           <button class="manga-more" id="mmore" hidden>Load more</button>
         </div>
@@ -91,7 +92,8 @@
         </div>
         <div class="watch-subtool"><div class="lab" id="vlab">Recently added</div></div>
         <div class="scroll watch-scroll" id="vscroll">
-          <div class="watch-grid" id="vlist" aria-live="polite" aria-busy="false"></div>
+          <div class="watch-grid" id="vlist" aria-busy="false"></div>
+          <div class="sronly" id="vstatus" role="status"></div>
           <button class="watch-more" id="vmore" type="button" hidden>Load more</button>
         </div>
       </div>
