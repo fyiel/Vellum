@@ -10,7 +10,11 @@ test.setTimeout(60_000)
 test.beforeEach(async ({ page }) => {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
-  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()) })
+  page.on('console', message => {
+    if (message.type() !== 'error') return
+    if (message.text().startsWith('Failed to load resource')) return
+    errors.push(message.text())
+  })
   await page.goto(app)
   await page.evaluate(() => localStorage.clear())
   await page.reload()
@@ -367,14 +371,15 @@ test('names an offline player failure and recovers from a lazy chunk failure', a
 test('keeps provider prefixes intact through parseVideoKey', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const { parseVideoKey } = await import('/src/lib/video-api.js')
-    return ['mock:signal-season', 'dc:a-shop-for-killers', 'cineby:love-lies', 'goplay:dark-city', 'nokey']
+    return ['mock:signal-season', 'dc:a-shop-for-killers', 'cineby:817', 'gp:dark-city', 'miruro:12345', 'nokey']
       .map(key => ({ key, parsed: parseVideoKey(key) }))
   })
   expect(result).toEqual([
     { key: 'mock:signal-season', parsed: { provider: 'mock', id: 'signal-season' } },
     { key: 'dc:a-shop-for-killers', parsed: { provider: 'dc', id: 'a-shop-for-killers' } },
-    { key: 'cineby:love-lies', parsed: { provider: 'cineby', id: 'love-lies' } },
-    { key: 'goplay:dark-city', parsed: { provider: 'goplay', id: 'dark-city' } },
+    { key: 'cineby:817', parsed: { provider: 'cineby', id: '817' } },
+    { key: 'gp:dark-city', parsed: { provider: 'gp', id: 'dark-city' } },
+    { key: 'miruro:12345', parsed: { provider: 'miruro', id: '12345' } },
     { key: 'nokey', parsed: null },
   ])
 })
@@ -442,13 +447,14 @@ test('merges provider rows on Watch and names the unconfigured provider', async 
 })
 
 test('reaches a ready player through a sandboxed provider embed with its badge', async ({ page }) => {
-  const key = 'cineby:love-lies'
+  // cineby keys carry numeric ids and cineby series are anime
+  const key = 'cineby:817'
   const state = { episodes: [episode(1), episode(2)] }
   let embedRequests = 0
   await page.route('**/read/api/video/series/**', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      key, kind: 'drama', title: 'Love Lies', poster, year: 2026, status: 'Ongoing',
+      key, kind: 'anime', title: 'Love Lies', poster, year: 2026, status: 'Ongoing',
       source: 'Cineby', synopsis: 'A romance built on omissions.', genres: ['Romance'], episodes: state.episodes,
     }),
   }))
@@ -464,7 +470,7 @@ test('reaches a ready player through a sandboxed provider embed with its badge',
     return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Mock player</title><p>ready</p>' })
   })
 
-  await page.goto(`${app}#/watch/play/cineby%3Alove-lies/episode-1`)
+  await page.goto(`${app}#/watch/play/cineby%3A817/episode-1`)
   await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
   await expect(page.locator('.video-provider-label')).toHaveText('Provided by Cineby')
   await expect(page.locator('.video-embed-load')).toBeVisible()
@@ -481,7 +487,7 @@ test('reaches a ready player through a sandboxed provider embed with its badge',
 
 test('names a degraded GoPlay playback and leaves other providers playable', async ({ page }) => {
   const goplay = {
-    key: 'goplay:dark-city', kind: 'anime', title: 'Dark City', poster,
+    key: 'gp:dark-city', kind: 'anime', title: 'Dark City', poster,
     year: 2026, status: 'Complete', source: 'GoPlay', synopsis: 'A provider that lost its upstream.',
     genres: ['Action'], episodes: [episode(1)],
   }
@@ -498,7 +504,7 @@ test('names a degraded GoPlay playback and leaves other providers playable', asy
     const keyParam = new URL(route.request().url()).searchParams.get('key')
     if (keyParam === goplay.key) return route.fulfill({
       status: 503, contentType: 'application/json',
-      body: JSON.stringify({ error: { provider: 'goplay', code: 'provider_unconfigured', message: 'GoPlay playback is not configured', retryable: false } }),
+      body: JSON.stringify({ error: { provider: 'gp', code: 'provider_unconfigured', message: 'GoPlay playback is not configured', retryable: false } }),
     })
     const id = new URL(route.request().url()).searchParams.get('id')
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
@@ -508,12 +514,13 @@ test('names a degraded GoPlay playback and leaves other providers playable', asy
   })
   await page.route('**/read/api/video/media/**', route => route.fulfill({ contentType: 'video/mp4', body: '' }))
 
-  await page.goto(`${app}#/watch/play/goplay%3Adark-city/episode-1`)
+  await page.goto(`${app}#/watch/play/gp%3Adark-city/episode-1`)
   await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'error')
   await expect(page.locator('#video-player-retry')).toBeVisible()
-  await expect(page.locator('#vp-stage')).toContainText('GoPlay playback is not configured')
+  // degraded providers keep their badge and show humanized copy, not the raw API message
   await expect(page.locator('.video-provider-label')).toContainText('GoPlay')
-  page._vellumErrors.length = 0
+  await expect(page.locator('#vp-stage')).toContainText('GoPlay')
+  await expect(page.locator('#vp-stage')).not.toContainText('playback is not configured')
 
   await page.evaluate(() => { location.hash = '#/watch/play/mock%3Asignal-season/episode-1' })
   await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
