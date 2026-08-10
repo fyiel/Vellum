@@ -62,7 +62,50 @@ const walk = (node, visit, depth = 0) => {
 }
 
 const findMedia = (node, id) => firstMatch(node, value => Number(value?.tmdb_id) === Number(id) && typeof value?.title === 'string' ? value : null)
-const findPlayer = node => firstMatch(node, value => PLAYER_FIELDS.some(field => typeof value?.[field] === 'string' && value[field]) ? value : null)
+const isPlayer = value => PLAYER_FIELDS.some(field => typeof value?.[field] === 'string' && value[field]) ? value : null
+
+const containerOf = (node, target, depth = 0, parent = null) => {
+    if (node == null || depth > 10) return null
+    if (Array.isArray(node)) {
+        for (const item of node) {
+            const found = containerOf(item, target, depth + 1, parent)
+            if (found) return found
+        }
+        return null
+    }
+    if (typeof node === 'object') {
+        if (Object.values(node).includes(target)) return node
+        for (const key of Object.keys(node)) {
+            const found = containerOf(node[key], target, depth + 1, node)
+            if (found) return found
+        }
+    }
+    return null
+}
+
+const findPlayer = (node, id, episodeId) => {
+    const media = findMedia(node, id)
+    if (!media) return null
+    const seasons = Array.isArray(media?.seasons) ? media.seasons : []
+    const match = /^s(\d+)e(\d+)$/.exec(String(episodeId || ''))
+    if (seasons.length) {
+        const requested = seasons
+            .find(season => num(season?.season_number) === Number(match?.[1]))
+            ?.episodes?.find(episode => num(episode?.episode_number) === Number(match?.[2]))
+        if (!requested) return null
+        return firstMatch(requested, isPlayer)
+    }
+    const own = firstMatch(media, isPlayer)
+    if (own) return own
+    const container = containerOf(node, media)
+    if (!container) return null
+    for (const value of Object.values(container)) {
+        if (value === media) continue
+        const found = firstMatch(value, isPlayer)
+        if (found) return found
+    }
+    return null
+}
 
 async function fetchHtml(ctx, path) {
     const scoped = timeout(ctx.request?.signal)
@@ -144,7 +187,7 @@ export async function playback(ctx, key, language, episodeId) {
     const id = tmdbId(key)
     if (!id || !/^s\d+e\d+$/.test(String(episodeId || ''))) throw Object.assign(new Error('Invalid Cineby episode'), { code: 'invalid_request' })
     const data = await page(ctx, id)
-    const player = findPlayer(data)
+    const player = findPlayer(data, id, episodeId)
     const sources = []
     for (const field of PLAYER_FIELDS) {
         const raw = player?.[field]
