@@ -7,13 +7,15 @@ interface ships as a native desktop app and as a web build. Chapters and browsin
 data are cached locally, so searching, browsing, and reading stay responsive
 
 > **Status:** actively developed. Tested on Linux (Arch). Desktop builds for
-> Windows and macOS are expected to work but aren't verified yet, and there's no
-> mobile-optimized build yet, see [Mobile](#mobile)
+> Windows and macOS are expected to work but aren't verified yet; the web build
+> is mobile-optimized, see [Mobile](#mobile)
 
 ## Features
 
 - **Library** tracks what you're reading and resumes where you left off
 - **Discover** browse trending titles and filter by tag or genre
+- **Manga** browse and read manga, manhwa, and manhua
+- **Watch** browse and play anime and K-drama
 - **Updates** new chapters for the series you follow
 - **Reader** clean, distraction-free reading view
 
@@ -29,12 +31,22 @@ data are cached locally, so searching, browsing, and reading stay responsive
 | Linux (x86_64)| Tested (Arch)                 |
 | Windows       | Builds; not yet tested        |
 | macOS         | Builds; not yet tested        |
-| iOS / Android | Planned — no mobile build yet |
+| iOS / Android | Planned — no native build yet |
 
 ## Mobile
 
-There's no mobile-optimized build of Vellum yet. Until there is,
-[pumg.fyi/read](https://pumg.fyi/read) works better on phones.
+The web build is optimized for touch: compact series-detail layouts, a
+collapsible top bar, and mobile-sized chapter lists on manga and novel pages.
+Native iOS/Android builds are planned — until then, the web build works well in
+a phone browser.
+
+## Anime & video data path
+
+Anime browse and search hit [AniList](https://anilist.co) directly from the
+client — their GraphQL API is CORS-open, so it needs no proxy. Everything that
+does need a server goes through the [pumg.fyi](https://pumg.fyi) adapter:
+episode lists and media (anidb.app is Cloudflare-gated), playback, and the
+K-drama catalogue. Miruro.tv uses the same AniList catalogue.
 
 ## Build from source
 

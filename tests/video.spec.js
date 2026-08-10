@@ -39,7 +39,19 @@ function videoSeries(episodes) {
   }
 }
 
+// the anime leg of Watch discover calls AniList directly from the client (CORS-open);
+// specs mock graphql.anilist.co for it
+async function mockAnimeDiscover(page, { rows = [], fail = false } = {}) {
+  await page.route('https://graphql.anilist.co', route => {
+    if (fail) return route.abort()
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      data: { Page: { pageInfo: { hasNextPage: false }, media: rows } },
+    }) })
+  })
+}
+
 async function mockVideo(page, state, playback) {
+  await mockAnimeDiscover(page)
   await page.route('**/read/api/video/discover?**', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ results: [videoSeries(state.episodes)], hasMore: false, partial: false, errors: [] }),
@@ -250,6 +262,8 @@ test('browses K-drama through Watch and opens its shared player', async ({ page 
       sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
     }) })
   })
+  // the anime leg (AniList) is down: the merged feed degrades to a notice, drama still shows
+  await mockAnimeDiscover(page, { fail: true })
 
   await page.locator('[data-nav="watch"]').click()
   await expect(page.locator('.watch-notice')).toContainText('Miruro is temporarily unavailable; others still show')
@@ -278,6 +292,7 @@ test('ignores a stale Watch search', async ({ page }) => {
       hasMore: false, partial: false, errors: [],
     }) })
   })
+  await mockAnimeDiscover(page)
 
   await page.locator('[data-nav="watch"]').click()
   await expect(page.locator('#vlist')).toContainText('Healthy title')
@@ -304,6 +319,7 @@ test('preserves and retries a failed Watch pagination boundary', async ({ page }
       hasMore: pageNumber === 1, partial: false, errors: [],
     }) })
   })
+  await mockAnimeDiscover(page)
 
   await page.locator('[data-nav="watch"]').click()
   await expect(page.locator('#vlist .watch-card')).toHaveCount(1)
@@ -434,6 +450,7 @@ test('renders DramaCooli rows in the K-drama tab with provider-prefixed keys', a
     contentType: 'application/json',
     body: JSON.stringify({ results: [drama], hasMore: false, partial: false, errors: [] }),
   }))
+  await mockAnimeDiscover(page)
   await page.route('**/read/api/video/series/**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(drama) }))
   await page.route('**/read/api/video/playback?**', route => {
     const id = new URL(route.request().url()).searchParams.get('id')
@@ -458,11 +475,6 @@ test('renders DramaCooli rows in the K-drama tab with provider-prefixed keys', a
 })
 
 test('merges provider rows on Watch and names the unconfigured provider', async ({ page }) => {
-  const anime = {
-    key: 'mock:signal-season', kind: 'anime', title: 'Signal Season', poster,
-    year: 2026, status: 'Releasing', source: 'Mock catalogue', synopsis: 'A clean provider-neutral fixture.',
-    genres: ['Mystery'], episodes: [episode(1)],
-  }
   const drama = {
     key: 'dc:blood-free', kind: 'drama', title: 'Blood Free', poster,
     year: 2026, status: 'Ongoing', source: 'DramaCooli', synopsis: 'A chef chases the truth.',
@@ -471,10 +483,15 @@ test('merges provider rows on Watch and names the unconfigured provider', async 
   await page.route('**/read/api/video/discover?**', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({
-      results: [drama, anime], hasMore: false, partial: true,
+      results: [drama], hasMore: false, partial: true,
       errors: [{ provider: 'goplay', code: 'provider_unconfigured', message: 'GoPlay playback is not configured' }],
     }),
   }))
+  // anime rows come from AniList client-side; Signal Season is the fixture there
+  await mockAnimeDiscover(page, { rows: [{
+    id: 999, title: { romaji: 'Signal Season' }, status: 'RELEASING', seasonYear: 2026,
+    coverImage: { extraLarge: poster },
+  }] })
 
   await page.locator('[data-nav="watch"]').click()
   await expect(page.locator('#vlist .watch-card')).toHaveCount(2)
@@ -482,7 +499,7 @@ test('merges provider rows on Watch and names the unconfigured provider', async 
   await expect(page.locator('#vlist')).toContainText('Signal Season')
   await expect(page.locator('.watch-notice')).toContainText('GoPlay is temporarily unavailable; others still show')
   await expect(page.locator('#vlist a[href="#/watch/series/dc%3Ablood-free"]')).toHaveCount(1)
-  await expect(page.locator('#vlist a[href="#/watch/series/mock%3Asignal-season"]')).toHaveCount(1)
+  await expect(page.locator('#vlist a[href="#/watch/series/miruro%3A999"]')).toHaveCount(1)
 })
 
 test('reaches a ready player through a provider embed with its badge', async ({ page }) => {

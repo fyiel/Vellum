@@ -1,5 +1,6 @@
 import { apiGet, apiUrl } from './http.js'
 import { cached } from './cache.js'
+import { anilistDiscover } from './anilist.js'
 
 /*
 Provider adapter boundary. The shared UI only consumes normalized responses from:
@@ -79,12 +80,68 @@ const requireValue = (promise, accept, message) => promise.then(value => {
 
 export const videoAssetUrl = value => /^https:/i.test(value || '') ? value : apiUrl(value || '')
 
+const interleave = (left, right, limit) => {
+    const output = []
+    for (let index = 0; output.length < limit && index < Math.max(left.length, right.length); index++) {
+        if (left[index]) output.push(left[index])
+        if (output.length < limit && right[index]) output.push(right[index])
+    }
+    return output
+}
+
+const providerError = (provider, error) => error?.status === 404
+    ? { provider, code: 'provider_unconfigured', message: `${provider === 'miruro' ? 'Anime' : 'K-drama'} playback is not configured` }
+    : { provider, code: 'provider_unavailable', message: `${provider === 'miruro' ? 'Anime' : 'K-drama'} provider unavailable` }
+
 export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, signal } = {}) {
-    const params = { q: String(q).trim(), kind: KINDS.includes(kind) ? kind : undefined, page, limit }
-    const qs = query(params)
-    return cached(`video:discover:${qs}`, 5 * MIN,
-        () => requireValue(apiGet(`/read/api/video/discover?${qs}`, { signal }), validResults, 'video catalogue unavailable'),
-        { accept: value => validResults(value) && value.results.length > 0 && complete(value), signal })
+    const qText = String(q).trim()
+    const qs = query({ q: qText, kind, page, limit })
+    const dramaLeg = () => apiGet(`/read/api/video/discover?${query({ q: qText, kind: 'drama', page, limit })}`, { signal })
+    const load = async () => {
+        if (kind === 'drama') {
+            return requireValue(dramaLeg(), validResults, 'video catalogue unavailable')
+        }
+        const [anime, drama] = await Promise.all([
+            anilistDiscover({ q: qText, page, limit, signal })
+                .then(value => ({ rows: value.rows.map(row => ({ ...row, poster: row.cover })), hasMore: value.hasMore, error: null }))
+                .catch(error => ({ rows: [], hasMore: false, error })),
+            kind === 'all'
+                ? dramaLeg()
+                    .then(value => ({ rows: value.results || [], hasMore: Boolean(value.hasMore), partial: Boolean(value.partial), errors: value.errors || [], error: null }))
+                    .catch(error => ({ rows: [], hasMore: false, partial: false, errors: [], error }))
+                : { rows: [], hasMore: false, partial: false, errors: [], error: null },
+        ])
+        // anime is client-side (AniList is CORS-open); only drama goes through the proxy
+        if (kind === 'anime') {
+            if (anime.error) throw anime.error
+            return { page, results: anime.rows, hasMore: anime.hasMore, partial: false, errors: [] }
+        }
+        if (anime.error?.name === 'AbortError' || drama.error?.name === 'AbortError') {
+            throw anime.error?.name === 'AbortError' ? anime.error : drama.error
+        }
+        // initial feed degrades to a notice on a dead leg; a failed "load more" must surface retry
+        if (page > 1 && (anime.error || drama.error)) throw anime.error || drama.error
+        const errors = [
+            ...(drama.errors || []),
+            ...(anime.error ? [providerError('miruro', anime.error)] : []),
+            ...(drama.error ? [providerError('dc', drama.error)] : []),
+        ]
+        if (anime.error && drama.error) {
+            const error = new Error('video catalogue unavailable')
+            error.status = 502
+            throw error
+        }
+        return {
+            page,
+            results: interleave(anime.rows, drama.rows, limit),
+            hasMore: anime.hasMore || drama.hasMore,
+            partial: Boolean(anime.error || drama.error || drama.partial),
+            errors,
+        }
+    }
+    return cached(`video:discover:${qs}`, 5 * MIN, load, {
+        accept: value => validResults(value) && value.results.length > 0 && complete(value), signal,
+    })
 }
 
 export function getVideoSeries(key, { signal, fresh = false } = {}) {
