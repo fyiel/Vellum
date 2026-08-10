@@ -9,6 +9,7 @@ const SOURCE = { mf: 'MangaFire', mh: 'MangaHub' }
 const ORIGIN_LABEL = { library: 'Library', manga: 'Manga', updates: 'Updates' }
 const ORIGIN_ROUTE = { library: '#/', manga: '#/manga', updates: '#/updates' }
 const CHAPTER_BATCH = 250
+const REVEAL_RADIUS = 800
 let request = 0
 let current = null
 let wired = false
@@ -63,14 +64,26 @@ function chapterRows(chapters, activeId) {
     </button>`).join('')
 }
 
+const filteredChapters = () => {
+    if (!current) return []
+    const query = chapterQuery.toLowerCase()
+    return current.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
+}
+
 function renderChapterList() {
     if (!current) return
-    const query = chapterQuery.toLowerCase()
-    const filtered = current.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
+    const filtered = filteredChapters()
     const shown = filtered.slice(0, chapterLimit)
     $('#mchapter-list').innerHTML = shown.length
         ? `${chapterRows(shown, current.saved)}${shown.length < filtered.length ? `<button type="button" class="manga-chapter-more" id="mchapter-more">Show ${Math.min(CHAPTER_BATCH, filtered.length - shown.length)} more <span>${shown.length} of ${filtered.length}</span></button>` : ''}`
         : '<div class="manga-chapter-empty" role="status">No matching chapters</div>'
+}
+
+function revealMore() {
+    const filtered = filteredChapters()
+    if (chapterLimit >= filtered.length) return
+    chapterLimit += CHAPTER_BATCH
+    renderChapterList()
 }
 
 function wire() {
@@ -115,6 +128,14 @@ function wire() {
         chapterLimit = CHAPTER_BATCH
         renderChapterList()
     })
+    // #schapters itself never scrolls (the view scrolls on mobile, .chscroll on desktop),
+    // capture on the static view shell catches the real scroller either way
+    $('#view-series').addEventListener('scroll', event => {
+        const scroller = event.target
+        if (!(scroller instanceof Element)) return
+        if (scroller !== $('#view-series') && !$('#view-series').contains(scroller)) return
+        if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - REVEAL_RADIUS) revealMore()
+    }, { passive: true, capture: true })
 }
 
 export async function showMangaSeries(key, origin = 'manga') {
