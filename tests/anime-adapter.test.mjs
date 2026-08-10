@@ -238,7 +238,7 @@ test('kind=drama discovery aggregates DramaCooli rows without partial state', as
 
 test('rejects unknown video provider prefixes with 400', async () => {
     const deadFetch = () => { throw new Error('must not fetch') }
-    const expected = { error: { provider: 'miruro', code: 'invalid_request', message: 'Unknown video provider', retryable: false } }
+    const expected = { error: { provider: 'foo', code: 'invalid_request', message: 'Unknown video provider', retryable: false } }
     const routes = [
         ['/read/api/anime/series/foo%3A123', handleAnimeRequest],
         ['/read/api/anime/episodes?key=foo%3A123&language=sub', handleAnimeRequest],

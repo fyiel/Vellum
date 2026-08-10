@@ -101,7 +101,7 @@ test('streams across manga chapter boundaries without navigating', async ({ page
   await expect(page.locator('#mr-pages .manga-page')).toHaveCount(pagesPerChapter * 2)
   await stream()
   await expect(page.locator('#mr-title')).toContainText('Ch. 3')
-  await expect(page).toHaveURL(/chapter-1$/)
+  await expect(page).toHaveURL(/chapter-3$/)
   await expect(page.locator('#mr-pages .manga-page')).toHaveCount(pagesPerChapter * 2)
   await expect(page.locator('.mr-chapter-divider')).toHaveCount(1)
   await expect(page.locator('.mr-chapter-divider')).toContainText('Ch. 3')

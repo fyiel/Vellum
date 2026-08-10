@@ -335,7 +335,7 @@ test('restores manga pages, windows image memory, and separates page and chapter
   await expect(page.locator('#mr-pages .manga-page')).toHaveCount(60)
   await stream()
   await expect(page.locator('#mr-title')).toContainText('Ch. 4')
-  await expect(page).toHaveURL(/chapter-2$/)
+  await expect(page).toHaveURL(/chapter-4$/)
   await expect(page.locator('#mr-pages .manga-page')).toHaveCount(60)
   await expect(page.locator('.mr-chapter-divider')).toHaveCount(1)
   await expect(page.locator('#mr-pages .manga-page').first()).toHaveAttribute('data-page', '30')
