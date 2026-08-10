@@ -300,7 +300,7 @@ function renderPages(content) {
     setPage(target)
     requestAnimationFrame(() => requestAnimationFrame(() => {
         if (!state.active) return
-        window.scrollTo(0, target ? pageElement(target)?.offsetTop || 0 : 0)
+        if (!scrollY) window.scrollTo(0, target ? pageElement(target)?.offsetTop || 0 : 0)
         reader.focus({ preventScroll: true })
     }))
 }
