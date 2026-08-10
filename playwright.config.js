@@ -4,6 +4,7 @@ const port = process.env.VELLUM_TEST_PORT || '5173'
 
 export default defineConfig({
   testDir: './tests',
+  testMatch: '**/*.spec.js',
   workers: 1,
   webServer: {
     command: `bun run dev --host 127.0.0.1 --port ${port}`,

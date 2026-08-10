@@ -141,14 +141,16 @@ body.reading ::-webkit-scrollbar-thumb:hover { background: #444; }
 
 /* sheets (settings + chapter drawer) */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 120; background: rgba(0,0,0,.55);
-  opacity: 0; pointer-events: none; transition: opacity .18s; }
+  opacity: 0; pointer-events: none; }
 .sheet-backdrop.open { opacity: 1; pointer-events: auto; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 121;
   background: var(--bg-b) var(--dither); border-top: var(--bw) solid var(--border-hi);
-  padding: 10px 18px calc(var(--safe-b) + 22px); transform: translateY(110%); visibility: hidden; transition: transform .22s ease-out, visibility 0s .22s;
+  padding: 10px 18px calc(var(--safe-b) + 22px); transform: translateY(110%); visibility: hidden;
   max-width: 680px; margin: 0 auto; color: var(--text);
 }
+.reading .sheet, .manga-reading .sheet { transition: transform .22s ease-out, visibility 0s .22s; }
+.reading .sheet-backdrop, .manga-reading .sheet-backdrop { transition: opacity .18s; }
 .sheet.open { transform: translateY(0); visibility: visible; transition-delay: 0s; }
 .sheet .grip { width: 28px; height: 6px; background: var(--bg-d); margin: 4px auto 14px; }
 .sheet .set-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 0; }

@@ -91,7 +91,7 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .main { height: calc(100vh - 34px); padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
   .den .side { position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; width: auto; height: calc(58px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); border: 0; border-top: 1px solid var(--line2); }
   .den .side .nl, .den .side .grow { display: none; }
-  .den .side nav { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
+  .den .side nav { width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); }
   .den .ni { min-width: 0; justify-content: center; flex-direction: column; gap: 2px; padding: 8px 2px 6px; font-size: 10px; }
   .den .ni .ix { width: auto; font-size: 10px; }
   .den .ni .c { display: none; }

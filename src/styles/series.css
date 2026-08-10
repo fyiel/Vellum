@@ -42,6 +42,8 @@
 .den .btn.primary { background: var(--ac); border-color: var(--ac); color: var(--bg); }
 .den .btn.primary:hover { filter: brightness(1.07); color: var(--bg); }
 .den .btn.on { border-color: var(--ac); color: var(--ac); }
+.den .btn[hidden] { display: none; }
+.den .btn:disabled { cursor: not-allowed; opacity: .55; filter: none; }
 .den .seclab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
 
 .den .synhost { margin-top: -8px; }

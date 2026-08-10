@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:e2e": "playwright test tests",
+    "test:adapter": "node --test tests/anime-adapter.test.mjs",
     "web:build": "VITE_BASE=/Vellum/ VITE_WEB_ABS=1 vite build",
     "preview": "vite preview",
     "desktop": "tauri dev",
@@ -35,6 +36,7 @@
     "@fontsource/ibm-plex-mono": "^5",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-http": "^2",
-    "dompurify": "^3.4.13"
+    "dompurify": "^3.4.13",
+    "hls.js": "^1.6.13"
   }
 }

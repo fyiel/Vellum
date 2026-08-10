@@ -109,6 +109,32 @@ export async function buildFeed() {
             continue
         }
 
+        if (e.kind === 'anime') {
+            if (!Array.isArray(chapters)) {
+                if (led && !led.read && led.newEpisodes?.length) feed.push(rowOf(e, led))
+                continue
+            }
+            const latestIds = chapters.map(episode => episode.id)
+            const baseline = led?.seenIds || e.episodeIds
+            if (!Array.isArray(baseline)) {
+                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newEpisodes: [], latest: chapters.length, latestIds }
+                dirty = true
+                continue
+            }
+            const seen = new Set(baseline)
+            const fresh = chapters.filter(episode => !seen.has(episode.id)).map(episode => ({ id: episode.id, label: `EP ${episode.number}` }))
+            if (!fresh.length) continue
+            if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenIds: baseline, newEpisodes: [], latest: 0, latestIds: [] }
+            const cur = ledger[e.slug]
+            if (cur.read) { cur.read = false; cur.firstSeen = now }
+            cur.newEpisodes = fresh
+            cur.latest = chapters.length
+            cur.latestIds = latestIds
+            dirty = true
+            feed.push(rowOf(e, cur))
+            continue
+        }
+
         const base = e.total
 
         // a failed fetch or unknown base tells us nothing, surface the last known alert from storage

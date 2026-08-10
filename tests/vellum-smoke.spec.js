@@ -1412,3 +1412,32 @@ test('continues discover pagination when the API returns short pages', async ({ 
   })
   await expect(page.locator('#dlist')).toContainText('B Title 0')
 })
+
+
+test('validates anime response identities and cancels stale searches', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const api = await import('/src/lib/anime-api.js')
+    const http = await import('/src/lib/http.js')
+    const ctrl = new AbortController()
+    let signal
+    let startedResolve
+    const started = new Promise(resolve => { startedResolve = resolve })
+    http.setTransport((_url, init) => {
+      signal = init.signal
+      startedResolve()
+      return new Promise((resolve, reject) => init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true }))
+    })
+    const request = api.searchAnime(`slow-${Date.now()}`, { signal: ctrl.signal }).catch(error => error.name)
+    await started
+    ctrl.abort()
+    return {
+      cancelled: await request,
+      transportCancelled: signal.aborted,
+      key: api.animeKey('opaque/provider?id=7'),
+      parsed: api.parseAnimeKey('miruro:opaque/provider?id=7'),
+      wrongKey: api.validAnimeEpisodes({ key: 'miruro:wrong', language: 'sub', episodes: [{ id: 'exact/id', number: 1 }] }, 'miruro:right', 'sub'),
+      duplicate: api.validAnimeEpisodes({ key: 'miruro:right', language: 'sub', episodes: [{ id: 'exact/id', number: 1 }, { id: 'exact/id', number: 2 }] }, 'miruro:right', 'sub'),
+    }
+  })
+  expect(result).toEqual({ cancelled: 'AbortError', transportCancelled: true, key: 'miruro:opaque/provider?id=7', parsed: { provider: 'miruro', id: 'opaque/provider?id=7' }, wrongKey: false, duplicate: false })
+})

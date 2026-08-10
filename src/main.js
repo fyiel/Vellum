@@ -63,7 +63,6 @@ const mangaReaderRouteIs = route => {
     const cur = parseHash()
     return cur.name === 'manga-read' && cur.key === route.key && cur.id === route.id
 }
-
 const videoPlayerRouteIs = route => {
     const cur = parseHash()
     return cur.name === 'video-play' && cur.key === route.key && cur.id === route.id
