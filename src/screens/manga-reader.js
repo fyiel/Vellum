@@ -171,6 +171,7 @@ async function maybeStreamNext() {
         pages.insertAdjacentHTML('beforeend', `<div class="mr-chapter-divider" role="separator"><span>${esc(chapterLabel(next))}</span></div>${content.pages.map((page, index) => figureHtml(page, state.pageBase + index, total)).join('')}`)
         // the URL deliberately stays on the landing chapter, stillHere must keep matching
         $('#mr-title').textContent = `${state.series.title} · ${chapterLabel(next)}`
+        renderSteps()
         observePages()
         setPage(0)
         updateLibrary()
