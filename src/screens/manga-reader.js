@@ -232,7 +232,13 @@ function updateLibrary() {
 }
 
 function jumpPage(offset) {
-    const next = Math.min((state.content?.pages.length || 1) - 1, Math.max(0, state.page + offset))
+    const last = (state.content?.pages.length || 1) - 1
+    if (offset > 0 && state.page >= last) {
+        maybeStreamNext()
+        return
+    }
+    if (offset < 0 && state.page <= 0) return
+    const next = Math.min(last, Math.max(0, state.page + offset))
     if (next === state.page) return
     loadPage(next)
     pageElement(next)?.scrollIntoView({ block: 'start', behavior: reducedMotion.matches ? 'auto' : 'smooth' })
