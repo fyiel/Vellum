@@ -3,6 +3,8 @@ import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 
 const LIMIT = 30
+const PRUNE_AT = 150
+const PRUNE_DROP = 60
 
 let wired = false
 let inited = false
@@ -20,7 +22,7 @@ let notice = ''
 let pageError = false
 let failed = false
 
-const card = (item, index) => `<a class="manga-card" href="#/manga/series/${encodeURIComponent(item.key)}" aria-label="${esc(item.title)}, ${esc(item.format)} from ${esc(mangaProviderName(item.key.split(':')[0]))}">
+const card = (item, index) => `<a class="manga-card" data-key="${esc(item.key)}" href="#/manga/series/${encodeURIComponent(item.key)}" aria-label="${esc(item.title)}, ${esc(item.format)} from ${esc(mangaProviderName(item.key.split(':')[0]))}">
   <div class="manga-cover">${coverImg(item.cover, item.title, { eager: index < 4 }) || '<span class="manga-cover-empty">No cover</span>'}</div>
   <div class="manga-card-copy">
     <h2>${esc(item.title)}</h2>
@@ -128,6 +130,26 @@ async function more() {
             paint()
         }
     }
+    if (mine === gen && !pageError) pruneGrid()
+}
+
+function pruneGrid() {
+    if (rows.length <= PRUNE_AT) return
+    // prunes in 60 card chunks, no virtualization library, the pinned card
+    // keeps its screen position after the oldest cards drop (reader.js loadPrev pattern)
+    const scroller = $('#mscroll')
+    const pinned = $$('#mlist .manga-card').find(el => {
+        const rect = el.getBoundingClientRect()
+        return rect.bottom > 0 && rect.top < innerHeight
+    })
+    const key = pinned?.dataset.key
+    const before = pinned?.offsetTop ?? null
+    rows = rows.slice(PRUNE_DROP)
+    paint()
+    if (key) {
+        const el = $$('#mlist .manga-card').find(card => card.dataset.key === key)
+        if (el) scroller.scrollTop += el.offsetTop - (before ?? el.offsetTop)
+    }
 }
 
 function wire() {
@@ -152,6 +174,14 @@ function wire() {
         start()
     })
     $('#mmore').addEventListener('click', more)
+    // bottom sentinel drives the same more() as the button, which stays as the
+    // keyboard and Try again fallback; the sentinel itself never auto retries
+    const moreObserver = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)) return
+        if (!hasMore || loading || pageError) return
+        more()
+    }, { rootMargin: '800px 0px' })
+    moreObserver.observe($('#mmore-sentinel'))
     window.addEventListener('online', () => { if (failed && !$('#view-manga').hidden) start() })
 }
 
