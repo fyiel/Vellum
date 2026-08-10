@@ -372,6 +372,8 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
     } catch (error) {
         if (request.signal.aborted || error?.name === 'AbortError') return failure(499, 'request_cancelled', 'Anime request cancelled', true, activeProvider)
         if (error?.code === 'provider_unconfigured') return failure(503, error.code, error.message, false, activeProvider)
+        if (error?.code === 'invalid_request') return failure(400, error.code, error.message, false, activeProvider)
+        if (error?.code === 'not_found') return failure(404, error.code, error.message, false, activeProvider)
         if (error?.code === 'stream_unavailable') return failure(502, error.code, error.message, true, activeProvider)
         return failure(502, 'provider_unavailable', route === 'episodes' || route === 'watch' ? 'Anime playback service is unavailable' : 'AniList is unavailable', true, activeProvider)
     }
