@@ -84,8 +84,7 @@ function pageElement(index) {
     return pages.querySelector(`[data-page="${state.pageBase + index}"]`)
 }
 
-function loadPage(index, bust = false) {
-    const figure = pageElement(index)
+function loadFigure(figure, bust = false) {
     const image = figure?.querySelector('img')
     if (!image || (image.hasAttribute('src') && !bust)) return
     let src = image.dataset.src
@@ -98,6 +97,10 @@ function loadPage(index, bust = false) {
     figure.classList.add('loading')
     figure.setAttribute('aria-busy', 'true')
     image.src = src
+}
+
+function loadPage(index, bust = false) {
+    loadFigure(pageElement(index), bust)
 }
 
 function trimImages(center) {
@@ -243,9 +246,7 @@ function observePages() {
     const inChapter = index => index >= 0 && index < (state.content?.pages.length || 0)
     state.loadObserver = new IntersectionObserver(entries => {
         entries.forEach(entry => {
-            if (!entry.isIntersecting) return
-            const index = Number(entry.target.dataset.page) - state.pageBase
-            if (inChapter(index)) loadPage(index)
+            if (entry.isIntersecting) loadFigure(entry.target)
         })
     }, { rootMargin: '150% 0px' })
     state.pageObserver = new IntersectionObserver(entries => {
