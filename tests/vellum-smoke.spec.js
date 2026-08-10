@@ -8,7 +8,9 @@ test.beforeEach(async ({ page }) => {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   page.on('console', message => {
-    if (message.type() === 'error') errors.push(message.text())
+    if (message.type() !== 'error') return
+    if (message.text().startsWith('Failed to load resource')) return
+    errors.push(message.text())
   })
   await page.goto(app)
   await page.evaluate(() => localStorage.clear())
@@ -242,7 +244,8 @@ test('bounds a large manga chapter list without hiding searchable chapters', asy
     element.dispatchEvent(new Event('scroll'))
   })
   await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(500)
-  await expect(page.locator('#mchapter-more')).toBeHidden()
+  await expect(page.locator('#mchapter-more')).toContainText('500 of 1001')
+  await expect(page.locator('#mchapter-more')).toContainText('Show 250 more')
   await page.locator('#mchsearch').fill('Chapter 777')
   await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(1)
   await expect(page.locator('#mchapter-list .mchrow')).toContainText('Ch. 777')
@@ -318,17 +321,24 @@ test('restores manga pages, windows image memory, and separates page and chapter
   await page.evaluate(() => { location.hash = '#/manga/read/mf%3Along-reader/chapter-2' })
   await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
   await expect(page.locator('#mr-pages .manga-page')).toHaveCount(30)
+  // the reader restores the scroll position one rAF pair after render; streaming
+  // from the bottom would race that pending scroll, so wait for it to settle first
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
   const stream = () => page.evaluate(() => {
     window.scrollTo(0, document.body.scrollHeight)
     window.dispatchEvent(new Event('scroll'))
   })
+  // streaming is scroll-driven: each bottom scroll streams the next chapter, and
+  // the DOM stays bounded at the current chapter plus one behind (2 * 30 pages)
   await stream()
-  await expect.poll(() => page.locator('#mr-pages .manga-page').count()).toBeGreaterThan(30)
-  await expect(page).toHaveURL(/chapter-2$/)
+  await expect(page.locator('#mr-title')).toContainText('Ch. 3')
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(60)
   await stream()
-  await expect.poll(() => page.locator('#mr-pages .manga-page').count()).toBeGreaterThan(60)
+  await expect(page.locator('#mr-title')).toContainText('Ch. 4')
   await expect(page).toHaveURL(/chapter-2$/)
-  expect(await page.locator('#mr-pages .manga-page').count()).toBeLessThanOrEqual(75)
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(60)
+  await expect(page.locator('.mr-chapter-divider')).toHaveCount(1)
+  await expect(page.locator('#mr-pages .manga-page').first()).toHaveAttribute('data-page', '30')
 })
 
 test('labels an unreachable manga chapter as offline and offers retry', async ({ page }) => {
@@ -452,20 +462,27 @@ test('walks MangaHub chapter boundaries and recovers a failed image', async ({ p
   await expect(page.locator('#sinfo')).toContainText('MangaHub')
   await page.locator('#manga-start').click()
   await expect(page.locator('#mr-title')).toContainText('Ch. 1')
-  await expect(page.locator('#mr-pages .manga-page')).toHaveClass(/failed/)
+  // a single-page chapter must not auto-stream its successor on open
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(1)
+  await expect(page.locator('.mr-chapter-divider')).toHaveCount(0)
+  await expect(page.locator('#mr-pages .manga-page[data-page="0"]')).toHaveClass(/failed/)
   page._vellumErrors.length = 0
   await page.locator('[data-page-retry="0"]').click()
-  await expect.poll(() => page.locator('#mr-pages img').evaluate(image => image.naturalWidth)).toBeGreaterThan(0)
+  await expect.poll(() => page.locator('#mr-pages .manga-page[data-page="0"] img').evaluate(image => image.naturalWidth)).toBeGreaterThan(0)
   await expect(page.locator('#mr-step a')).toHaveCount(1)
   await expect(page.locator('#mr-step')).toContainText('Next')
   await page.locator('#mr-step a').click()
   await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(1)
   await expect(page.locator('#mr-step a')).toHaveCount(1)
   await expect(page.locator('#mr-step')).toContainText('Previous')
 })
 
 test('keeps manga pagination alive across filtered and duplicate provider rows', async ({ page }) => {
   const cover = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="600" height="900"/%3E'
+  const filler = index => ({ key: `mf:filler-${index}`, kind: 'manga', format: 'manga', title: `Filler ${index}`, cover })
+  // a full grid keeps the bottom sentinel out of its 800px reveal margin, so the
+  // page-2 load is driven by the explicit scroll and cannot auto-fire early
   await page.route('**/read/api/manga/discover?**', route => {
     const url = new URL(route.request().url())
     const source = url.searchParams.get('source')
@@ -476,7 +493,7 @@ test('keeps manga pagination alive across filtered and duplicate provider rows',
     if (source === 'all' && requestedPage === 1) {
       results = [item('mf:initial', 'Initial')]
     } else if (source === 'mf' && requestedPage === 1) {
-      results = [item('mf:one', 'One'), item('mh:leak', 'Wrong provider')]
+      results = [...Array.from({ length: 48 }, (_, index) => filler(index)), item('mf:one', 'One'), item('mh:leak', 'Wrong provider')]
       hasMore = true
     } else if (source === 'mf' && requestedPage === 2) {
       results = [item('mf:one', 'One'), item('mf:two', 'Two')]
@@ -496,7 +513,7 @@ test('keeps manga pagination alive across filtered and duplicate provider rows',
   })
   await expect(page.locator('#mlist')).toContainText('Two')
   await expect(page.locator('#mlist')).not.toContainText('Wrong provider')
-  await expect(page.locator('#mlist .manga-card')).toHaveCount(2)
+  await expect(page.locator('#mlist .manga-card')).toHaveCount(50)
   await expect(page.locator('#mmore')).toBeHidden()
 })
 
