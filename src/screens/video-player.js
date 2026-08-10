@@ -1,7 +1,8 @@
-import { getVideoPlayback, getVideoSeries, videoAssetUrl } from '../lib/video-api.js'
+import { getVideoPlayback, getVideoSeries, parseVideoKey, videoAssetUrl } from '../lib/video-api.js'
 import { go, parseHash } from '../lib/router.js'
 import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
+import { videoProviderLabel } from './video-series.js'
 
 const player = $('#vplayer')
 const stage = $('#vp-stage')
@@ -226,12 +227,23 @@ async function renderMedia(playback) {
     else renderUnsupported(playback)
 }
 
-function showError(message) {
+function showError(error = {}) {
     player.dataset.state = navigator.onLine ? 'error' : 'offline'
     player.setAttribute('aria-busy', 'false')
-    stage.innerHTML = `<div class="video-player-state" role="alert">${esc(navigator.onLine ? message : 'You’re offline. Reconnect to load this episode.')}<button id="video-player-retry" type="button">Try again</button></div>`
+    const provider = videoProviderLabel(error.provider) || videoProviderLabel(parseVideoKey(state.key)?.provider)
+    const degraded = provider && (error.code === 'provider_unconfigured' || error.retryable === false)
+    const message = !navigator.onLine ? 'You’re offline. Reconnect to load this episode.'
+        : error.name === 'AbortError' ? 'Playback request stopped'
+            : degraded ? `${provider} isn’t available in this build right now`
+                : error.message || 'Playback unavailable'
+    const action = degraded
+        ? `<a id="video-player-back" href="${seriesRoute(state.key)}">Back to series</a>`
+        : `<button id="video-player-retry" type="button">Try again</button>`
+    stage.innerHTML = `${provider ? `<div class="video-provider-label">Provided by ${esc(provider)}</div>` : ''}<div class="video-player-state" role="alert">${esc(message)}${action}</div>`
     $('#vp-step').innerHTML = ''
-    $('#video-player-retry').onclick = () => showVideoPlayer(state.key, state.id)
+    const back = $('#video-player-back')
+    if (back) back.addEventListener('click', event => { event.preventDefault(); go(seriesRoute(state.key)) })
+    else $('#video-player-retry').onclick = () => showVideoPlayer(state.key, state.id)
 }
 
 let wired = false
@@ -303,7 +315,7 @@ export async function showVideoPlayer(key, id) {
         player.setAttribute('aria-busy', 'false')
         player.focus({ preventScroll: true })
     } catch (error) {
-        if (stillHere(key, id, gen)) showError(error.name === 'AbortError' ? 'Playback request stopped' : error.message || 'Playback unavailable')
+        if (stillHere(key, id, gen)) showError(error)
     }
 }
 
