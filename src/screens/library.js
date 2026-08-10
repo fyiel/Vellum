@@ -13,16 +13,25 @@ let wired = false
 const newCounts = new Map()
 
 const isManga = e => e.kind === 'manga'
-const read = e => e.readCount || 0
+const isVideo = e => e.kind === 'anime' || e.kind === 'drama'
+const read = e => isVideo(e) ? (e.watchedCount || 0) : (e.readCount || 0)
 const total = e => e.total || 0
-const pctOf = e => total(e) ? Math.min(100, Math.round((read(e) / total(e)) * 100)) : 0
+const partial = e => {
+    if (!isVideo(e) || Number(e.lastDuration) <= 0) return 0
+    const ratio = Number(e.lastPosition || 0) / Number(e.lastDuration)
+    return ratio >= .9 ? 0 : Math.min(1, ratio)
+}
+const pctOf = e => total(e) ? Math.min(100, Math.round(((read(e) + partial(e)) / total(e)) * 100)) : 0
 const started = e => read(e) > 0 || e.lastN != null || e.lastId != null
 const done = e => total(e) > 0 && read(e) >= total(e) && (!isManga(e) || !e.pageCount || e.lastPage >= e.pageCount)
 const resumeN = e => (e.lastN != null ? e.lastN : 1)
 const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
 const mangaMeta = e => [formatName(e.format), e.source].filter(Boolean).join(' · ')
+const entryMeta = e => (isManga(e) || isVideo(e)) ? mangaMeta(e) : e.author || ''
+const clock = seconds => `${Math.floor((Number(seconds) || 0) / 60)}:${String(Math.floor((Number(seconds) || 0) % 60)).padStart(2, '0')}`
 const lastRead = e => isManga(e)
     ? [e.lastLabel || 'Chapter', e.pageCount ? `page ${e.lastPage || 1} of ${e.pageCount}` : ''].filter(Boolean).join(' · ')
+    : isVideo(e) ? [e.lastLabel || 'Episode', e.lastDuration ? `${clock(e.lastPosition)} / ${clock(e.lastDuration)}` : 'selected'].join(' · ')
     : `${read(e)} / ${total(e)}`
 
 function sortEntries(list) {
@@ -43,11 +52,11 @@ const cover = (e, ph) => coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>
 
 const contTile = e => {
     const pct = pctOf(e)
-    return `<div class="ctile" data-slug="${esc(e.slug)}" data-kind="${isManga(e) ? 'manga' : 'novel'}" data-n="${esc(resumeN(e))}" ${e.lastId ? `data-id="${esc(e.lastId)}"` : ''}>
+    return `<div class="ctile" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" data-n="${esc(resumeN(e))}" ${e.lastId ? `data-id="${esc(e.lastId)}"` : ''}>
       <div class="cv">${cover(e, 'COV')}</div>
       <div class="cbd">
         <div class="ti">${esc(e.title)}</div>
-        ${isManga(e) ? `<div class="cm">${esc(mangaMeta(e))}</div>` : ''}
+        ${(isManga(e) || isVideo(e)) ? `<div class="cm">${esc(entryMeta(e))}</div>` : ''}
         <div class="mt"><span class="last-read">${esc(lastRead(e))}</span><span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
       </div>
     </div>`
@@ -62,10 +71,10 @@ function updCell(e) {
 
 const row = e => {
     const pct = pctOf(e)
-    const meta = isManga(e) ? mangaMeta(e) : e.author || ''
-    return `<div class="trow" data-slug="${esc(e.slug)}" data-kind="${isManga(e) ? 'manga' : 'novel'}" data-n="${esc(resumeN(e))}">
+    const meta = entryMeta(e)
+    return `<div class="trow" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" data-n="${esc(resumeN(e))}">
       <span class="cv">${cover(e, '')}</span>
-      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(meta)}</div>${isManga(e) && e.lastLabel ? `<div class="last">Last read ${esc(lastRead(e))}</div>` : ''}</div>
+      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(meta)}</div>${(isManga(e) || isVideo(e)) && e.lastLabel ? `<div class="last">${isVideo(e) ? 'Last watched' : 'Last read'} ${esc(lastRead(e))}</div>` : ''}</div>
       <div class="pcell"><span class="bar"><span style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>
       <span class="chp">${esc(read(e))}/${esc(total(e))}</span>
       ${updCell(e)}
@@ -94,7 +103,7 @@ function render() {
     cont.innerHTML = showCont ? continueItems.map(contTile).join('') : ''
 
     const table = $('#libtable')
-    if (!all.length) table.innerHTML = `<div class="void">nothing in your library yet. find something to read and it shows up here</div>`
+    if (!all.length) table.innerHTML = `<div class="void">nothing in your library yet. follow something to read or watch and it shows up here</div>`
     else if (!rows.length && filterQ) table.innerHTML = `<div class="void">no matches</div>`
     else table.innerHTML = rows.map(row).join('')
 }
@@ -123,7 +132,9 @@ async function checkUpdates() {
 function openEntry(el) {
     const slug = el.dataset.slug
     if (!slug) return
-    go(el.dataset.kind === 'manga' ? `#/manga/series/${encodeURIComponent(slug)}` : `#/series/${encodeURIComponent(slug)}`)
+    if (el.dataset.kind === 'manga') go(`#/manga/series/${encodeURIComponent(slug)}`)
+    else if (el.dataset.kind === 'anime' || el.dataset.kind === 'drama') go(`#/watch/series/${encodeURIComponent(slug)}`)
+    else go(`#/series/${encodeURIComponent(slug)}`)
 }
 
 function continueEntry(el) {
@@ -131,6 +142,7 @@ function continueEntry(el) {
     const id = el.dataset.id
     const n = el.dataset.n
     if (slug && el.dataset.kind === 'manga' && id) go(`#/manga/read/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`)
+    else if (slug && (el.dataset.kind === 'anime' || el.dataset.kind === 'drama') && id) go(`#/watch/play/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`)
     else if (slug && n) go(`#/read/${hashSlug(slug)}/${n}`)
 }
 

@@ -5,12 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#15161a">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; media-src 'self' https: blob:; frame-src https:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https://pumg.fyi; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vellum">
 <link rel="preconnect" href="https://pumg.fyi" crossorigin>
+<style>.sheet{visibility:hidden}</style>
 <title>Vellum</title>
 </head>
 <body>
@@ -29,11 +30,11 @@
     <aside class="side">
       <div class="nl">Browse</div>
       <nav>
-        <span class="ni on" data-nav="library"><span class="ix">1</span>Library<span class="c" id="count-library"></span></span>
-        <span class="ni" data-nav="discover"><span class="ix">2</span>Discover</span>
-        <span class="ni" data-nav="manga"><span class="ix">3</span>Manga</span>
-        <span class="ni" data-nav="kdrama"><span class="ix">4</span>K-Drama</span>
-        <span class="ni" data-nav="updates"><span class="ix">5</span>Updates<span class="c" id="count-updates"></span></span>
+        <a class="ni on" data-nav="library" href="#/"><span class="ix">1</span>Library<span class="c" id="count-library"></span></a>
+        <a class="ni" data-nav="discover" href="#/discover"><span class="ix">2</span>Discover</a>
+        <a class="ni" data-nav="manga" href="#/manga"><span class="ix">3</span>Manga</a>
+        <a class="ni" data-nav="watch" href="#/watch"><span class="ix">4</span>Watch</a>
+        <a class="ni" data-nav="updates" href="#/updates"><span class="ix">5</span>Updates<span class="c" id="count-updates"></span></a>
       </nav>
       <div class="grow"></div>
     </aside>
@@ -91,6 +92,23 @@
         </div>
       </div>
 
+      <div class="view watch" id="view-watch" hidden>
+        <div class="tool watch-tool">
+          <div class="srch"><span class="pr" aria-hidden="true">⌕</span><input id="vsearch" inputmode="search" autocomplete="off" autocapitalize="none" aria-label="Search anime and K-drama" placeholder="Search anime and K-drama&hellip;"></div>
+          <div class="seg watch-kind" id="vkind" aria-label="Video type">
+            <button class="on" type="button" data-kind="all" aria-pressed="true">All</button><button type="button" data-kind="anime" aria-pressed="false">Anime</button><button type="button" data-kind="drama" aria-pressed="false">K-drama</button>
+          </div>
+        </div>
+        <div class="watch-resume" id="vcontinue" hidden>
+          <div class="lab">Continue watching</div><div class="watch-continue-list" id="vcontinue-list"></div>
+        </div>
+        <div class="watch-subtool"><div class="lab" id="vlab">Recently added</div></div>
+        <div class="scroll watch-scroll" id="vscroll">
+          <div class="watch-grid" id="vlist" aria-live="polite" aria-busy="false"></div>
+          <button class="watch-more" id="vmore" type="button" hidden>Load more</button>
+        </div>
+      </div>
+
       <div class="view disco" id="view-discover" hidden>
         <div class="tool">
           <div class="srch"><span class="pr">&#9906;</span><input id="dsearch" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Search every source&hellip;"></div>
@@ -143,6 +161,11 @@
         <section class="kdrama-episodes" id="kepisodes" aria-live="polite" aria-busy="false"></section>
       </div>
 
+      <div class="view video-detail" id="view-video-series" hidden>
+        <section class="video-info" id="vinfo" aria-busy="false"></section>
+        <section class="video-episodes" id="vepisodes" aria-busy="false"></section>
+      </div>
+
     </main>
   </div>
 </div>
@@ -161,6 +184,16 @@
   <div class="reader-chrome reader-bottom">
     <span class="rprog" id="r-pos"></span>
   </div>
+</section>
+
+<!-- native video is created only after a playback contract resolves -->
+<section class="vplayer" id="vplayer" tabindex="-1" role="region" aria-labelledby="vp-title" aria-busy="false" data-state="idle">
+  <header class="vplayer-top">
+    <button class="vplayer-icon" id="vp-back" type="button" aria-label="Back to series">‹</button>
+    <div class="vplayer-heading"><span class="vplayer-title" id="vp-title" aria-live="polite"></span><span class="vplayer-episode" id="vp-episode"></span></div>
+  </header>
+  <main class="vplayer-stage" id="vp-stage"></main>
+  <nav class="vplayer-step" id="vp-step" aria-label="Episode navigation"></nav>
 </section>
 
 <!-- image reader stays separate from the prose reader: manga chapters use opaque ids and page progress -->

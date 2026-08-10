@@ -9,6 +9,7 @@ const lsSet = (k, v) => {
             for (const e of Object.values(ledger)) {
                 if (e.newNums?.length) { e.newNums = []; changed = true }
                 if (e.newChapters?.length) { e.newChapters = []; changed = true }
+                if (e.newEpisodes?.length) { e.newEpisodes = []; changed = true }
             }
             if (changed) localStorage.setItem(`${NS}:updates`, JSON.stringify(ledger))
             localStorage.setItem(k, JSON.stringify(v))
@@ -42,6 +43,13 @@ export const touchLibrary = entry => {
             saveUpdLedger(ledger)
         }
     }
+    if ((entry.kind === 'anime' || entry.kind === 'drama') && Array.isArray(entry.episodeIds)) {
+        const ledger = loadUpdLedger()
+        if (!ledger[entry.slug]) {
+            ledger[entry.slug] = { firstSeen: Date.now(), read: true, seenIds: entry.episodeIds, newEpisodes: [], latest: entry.episodeIds.length, latestIds: entry.episodeIds }
+            saveUpdLedger(ledger)
+        }
+    }
 }
 
 export const dropLibrary = slug => {
@@ -62,7 +70,7 @@ export const resetProgress = slug => {
     const lib = library()
     const index = lib.findIndex(e => e.slug === slug)
     if (index < 0) return
-    const { readCount, lastN, lastId, lastLabel, lastPage, pageCount, ...entry } = lib[index]
+    const { readCount, watchedCount, lastN, lastId, lastLabel, lastPage, pageCount, lastPosition, lastDuration, ...entry } = lib[index]
     lib[index] = { ...entry, updatedAt: Date.now() }
     lsSet(`${NS}:lib`, lib)
 }

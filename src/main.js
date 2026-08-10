@@ -11,6 +11,7 @@ import './styles/series.css'
 import './styles/reader.css'
 import './styles/manga.css'
 import './styles/kdrama.css'
+import './styles/video.css'
 
 import { startRouter, parseHash, back, go } from './lib/router.js'
 import { setupNative } from './lib/native.js'
@@ -24,9 +25,11 @@ import { showManga } from './screens/manga.js'
 import { showMangaSeries } from './screens/manga-series.js'
 import { showKDrama } from './screens/kdrama.js'
 import { closeKDramaSeries, showKDramaSeries } from './screens/kdrama-series.js'
+import { showVideo } from './screens/video.js'
+import { showVideoSeries } from './screens/video-series.js'
 import { installCoverFallback } from './lib/cover.js'
 
-// the reader is the only heavy screen (it drags dompurify along), load it on first read
+// Immersive reading and playback code stays out of the browsing shell until first use.
 let readerMod = null
 const loadReader = () => readerMod ??= import('./screens/reader.js').catch(error => {
     readerMod = null
@@ -35,6 +38,11 @@ const loadReader = () => readerMod ??= import('./screens/reader.js').catch(error
 let mangaReaderMod = null
 const loadMangaReader = () => mangaReaderMod ??= import('./screens/manga-reader.js').catch(error => {
     mangaReaderMod = null
+    throw error
+})
+let videoPlayerMod = null
+const loadVideoPlayer = () => videoPlayerMod ??= import('./screens/video-player.js').catch(error => {
+    videoPlayerMod = null
     throw error
 })
 
@@ -56,6 +64,11 @@ const mangaReaderRouteIs = route => {
     return cur.name === 'manga-read' && cur.key === route.key && cur.id === route.id
 }
 
+const videoPlayerRouteIs = route => {
+    const cur = parseHash()
+    return cur.name === 'video-play' && cur.key === route.key && cur.id === route.id
+}
+
 function closeReaderShell() {
     const reader = document.querySelector('#reader')
     reader.classList.remove('active')
@@ -75,6 +88,33 @@ function closeMangaReaderShell() {
     document.documentElement.classList.remove('manga-reading')
     document.body.classList.remove('manga-reading')
     document.body.style.background = ''
+}
+
+function closeVideoPlayerShell() {
+    const player = document.querySelector('#vplayer')
+    player.classList.remove('active')
+    player.dataset.state = 'idle'
+    player.setAttribute('aria-busy', 'false')
+    document.documentElement.classList.remove('video-playing')
+    document.body.classList.remove('video-playing')
+    document.querySelector('#vp-stage').replaceChildren()
+    document.querySelector('#vp-step').replaceChildren()
+}
+
+function showVideoPlayerLoadError(route) {
+    if (!videoPlayerRouteIs(route)) return
+    const player = document.querySelector('#vplayer')
+    player.classList.add('active')
+    player.dataset.state = 'error'
+    player.setAttribute('aria-busy', 'false')
+    document.documentElement.classList.add('video-playing')
+    document.body.classList.add('video-playing')
+    document.querySelector('#vp-title').textContent = 'Player unavailable'
+    document.querySelector('#vp-episode').textContent = ''
+    document.querySelector('#vp-step').replaceChildren()
+    document.querySelector('#vp-stage').innerHTML = '<div class="video-player-state" role="alert">Couldn’t open the video player.<button id="video-player-load-retry" type="button">Try again</button></div>'
+    document.querySelector('#vp-back').onclick = () => go(`#/watch/series/${encodeURIComponent(route.key)}`)
+    document.querySelector('#video-player-load-retry').onclick = () => location.reload()
 }
 
 function showMangaReaderLoadError(route) {
@@ -135,12 +175,21 @@ async function openMangaReader(route) {
     } catch { showMangaReaderLoadError(route) }
 }
 
+async function openVideoPlayer(route) {
+    try {
+        const { showVideoPlayer } = await loadVideoPlayer()
+        if (!videoPlayerRouteIs(route)) return
+        await showVideoPlayer(route.key, route.id)
+    } catch { showVideoPlayerLoadError(route) }
+}
+
 startRouter(async route => {
     mountShell()
     if (route.name !== 'kdrama-series') closeKDramaSeries()
 
     if (route.name === 'read') {
         if (mangaReaderMod) (await mangaReaderMod).closeMangaReader()
+        if (videoPlayerMod) (await videoPlayerMod).closeVideoPlayer()
         setActiveNav(origin)
         await openReader(route)
         return
@@ -148,8 +197,16 @@ startRouter(async route => {
 
     if (route.name === 'manga-read') {
         if (readerMod) (await readerMod).closeReader()
+        if (videoPlayerMod) (await videoPlayerMod).closeVideoPlayer()
         setActiveNav('manga')
         await openMangaReader(route)
+        return
+    }
+    if (route.name === 'video-play') {
+        if (readerMod) (await readerMod).closeReader()
+        if (mangaReaderMod) (await mangaReaderMod).closeMangaReader()
+        setActiveNav('watch')
+        await openVideoPlayer(route)
         return
     }
 
@@ -168,6 +225,10 @@ startRouter(async route => {
         try { (await mangaReaderMod).closeMangaReader() }
         catch { mangaReaderMod = null; closeMangaReaderShell() }
     } else closeMangaReaderShell()
+    if (videoPlayerMod) {
+        try { (await videoPlayerMod).closeVideoPlayer() }
+        catch { videoPlayerMod = null; closeVideoPlayerShell() }
+    } else closeVideoPlayerShell()
     if (parseHash().name !== route.name) return
 
     if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
@@ -177,9 +238,16 @@ startRouter(async route => {
         view('series')
         showMangaSeries(route.key, origin)
     }
+    else if (route.name === 'video-series') {
+        origin = ['library', 'updates'].includes(origin) ? origin : 'watch'
+        setActiveNav(origin)
+        view('video-series')
+        showVideoSeries(route.key, origin)
+    }
     else if (route.name === 'manga') { origin = 'manga'; setCrumb('Manga'); setActiveNav('manga'); view('manga'); showManga() }
     else if (route.name === 'kdrama-series') { origin = 'kdrama'; setActiveNav('kdrama'); view('kdrama-series'); showKDramaSeries(route.key) }
     else if (route.name === 'kdrama') { origin = 'kdrama'; setCrumb('K-Drama'); setActiveNav('kdrama'); view('kdrama'); showKDrama() }
+    else if (route.name === 'video') { origin = 'watch'; setCrumb('Watch'); setActiveNav('watch'); view('watch'); showVideo() }
     else if (route.name === 'discover') { origin = 'discover'; setCrumb('Discover'); setActiveNav('discover'); view('discover'); showDiscover() }
     else if (route.name === 'updates') { origin = 'updates'; setCrumb('Updates'); setActiveNav('updates'); view('updates'); showUpdates() }
     else { origin = 'library'; setCrumb('Library'); setActiveNav('library'); view('library'); showLibrary() }

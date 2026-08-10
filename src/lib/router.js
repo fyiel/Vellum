@@ -33,6 +33,19 @@ export function parseHash() {
         if (key != null) return { name: 'kdrama-series', key }
     }
 
+    const videoPlay = h.match(/^#\/watch\/play\/([^/]+)\/([^/]+)$/)
+    if (videoPlay) {
+        const key = decode(videoPlay[1])
+        const id = decode(videoPlay[2])
+        if (key != null && id != null) return { name: 'video-play', key, id }
+    }
+
+    const videoSeries = h.match(/^#\/watch\/series\/(.+)$/)
+    if (videoSeries) {
+        const key = decode(videoSeries[1])
+        if (key != null) return { name: 'video-series', key }
+    }
+
     const series = h.match(/^#\/series\/(.+)$/)
     if (series) {
         const key = decode(series[1])
@@ -42,6 +55,7 @@ export function parseHash() {
     if (h.startsWith('#/discover')) return { name: 'discover' }
     if (h === '#/manga' || h.startsWith('#/manga?')) return { name: 'manga' }
     if (h === '#/kdrama' || h.startsWith('#/kdrama?')) return { name: 'kdrama' }
+    if (h === '#/watch' || h.startsWith('#/watch?')) return { name: 'video' }
     if (h.startsWith('#/updates')) return { name: 'updates' }
 
     return { name: 'home' }

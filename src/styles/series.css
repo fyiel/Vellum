@@ -5,8 +5,9 @@
 .den #view-series input { user-select: text; -webkit-user-select: text; }
 
 .den .crumb.crumb-series { display: flex; align-items: center; gap: 8px; font: 500 12px 'Archivo'; color: var(--dim); letter-spacing: normal; text-transform: none; }
-.den .crumb-series .back { color: var(--dim); cursor: pointer; font-size: 16px; }
+.den .crumb-series .back { appearance: none; padding: 2px 4px; border: 0; background: transparent; color: var(--dim); cursor: pointer; font-size: 16px; }
 .den .crumb-series .back:hover { color: var(--ac); }
+.den .crumb-series .back:focus-visible { outline: 2px solid var(--ac); outline-offset: 2px; }
 .den .crumb-series .sl { color: var(--line2); }
 .den .crumb-series b { color: var(--text); font-weight: 600; }
 

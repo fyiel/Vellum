@@ -1,12 +1,15 @@
 import { library, loadUpdLedger, saveUpdLedger } from './store.js'
 import { getChapters } from './api.js'
 import { getMangaChapters } from './manga-api.js'
+import { getVideoSeries } from './video-api.js'
+
+const isVideo = e => e.kind === 'anime' || e.kind === 'drama'
 
 const rowOf = (e, led) => ({
     slug: e.slug, key: e.key, kind: e.kind, title: e.title, cover: e.cover,
     source: e.source, format: e.format,
-    newNums: led.newNums || [], newChapters: led.newChapters || [],
-    newCount: e.kind === 'manga' ? (led.newChapters?.length || 0) : (led.newNums?.length || 0),
+    newNums: led.newNums || [], newChapters: led.newChapters || [], newEpisodes: led.newEpisodes || [],
+    newCount: e.kind === 'manga' ? (led.newChapters?.length || 0) : isVideo(e) ? (led.newEpisodes?.length || 0) : (led.newNums?.length || 0),
     latest: led.latest, latestIds: led.latestIds,
     firstSeen: led.firstSeen, read: !!led.read,
 })
@@ -34,14 +37,45 @@ export async function buildFeed() {
 
     const entries = await mapPool(lib, 5, async e => {
         try {
-            const data = e.kind === 'manga' ? await getMangaChapters(e.key || e.slug) : await getChapters(e.slug)
-            return { e, chapters: data?.chapters }
+            const data = e.kind === 'manga' ? await getMangaChapters(e.key || e.slug)
+                : isVideo(e) ? await getVideoSeries(e.key || e.slug, { fresh: true }) : await getChapters(e.slug)
+            return { e, chapters: isVideo(e) ? data?.episodes : data?.chapters }
         } catch { return { e, chapters: null } }
     })
     const failed = entries.some(({ e, chapters }) => !Array.isArray(chapters) || (e.total > 0 && chapters.length === 0))
 
     for (const { e, chapters } of entries) {
         const led = ledger[e.slug]
+
+        if (isVideo(e)) {
+            if (!Array.isArray(chapters)) {
+                if (led && !led.read && led.newEpisodes?.length) feed.push(rowOf(e, led))
+                continue
+            }
+            const latestIds = chapters.map(episode => episode.id)
+            const baseline = led?.seenIds || e.episodeIds
+            if (!Array.isArray(baseline)) {
+                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newEpisodes: [], latest: chapters.length, latestIds }
+                dirty = true
+                continue
+            }
+            const seen = new Set(baseline)
+            const fresh = chapters.filter(episode => !seen.has(episode.id)).map(episode => ({
+                id: episode.id,
+                label: episode.season && episode.number != null ? `S${episode.season} · E${episode.number}`
+                    : episode.number != null ? `Episode ${episode.number}` : episode.title || 'Special',
+            }))
+            if (!fresh.length) continue
+            if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenIds: baseline, newEpisodes: [], latest: 0, latestIds: [] }
+            const cur = ledger[e.slug]
+            if (cur.read) { cur.read = false; cur.firstSeen = now }
+            cur.newEpisodes = fresh
+            cur.latest = chapters.length
+            cur.latestIds = latestIds
+            dirty = true
+            feed.push(rowOf(e, cur))
+            continue
+        }
 
         if (e.kind === 'manga') {
             if (!Array.isArray(chapters)) {
@@ -117,6 +151,7 @@ export function setRead(slug, read, upTo, latestIds) {
         if (read && Array.isArray(latestIds)) {
             ledger[slug].seenIds = latestIds
             ledger[slug].newChapters = []
+            ledger[slug].newEpisodes = []
             ledger[slug].latestIds = latestIds
             saveUpdLedger(ledger)
             return
@@ -133,9 +168,10 @@ export function markAll(feed) {
     const ledger = loadUpdLedger()
     for (const u of feed) if (ledger[u.slug]) {
         ledger[u.slug].read = true
-        if (u.kind === 'manga') {
+        if (u.kind === 'manga' || isVideo(u)) {
             ledger[u.slug].seenIds = u.latestIds
-            ledger[u.slug].newChapters = []
+            if (u.kind === 'manga') ledger[u.slug].newChapters = []
+            else ledger[u.slug].newEpisodes = []
         } else {
             ledger[u.slug].seenUpTo = u.latest
             ledger[u.slug].newNums = []

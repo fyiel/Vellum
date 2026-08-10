@@ -12,6 +12,7 @@ let feed = []
 let failed = false
 let filter = 'all'
 const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
+const isVideo = u => u.kind === 'anime' || u.kind === 'drama'
 
 function bucketOf(ts) {
     const n = new Date()
@@ -24,15 +25,15 @@ function bucketOf(ts) {
 }
 
 function rowHtml(u) {
-    const updates = u.kind === 'manga' ? u.newChapters : u.newNums.map(n => ({ n, label: `Ch ${n}` }))
-    const chips = updates.slice(0, CHIP_MAX).map(chapter => u.kind === 'manga'
+    const updates = u.kind === 'manga' ? u.newChapters : isVideo(u) ? u.newEpisodes : u.newNums.map(n => ({ n, label: `Ch ${n}` }))
+    const chips = updates.slice(0, CHIP_MAX).map(chapter => u.kind === 'manga' || isVideo(u)
         ? `<a class="uchip" data-id="${esc(chapter.id)}">${esc(chapter.label)}</a>`
         : `<a class="uchip" data-n="${esc(chapter.n)}">${esc(chapter.label)}</a>`).join('')
     const more = updates.length > CHIP_MAX ? `<span class="umore">+${updates.length - CHIP_MAX}</span>` : ''
     const badge = u.read ? '' : `<span class="unew">+${u.newCount} new</span>`
     const cover = coverImg(u.cover, u.title)
-    const meta = u.kind === 'manga' ? `<div class="umeta">${esc([formatName(u.format), u.source].filter(Boolean).join(' · '))}</div>` : ''
-    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-kind="${u.kind === 'manga' ? 'manga' : 'novel'}" data-new="${esc(u.newCount)}" data-up="${esc(u.latest)}">
+    const meta = u.kind === 'manga' || isVideo(u) ? `<div class="umeta">${esc([formatName(u.format), u.source].filter(Boolean).join(' · '))}</div>` : ''
+    return `<div class="urow ${u.read ? 'read' : 'unread'}" data-slug="${esc(u.slug)}" data-kind="${esc(u.kind || 'novel')}" data-new="${esc(u.newCount)}" data-up="${esc(u.latest)}">
       <span class="cv">${cover}</span>
       <div class="utt"><div class="n">${esc(u.title)}</div>${meta}<div class="uch">${badge}${chips}${more}</div></div>
       <span class="utime">${esc(relTime(u.firstSeen))}</span>
@@ -53,7 +54,7 @@ function render() {
     }
 
     const warning = failed ? `<div class="void">${feed.length ? 'couldn’t check every series' : 'couldn’t check for updates'}</div>` : ''
-    $('#ufeed').innerHTML = warning + (html || (failed ? '' : `<div class="void">no new chapters. you are all caught up</div>`))
+    $('#ufeed').innerHTML = warning + (html || (failed ? '' : `<div class="void">no new chapters or episodes. you are all caught up</div>`))
 }
 
 function refresh() {
@@ -113,17 +114,22 @@ function wire() {
         if (chip) {
             const row = chip.closest('.urow')
             if (row.dataset.kind === 'manga') go(`#/manga/read/${encodeURIComponent(row.dataset.slug)}/${encodeURIComponent(chip.dataset.id)}`)
+            else if (row.dataset.kind === 'anime' || row.dataset.kind === 'drama') go(`#/watch/play/${encodeURIComponent(row.dataset.slug)}/${encodeURIComponent(chip.dataset.id)}`)
             else go(`#/read/${hashSlug(row.dataset.slug)}/${chip.dataset.n}`)
             return
         }
         const row = e.target.closest('.urow')
-        if (row) go(row.dataset.kind === 'manga' ? `#/manga/series/${encodeURIComponent(row.dataset.slug)}` : `#/series/${encodeURIComponent(row.dataset.slug)}`)
+        if (row) {
+            if (row.dataset.kind === 'manga') go(`#/manga/series/${encodeURIComponent(row.dataset.slug)}`)
+            else if (row.dataset.kind === 'anime' || row.dataset.kind === 'drama') go(`#/watch/series/${encodeURIComponent(row.dataset.slug)}`)
+            else go(`#/series/${encodeURIComponent(row.dataset.slug)}`)
+        }
     })
 }
 
 export async function showUpdates() {
     wire()
-    $('#ufeed').innerHTML = `<div class="void">checking for new chapters&hellip;</div>`
+    $('#ufeed').innerHTML = `<div class="void">checking for new chapters and episodes&hellip;</div>`
     const result = await buildFeed()
     feed = result.feed
     failed = result.failed

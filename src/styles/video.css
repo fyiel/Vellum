@@ -1,0 +1,134 @@
+.den .ni { text-decoration: none; }
+.den .ni:focus-visible, .den .watch button:focus-visible, .den .watch a:focus-visible,
+.den .video-detail button:focus-visible, .vplayer :focus-visible { outline: 2px solid var(--ac, #d8a24a); outline-offset: 3px; }
+.den .watch-tool .seg button, .den .watch-kind button { appearance: none; border: 0; border-right: 1px solid var(--line2); background: transparent; color: var(--dim); padding: 7px 12px; font: 500 11px 'Archivo'; cursor: pointer; }
+.den .watch-kind button:last-child { border-right: 0; }
+.den .watch-kind button.on { background: var(--sel); color: var(--hi); }
+.den .watch-resume { flex: none; padding: 14px 16px 4px; border-bottom: 1px solid var(--line); }
+.den .watch-continue-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.den .watch-continue-card { min-width: 0; display: flex; gap: 9px; padding: 8px; border: 1px solid var(--line); background: var(--row); color: var(--text); text-decoration: none; }
+.den .watch-continue-card:hover { background: var(--rowh); }
+.den .watch-continue-poster { width: 38px; aspect-ratio: 2/3; flex: none; overflow: hidden; background: var(--bg); }
+.den .watch-continue-poster img { width: 100%; height: 100%; object-fit: cover; }
+.den .watch-continue-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 5px; }
+.den .watch-continue-copy b { overflow: hidden; color: var(--hi); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.den .watch-continue-copy > span { overflow: hidden; color: var(--dim); font: 400 9px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.den .watch-continue-copy > i { display: block; height: 2px; background: var(--track); }
+.den .watch-continue-copy > i > i { display: block; height: 100%; background: var(--ac); }
+.den .watch-subtool { flex: none; padding: 13px 16px 0; }
+.den .watch-subtool .lab { margin: 0; }
+.den .watch-scroll { padding-top: 10px; }
+.den .watch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 22px 13px; }
+.den .watch-card { min-width: 0; color: var(--text); text-decoration: none; }
+.den .watch-poster { position: relative; aspect-ratio: 2/3; overflow: hidden; border: 1px solid var(--line); background: var(--row); }
+.den .watch-poster img { width: 100%; height: 100%; display: block; object-fit: cover; transition: transform .18s ease; }
+.den .watch-card:hover .watch-poster img { transform: scale(1.015); }
+.den .watch-poster-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; }
+.den .watch-year { position: absolute; right: 6px; bottom: 6px; padding: 2px 5px; border: 1px solid #ffffff20; background: #090a0dcc; color: #eee; font: 500 9px var(--mono); }
+.den .watch-card-copy { padding-top: 7px; }
+.den .watch-card h2 { margin: 0 0 4px; overflow: hidden; color: var(--hi); font-size: 13px; font-weight: 600; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
+.den .watch-meta { display: flex; gap: 6px; overflow: hidden; color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; white-space: nowrap; }
+.den .watch-meta span + span::before { content: '·'; margin-right: 6px; }
+.den .watch-more, .den .video-episode-more, .den .watch-empty button, .den .video-state button { min-height: 40px; appearance: none; border: 1px solid var(--line2); background: transparent; color: var(--text); font: 600 11px 'Archivo'; cursor: pointer; }
+.den .watch-more { width: 100%; margin: 22px 0 6px; }
+.den .watch-empty { grid-column: 1 / -1; min-height: 180px; display: grid; place-items: center; color: var(--dim); text-align: center; }
+.den .watch-error { align-content: center; gap: 14px; }
+.den .watch-error button { padding: 0 20px; }
+.den .watch-skeleton .watch-poster, .den .watch-skeleton i { background: linear-gradient(90deg, var(--row), var(--rowh), var(--row)); background-size: 220% 100%; animation: watch-shimmer 1.1s linear infinite; }
+.den .watch-skeleton i { display: block; width: 80%; height: 9px; margin: 7px 0; }
+.den .watch-skeleton i + i { width: 46%; height: 7px; }
+@keyframes watch-shimmer { to { background-position: -220% 0; } }
+
+.den .video-detail { min-height: 0; flex-direction: row; }
+.den .video-info { width: 390px; flex: none; overflow-y: auto; padding: 22px 20px; border-right: 1px solid var(--line); display: grid; grid-template-columns: 112px minmax(0, 1fr); align-content: start; gap: 13px 16px; }
+.den .video-poster-lg { width: 112px; aspect-ratio: 2/3; overflow: hidden; border: 1px solid var(--line2); background: var(--row); display: grid; place-items: center; color: var(--dim); font: 500 9px var(--mono); }
+.den .video-poster-lg img { width: 100%; height: 100%; object-fit: cover; }
+.den .video-copy { min-width: 0; }
+.den .video-title { color: var(--hi); font-size: 23px; font-weight: 600; line-height: 1.1; }
+.den .video-meta { margin-top: 7px; color: var(--dim); font: 500 10px var(--mono); }
+.den .video-tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.den .video-tag { padding: 3px 7px; border: 1px solid var(--line2); color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; }
+.den .video-actions { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+.den .video-actions .btn { min-height: 40px; }
+.den .video-reset { color: var(--dim); }
+.den .video-reset[hidden] { display: none; }
+.den .video-synopsis, .den .video-stats { grid-column: 1 / -1; }
+.den .video-synopsis { padding-top: 5px; }
+.den .video-synopsis .dsyn { margin-top: 7px; color: var(--text); line-height: 1.65; }
+.den .video-episodes { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.den .video-episode-tool { flex: none; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.den .video-episode-head { flex: none; padding: 13px 16px 9px; color: var(--hi); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .8px; }
+.den .video-episode-head span { color: var(--dim); font-family: var(--mono); }
+.den .video-episode-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0 12px 18px; }
+.den .video-episode-row { width: 100%; min-height: 48px; display: grid; grid-template-columns: 90px minmax(0, 1fr) 48px 8px; align-items: center; gap: 10px; padding: 8px 10px; appearance: none; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font-family: inherit; text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 48px; }
+.den .video-episode-row:hover, .den .video-episode-row.current { background: var(--row); }
+.den .video-episode-number { color: var(--hi); font: 500 10px var(--mono); }
+.den .video-episode-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.den .video-runtime { color: var(--dim); font: 400 10px var(--mono); text-align: right; }
+.den .video-episode-dot { width: 6px; height: 6px; border: 1px solid var(--dim); }
+.den .video-episode-row.watched .video-episode-dot { border-color: var(--ac); background: var(--ac); }
+.den .video-episode-more { width: 100%; margin-top: 9px; }
+.den .video-episode-more span { margin-left: 6px; color: var(--dim); font-family: var(--mono); }
+.den .video-episode-empty, .den .video-state { min-height: 180px; display: grid; place-items: center; align-content: center; gap: 14px; color: var(--dim); text-align: center; }
+.den .video-state { grid-column: 1 / -1; width: 100%; }
+.den .video-state button { padding: 0 20px; }
+
+.vplayer { position: fixed; z-index: 300; inset: 0; display: none; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; background: #07080a; color: #c9cbd0; font: 400 13px/1.45 'Archivo', system-ui, sans-serif; }
+.vplayer.active { display: grid; }
+.video-playing { overflow: hidden; background: #07080a !important; }
+.video-playing .den { display: none; }
+.vplayer-top { min-height: 60px; display: flex; align-items: center; gap: 11px; padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px; border-bottom: 1px solid #ffffff14; background: #0b0c0f; }
+.vplayer-icon { width: 44px; height: 44px; flex: none; appearance: none; border: 1px solid #ffffff1d; background: transparent; color: #eee; font-size: 26px; cursor: pointer; }
+.vplayer-heading { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vplayer-title, .vplayer-episode { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vplayer-title { color: #f2f2f3; font-weight: 600; }
+.vplayer-episode { color: #797d85; font: 400 10px 'IBM Plex Mono', monospace; }
+.vplayer-stage { position: relative; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 14px; }
+.video-provider-label { width: min(100%, 1200px); color: #777b83; font: 500 9px 'IBM Plex Mono', monospace; letter-spacing: .5px; text-transform: uppercase; }
+.video-media, .video-embed-shell { width: min(100%, 1200px); max-height: 100%; aspect-ratio: 16/9; background: #000; }
+.video-media { display: block; }
+.video-player-hint { color: #666a72; font: 400 9px 'IBM Plex Mono', monospace; }
+.video-player-state { min-height: 180px; display: grid; place-items: center; align-content: center; gap: 15px; color: #888c94; text-align: center; }
+.video-player-state button, .video-playback-error button, .video-embed-load { min-height: 44px; padding: 0 18px; border: 1px solid #ffffff25; background: transparent; color: #eee; font: 600 11px 'Archivo'; cursor: pointer; }
+.video-playback-error { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 14px; background: #07080aeb; color: #bbb; }
+.video-embed-shell { display: grid; place-items: center; overflow: hidden; border: 1px solid #ffffff16; }
+.video-embed-copy { max-width: 460px; padding: 24px; text-align: center; }
+.video-embed-mark { display: block; margin-bottom: 14px; color: #d8a24a; font-size: 22px; }
+.video-embed-copy h2 { margin: 0 0 9px; color: #eee; font-size: 18px; }
+.video-embed-copy p { margin: 0 0 18px; color: #858991; line-height: 1.6; }
+.video-embed-frame { width: 100%; height: 100%; border: 0; background: #000; }
+.vplayer-step { width: min(100%, 1200px); margin: 0 auto; padding: 8px 14px calc(env(safe-area-inset-bottom, 0px) + 12px); display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vplayer-step > a { min-width: 0; min-height: 50px; padding: 9px 11px; border: 1px solid #ffffff1c; color: #ddd; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vplayer-step > a:last-child { text-align: right; }
+.vplayer-step a span { display: block; margin-bottom: 3px; color: #6f737b; font: 500 9px 'IBM Plex Mono', monospace; text-transform: uppercase; }
+
+@media (max-width: 760px) {
+  .den .side nav { grid-template-columns: repeat(5, 1fr); }
+  .den .ni { min-height: 52px; }
+  .den .watch-tool { align-items: stretch; flex-direction: column; }
+  .den .watch-kind button { min-height: 44px; flex: 1; padding: 7px 4px; }
+  .den .watch-resume { padding: 12px 10px 4px; }
+  .den .watch-continue-list { grid-template-columns: 1fr 1fr; }
+  .den .watch-continue-list .watch-continue-card:nth-child(n+3) { display: none; }
+  .den .watch-subtool { padding: 11px 10px 0; }
+  .den .watch-scroll { padding: 9px 10px 20px; }
+  .den .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
+  .den .video-detail { overflow-y: auto; flex-direction: column; }
+  .den .video-info { width: 100%; overflow: visible; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--line); grid-template-columns: 104px minmax(0, 1fr); gap: 10px 13px; }
+  .den .video-poster-lg { width: 104px; }
+  .den .video-title { font-size: 20px; }
+  .den .video-actions .btn { min-height: 44px; }
+  .den .video-episodes { min-height: 62vh; overflow: visible; }
+  .den .video-episode-scroll { overflow: visible; padding: 0 6px 18px; }
+  .den .video-episode-row { min-height: 52px; grid-template-columns: 72px minmax(0, 1fr) 36px 8px; gap: 7px; padding: 8px 7px; }
+  .vplayer-stage { padding: 8px 0; }
+  .video-provider-label { padding: 0 10px; }
+  .video-media, .video-embed-shell { width: 100%; }
+  .video-player-hint { display: none; }
+  .vplayer-step { padding-left: 8px; padding-right: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .den .watch-poster img { transition: none; }
+  .den .watch-skeleton .watch-poster, .den .watch-skeleton i { animation: none; background: var(--row); }
+}

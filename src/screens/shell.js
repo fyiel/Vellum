@@ -3,7 +3,7 @@ import { loadFeel } from '../lib/store.js'
 import { $, $$ } from '../lib/dom.js'
 
 const SCHEME_CLASS = { Graphite: '', Ink: 's-ink', Paper: 's-paper', Phosphor: 's-phosphor', Ember: 's-ember' }
-const NAV_ROUTE = { library: '#/', discover: '#/discover', manga: '#/manga', kdrama: '#/kdrama', updates: '#/updates' }
+const NAV_ROUTE = { library: '#/', discover: '#/discover', manga: '#/manga', watch: '#/watch', kdrama: '#/kdrama', updates: '#/updates' }
 let wired = false
 
 export function applyFeel() {
@@ -35,13 +35,18 @@ export function setSeriesCrumb(origin, title, onBack) {
     const c = $('.crumb')
     if (!c) return
     c.className = 'crumb crumb-series'
-    c.innerHTML = '<span class="back" title="Back">‹</span><span class="orig"></span><span class="sl">/</span><b id="crumb"></b>'
+    c.innerHTML = '<button class="back" type="button" aria-label="Back">‹</button><span class="orig"></span><span class="sl">/</span><b id="crumb"></b>'
     c.querySelector('.orig').textContent = origin
     c.querySelector('#crumb').textContent = title
     c.querySelector('.back').addEventListener('click', onBack)
 }
 
-export const setActiveNav = name => $$('.ni').forEach(n => n.classList.toggle('on', n.dataset.nav === name))
+export const setActiveNav = name => $$('.ni').forEach(n => {
+    const active = n.dataset.nav === name
+    n.classList.toggle('on', active)
+    if (active) n.setAttribute('aria-current', 'page')
+    else n.removeAttribute('aria-current')
+})
 
 async function winAction(action) {
     if (!window.__TAURI_INTERNALS__) return
