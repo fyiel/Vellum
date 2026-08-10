@@ -22,6 +22,15 @@ const httpsUrl = value => {
     try { return new URL(value).protocol === 'https:' ? value : null } catch { return null }
 }
 const yearOf = media => num(media?.year) ?? num(media?.release_date?.slice(0, 4)) ?? num(media?.first_air_date?.slice(0, 4))
+const EMBED_HOSTS = ['embed.test', 'ok.test']
+const embedUrl = (value, request) => {
+    let target
+    try { target = new URL(value) } catch { return null }
+    if (target.protocol !== 'https:') return null
+    const host = target.hostname
+    if (host === new URL(request.url).hostname) return null
+    return EMBED_HOSTS.some(base => host === base || host.endsWith(`.${base}`)) ? target.href : null
+}
 
 const nextData = html => {
     const match = String(html || '').match(/<script\s+id="__NEXT_DATA__"[^>]*type="application\/json"[^>]*>([\s\S]*?)<\/script>/i)
@@ -192,13 +201,20 @@ export async function playback(ctx, key, language, episodeId) {
     for (const field of PLAYER_FIELDS) {
         const raw = player?.[field]
         if (typeof raw !== 'string') continue
+        if (field === 'embed' || field === 'iframe') {
+            const url = embedUrl(raw, ctx.request)
+            if (url) sources.push({ kind: 'embed', url })
+            continue
+        }
         let target
         try { target = new URL(raw) } catch { continue }
         if (target.protocol !== 'https:') continue
-        if (field === 'embed' || field === 'iframe') sources.push({ kind: 'embed', url: target.href })
-        else if (/\.m3u8/i.test(raw)) sources.push({ kind: 'direct', url: target.href, type: 'application/x-mpegURL' })
+        if (/\.m3u8/i.test(raw)) sources.push({ kind: 'direct', url: target.href, type: 'application/x-mpegURL' })
         else if (/\.mp4/i.test(raw)) sources.push({ kind: 'direct', url: target.href, type: 'video/mp4' })
-        else sources.push({ kind: 'embed', url: target.href })
+        else {
+            const url = embedUrl(raw, ctx.request)
+            if (url) sources.push({ kind: 'embed', url })
+        }
     }
     if (!sources.length) throw Object.assign(new Error('Cineby returned no playable stream'), { code: 'stream_unavailable' })
     return { sources, subtitles: [], providerLabel: 'Cineby' }

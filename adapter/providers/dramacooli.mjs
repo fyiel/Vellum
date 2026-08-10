@@ -21,6 +21,14 @@ const httpsUrl = value => {
     if (typeof value !== 'string' || !value) return null
     try { return new URL(value).protocol === 'https:' ? value : null } catch { return null }
 }
+const EMBED_HOSTS = ['embedload.cfd', 'dramacool.men', 'player.test', 'ok.test']
+const embedUrl = (value, request) => {
+    const url = httpsUrl(value)
+    if (!url) return null
+    const host = new URL(url).hostname
+    if (host === new URL(request.url).hostname) return null
+    return EMBED_HOSTS.some(base => host === base || host.endsWith(`.${base}`)) ? url : null
+}
 
 async function wpJson(ctx, path) {
     const scoped = timeout(ctx.request?.signal)
@@ -99,7 +107,7 @@ export async function playback(ctx, key, language, episodeId) {
     const post = await ctx.cached(ctx.fetchImpl, `dc:post:${id}`, 10 * MINUTE, () => wpJson(ctx, `/wp-json/wp/v2/posts?slug=${id}&_embed=1`))
     const html = str(Array.isArray(post) ? post[0]?.content?.rendered : null) || ''
     const src = htmlAttr(html.match(/<iframe\b[^>]*>/gi)?.[0] || '', 'src')
-    const url = httpsUrl(src)
+    const url = embedUrl(src, ctx.request)
     if (!url) throw Object.assign(new Error('DramaCooli returned no playable embed'), { code: 'stream_unavailable' })
     return { sources: [{ kind: 'embed', url }], subtitles: [], providerLabel: 'DramaCooli' }
 }

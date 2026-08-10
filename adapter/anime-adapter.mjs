@@ -254,12 +254,15 @@ async function animeForKey(key, request, fetchImpl) {
     return row
 }
 
-const ownedSources = data => (Array.isArray(data?.sources) ? data.sources : []).map(source => {
+const ownedSources = (data, request) => (Array.isArray(data?.sources) ? data.sources : []).map(source => {
     const sourceUrl = str(source?.url)
     let target
     try { target = new URL(sourceUrl) } catch { return null }
     if (target.protocol !== 'https:') return null
-    if (source?.type === 'embed') return { kind: 'embed', url: target.href }
+    if (source?.type === 'embed') {
+        if (target.hostname === new URL(request.url).hostname) return null
+        return { kind: 'embed', url: target.href }
+    }
     const type = source?.type === 'hls' || /\.m3u8(?:$|\?)/i.test(sourceUrl) ? 'application/x-mpegURL' : 'video/mp4'
     return { kind: 'direct', url: target.href, type }
 }).filter(Boolean)
@@ -300,7 +303,7 @@ const miruro = {
         if (env.VELLUM_ANIME_PLAYBACK_URL) {
             const provider = env.VELLUM_ANIME_PROVIDER || 'default'
             const data = await playback(env, fetchImpl, `sources?episodeId=${encodeURIComponent(episodeId)}&provider=${encodeURIComponent(provider)}&category=${language}`, request)
-            return { sources: ownedSources(data), subtitles: ownedSubtitles(data), providerLabel: env.VELLUM_ANIME_PROVIDER_LABEL || 'Miruro' }
+            return { sources: ownedSources(data, request), subtitles: ownedSubtitles(data), providerLabel: env.VELLUM_ANIME_PROVIDER_LABEL || 'Miruro' }
         }
         if (!env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
         const row = await animeForKey(key, request, fetchImpl)
