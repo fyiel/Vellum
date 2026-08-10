@@ -154,7 +154,7 @@ function renderEmbed(playback, source) {
     player.dataset.state = 'ready'
     const shell = document.createElement('div')
     shell.className = 'video-embed-shell'
-    shell.innerHTML = `<div class="video-embed-copy"><span class="video-embed-mark" aria-hidden="true">▶</span><h2>Open ${esc(playback.providerLabel)} player</h2><p>This episode uses a sandboxed provider player. It loads only when you choose to continue.</p><button type="button" class="video-embed-load">Load provider player</button></div>`
+    shell.innerHTML = `<div class="video-embed-copy"><span class="video-embed-mark" aria-hidden="true">▶</span><h2>Open ${esc(playback.providerLabel)} player</h2><p>This episode plays inside the provider's own player. It loads only when you choose to continue.</p><button type="button" class="video-embed-load">Load provider player</button></div>`
     const button = shell.querySelector('button')
     button.addEventListener('click', () => {
         if (!navigator.onLine) { showMediaError(); return }
@@ -169,12 +169,31 @@ function renderEmbed(playback, source) {
         const frame = document.createElement('iframe')
         frame.className = 'video-embed-frame'
         frame.title = `${playback.providerLabel} player for ${episodeLabel(state.episode)}`
-        frame.setAttribute('sandbox', 'allow-scripts allow-presentation')
-        frame.referrerPolicy = 'no-referrer'
+        // No sandbox attribute: embed hosts refuse to play inside any sandboxed frame (localStorage
+        // SecurityError + their own detection page). The frame is always a cross-origin https URL —
+        // the adapter gates embeds to per-provider host allowlists and rejects app-origin embeds
+        // (adapter/README.md) — so omitting the sandbox grants it no same-origin access to Vellum.
+        // The provider may still show its own per-title error page (host-side); that is not ours to
+        // override. Tradeoff: the provider page can in principle navigate the top frame; the
+        // allowlist is the trust boundary.
         frame.allow = 'fullscreen; picture-in-picture; encrypted-media'
         frame.allowFullscreen = true
+        // Set src before inserting (an inserted src-less frame fires an about:blank 'load') and
+        // treat only a genuine cross-origin load as success: about:blank exposes a document to us
+        // (frame.contentDocument is non-null), and a failed navigation's opaque error document is
+        // indistinguishable from a real cross-origin document, so confirm liveness with a no-cors
+        // probe of the embed URL. The frame's request is usually not cacheable, so the probe is a
+        // second request to the host. The probe clock starts per navigation (a slow-but-successful
+        // embed must not find an already-aborted probe). Known limit: a host that answers but
+        // refuses framing (X-Frame-Options) still marks ready — refusal headers are invisible to a
+        // no-cors probe, and the frame shows the browser's refusal page. Until the probe resolves,
+        // the unavailable timer stays armed.
+        let embedProbe = null
+        let embedProbeTimer = 0
         const unavailable = () => {
             if (!stillHere(key, id, gen)) return
+            embedProbe?.abort()
+            clearTimeout(embedProbeTimer)
             clearTimeout(state.embedTimer)
             shell.dataset.state = 'error'
             player.dataset.state = 'blocked'
@@ -182,16 +201,29 @@ function renderEmbed(playback, source) {
             shell.innerHTML = `<div class="video-player-state" role="alert">${esc(playback.providerLabel)} couldn’t be opened in Vellum.<button type="button">Try again</button></div>`
             shell.querySelector('button').onclick = () => renderEmbed(playback, source)
         }
-        frame.addEventListener('load', () => {
+        const handleLoad = () => {
             if (!stillHere(key, id, gen)) { frame.remove(); return }
-            clearTimeout(state.embedTimer)
-            shell.dataset.state = 'ready'
-            player.dataset.state = 'ready'
-            shell.setAttribute('aria-busy', 'false')
-        }, { once: true })
+            if (frame.contentDocument) return // about:blank — keep waiting
+            embedProbe?.abort()
+            clearTimeout(embedProbeTimer)
+            embedProbe = new AbortController()
+            embedProbeTimer = setTimeout(() => embedProbe?.abort(), 8000)
+            fetch(source.url, { mode: 'no-cors', credentials: 'omit', signal: embedProbe.signal })
+                .then(() => {
+                    if (!stillHere(key, id, gen)) return
+                    if (shell.dataset.state !== 'loading') return // blocked meanwhile — do not flip back
+                    clearTimeout(state.embedTimer)
+                    shell.dataset.state = 'ready'
+                    player.dataset.state = 'ready'
+                    shell.setAttribute('aria-busy', 'false')
+                })
+                .catch(() => {}) // unreachable embed — let the unavailable timer fire
+                .finally(() => { clearTimeout(embedProbeTimer); embedProbeTimer = 0 })
+        }
+        frame.addEventListener('load', handleLoad)
         frame.addEventListener('error', unavailable, { once: true })
-        shell.replaceChildren(frame)
         frame.src = source.url
+        shell.replaceChildren(frame)
         state.embedTimer = setTimeout(unavailable, 12000)
     })
     stage.append(providerBadge(playback.providerLabel), shell)

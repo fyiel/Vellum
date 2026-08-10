@@ -3,7 +3,7 @@ import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
-import { $, esc } from '../lib/dom.js'
+import { $, esc, activeScroller } from '../lib/dom.js'
 
 const SOURCE = { mf: 'MangaFire', mh: 'MangaHub' }
 const ORIGIN_LABEL = { library: 'Library', manga: 'Manga', updates: 'Updates' }
@@ -15,6 +15,7 @@ let current = null
 let wired = false
 let chapterQuery = ''
 let chapterLimit = CHAPTER_BATCH
+let filterLastQ = '', filterTop = 0
 
 const chapterLabel = chapter => chapter.number == null ? (chapter.title || 'Special') : `Ch. ${chapter.number}`
 const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
@@ -53,7 +54,7 @@ function info(series) {
       ${meta ? `<div class="dmeta">${esc(meta)}</div>` : ''}
       ${genres ? `<div class="manga-tags">${genres}</div>` : ''}
       <div class="dactions"><button class="btn primary" id="manga-start" disabled>Loading chapters…</button><button class="btn${followed(series.key) ? ' on' : ''}" id="manga-follow">${followed(series.key) ? 'Following' : 'Follow'}</button><button class="btn manga-reset" id="manga-reset" ${posGet(series.key) || readSet(series.key).size ? '' : 'hidden'}>Reset progress</button></div>
-      ${series.synopsis ? `<div class="seclab">Synopsis</div><div class="dsyn">${esc(series.synopsis)}</div>` : ''}
+      ${series.synopsis ? `<div class="seclab">Synopsis</div><div class="dsyn clamp" id="msyn">${esc(series.synopsis)}</div><div class="dmore" id="msynmore" style="display:none">Show more</div>` : ''}
       <div class="dstats"><div class="drow"><span class="k">Source</span><span class="v">${esc(mangaProviderName(ref?.provider))}</span></div><div class="drow"><span class="k">Format</span><span class="v">${esc(formatName(series.format))}</span></div></div>`
 }
 
@@ -72,6 +73,8 @@ const filteredChapters = () => {
 
 function renderChapterList() {
     if (!current) return
+    const sc = activeScroller()
+    const saved = sc?.scrollTop ?? 0
     const filtered = filteredChapters()
     const shown = filtered.slice(0, chapterLimit)
     $('#mchapter-list').innerHTML = shown.length
@@ -79,6 +82,8 @@ function renderChapterList() {
         : '<div class="manga-chapter-empty" role="status">No matching chapters</div>'
     const status = $('#mchapter-status')
     if (status) status.textContent = shown.length ? `Showing ${shown.length} of ${filtered.length} chapters` : ''
+    // re-renders (search, reveal more) must not dump the reader's position
+    if (sc) sc.scrollTop = Math.min(saved, sc.scrollHeight - sc.clientHeight)
 }
 
 function revealMore() {
@@ -92,6 +97,12 @@ function wire() {
     if (wired) return
     wired = true
     $('#sinfo').addEventListener('click', event => {
+        if (event.target.closest('#msynmore')) {
+            const syn = $('#msyn'), more = $('#msynmore')
+            const clamped = syn.classList.toggle('clamp')
+            more.textContent = clamped ? 'Show more' : 'Show less'
+            return
+        }
         if (event.target.closest('#manga-start') && current?.first) go(chapterRoute(current.key, current.first.id))
         if (event.target.closest('#manga-follow') && current) {
             const button = $('#manga-follow')
@@ -124,11 +135,23 @@ function wire() {
         const row = event.target.closest('.mchrow')
         if (row && current) go(chapterRoute(current.key, row.dataset.id))
     })
+    let t
     $('#schapters').addEventListener('input', event => {
         if (event.target.id !== 'mchsearch') return
-        chapterQuery = event.target.value.trim()
-        chapterLimit = CHAPTER_BATCH
-        renderChapterList()
+        clearTimeout(t)
+        const v = event.target.value
+        if (!filterLastQ && v.trim()) { const sc = activeScroller(); filterTop = sc?.scrollTop ?? 0 }
+        filterLastQ = v
+        t = setTimeout(() => {
+            chapterQuery = v.trim()
+            chapterLimit = CHAPTER_BATCH
+            renderChapterList()
+            // clearing the filter puts the reader back where they were
+            if (!chapterQuery) {
+                const sc = activeScroller()
+                if (sc) sc.scrollTop = Math.min(filterTop, sc.scrollHeight - sc.clientHeight)
+            }
+        }, 150)
     })
     // #schapters itself never scrolls (the view scrolls on mobile, .chscroll on desktop),
     // capture on the static view shell catches the real scroller either way
@@ -143,14 +166,19 @@ function wire() {
 export async function showMangaSeries(key, origin = 'manga') {
     wire()
     const mine = ++request
+    const same = !!current && current.key === key
     current = null
     chapterQuery = ''
     chapterLimit = CHAPTER_BATCH
-    $('#view-series').classList.add('manga-detail')
+    filterLastQ = ''
+    filterTop = 0
     $('#sinfo').setAttribute('aria-busy', 'true')
     $('#schapters').setAttribute('aria-busy', 'true')
-    $('#sinfo').innerHTML = '<div class="void" role="status">Loading manga…</div>'
-    $('#schapters').innerHTML = '<div class="void" role="status">Finding chapters…</div>'
+    // re-showing the same series: keep the rendered list so the scroller doesn't collapse under the reader
+    if (!same) {
+        $('#sinfo').innerHTML = '<div class="void" role="status">Loading manga…</div>'
+        $('#schapters').innerHTML = '<div class="void" role="status">Finding chapters…</div>'
+    }
 
     const chapterRequest = getMangaChapters(key)
     chapterRequest.catch(() => {})
@@ -170,6 +198,13 @@ export async function showMangaSeries(key, origin = 'manga') {
     current = { key, series, chapters: [], first: null }
     $('#sinfo').innerHTML = info(series)
     $('#sinfo').setAttribute('aria-busy', 'false')
+    const msyn = $('#msyn'), msynmore = $('#msynmore')
+    if (msyn && msynmore) msynmore.style.display = msyn.scrollHeight > msyn.clientHeight + 2 ? '' : 'none'
+    if (document.fonts?.ready) document.fonts.ready.then(() => {
+        if (mine !== request || !currentRouteIs(key)) return
+        const syn = $('#msyn'), more = $('#msynmore')
+        if (syn && more) more.style.display = syn.scrollHeight > syn.clientHeight + 2 ? '' : 'none'
+    })
 
     let chapterData
     try { chapterData = await chapterRequest }

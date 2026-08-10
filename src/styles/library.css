@@ -12,7 +12,7 @@ body { background: #15161a; overflow: hidden; }
   --bg: #15161a; --panel: #1a1c21; --row: #1d1f25; --rowh: #212329; --sel: #23262d;
   --text: #b6bac2; --hi: #f1f2f5; --dim: #6c7079; --line: #ffffff10; --line2: #ffffff1c;
   --ac: #d8a24a; --track: #ffffff14; --mono: 'IBM Plex Mono', monospace;
-  width: 100%; height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+  width: 100%; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
   background: var(--bg); color: var(--text); font: 400 13px/1.45 'Archivo', system-ui, sans-serif;
 }
 .den.s-ink { --bg: #08090b; --panel: #0d0f12; --row: #101317; --rowh: #15191e; --sel: #181d24; --text: #9aa3ad; --hi: #eef3f8; --dim: #586069; --line: #ffffff0b; --line2: #ffffff15; --ac: #6fb4ff; --track: #ffffff12; }

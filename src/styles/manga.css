@@ -33,7 +33,7 @@
 
 .den .manga-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .den .manga-tag { padding: 3px 8px; border: 1px solid var(--line2); color: var(--text); font: 500 10px 'Archivo'; }
-.den .mchrow { width: 100%; appearance: none; display: grid; grid-template-columns: 90px minmax(0, 1fr) 42px 10px; align-items: center; gap: 12px; padding: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 42px; }
+.den .mchrow { width: 100%; appearance: none; display: grid; grid-template-columns: 90px minmax(0, 1fr) 42px 10px; align-items: center; gap: 12px; padding: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .den .mchrow:hover { background: var(--rowh); }
 .den .mchrow.read .mchn, .den .mchrow.read .mcht { color: var(--dim); }
 .den .mchrow.read .mchdot { background: var(--dim); border-color: var(--dim); }
@@ -52,10 +52,10 @@
 html.manga-reading, body.manga-reading { height: auto; min-height: 100%; overflow: visible; }
 body.manga-reading .den { display: none; }
 body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-behavior-y: none; }
-.mreader { display: none; min-height: 100vh; background: #070707; color: #ddd; }
+.mreader { display: none; min-height: 100vh; min-height: 100dvh; background: #070707; color: #ddd; }
 .mreader.active { display: block; }
 .mreader [hidden] { display: none; }
-.mreader-pages { width: min(100%, 980px); min-height: 100vh; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 64px) 0 28px; }
+.mreader-pages { width: min(100%, 980px); min-height: 100vh; min-height: 100dvh; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 64px) 0 28px; }
 .manga-page { position: relative; min-height: 0; margin: 0; overflow: hidden; background: #0b0b0b; content-visibility: auto; contain-intrinsic-size: auto min(72vh, 980px); }
 .manga-page:not([style]) { min-height: min(72vh, 980px); }
 .manga-page img { display: block; width: 100%; height: auto; min-height: 1px; image-rendering: auto; }
@@ -90,7 +90,7 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 @media (max-width: 640px) {
   .den .tb { height: 34px; }
   .den .body { display: block; }
-  .den .main { height: calc(100vh - 34px); padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+  .den .main { height: calc(100vh - 34px); height: calc(100dvh - 34px); padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
   .den .side { position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; width: auto; height: calc(58px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); border: 0; border-top: 1px solid var(--line2); }
   .den .side .nl, .den .side .grow { display: none; }
   .den .side nav { width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); }
@@ -108,18 +108,31 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .manga-card-copy { padding-top: 7px; }
   .den .manga-card h2 { font-size: 12px; }
   .den .view.sdet { overflow-y: auto; flex-direction: column; }
-  .den .manga-detail .info { width: 100%; overflow: visible; border: 0; border-bottom: 1px solid var(--line); padding: 16px; display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
-  .den .manga-detail .cover-lg { width: 108px; height: 162px; grid-row: 1 / span 5; }
-  .den .manga-detail .dtitle { font-size: 20px; }
-  .den .manga-detail .dactions { grid-column: 2; }
-  .den .manga-detail .seclab, .den .manga-detail .dsyn, .den .manga-detail .dstats, .den .manga-detail .manga-tags { grid-column: 1 / -1; }
-  .den .manga-detail .chapters { min-height: 62vh; overflow: visible; }
-  .den .manga-detail .chscroll { overflow: visible; padding: 0 8px 20px; }
+  /* compact detail layout shared by novel and manga series pages (same #view-series node) */
+  .den .view.sdet .info { width: 100%; overflow: visible; border: 0; border-bottom: 1px solid var(--line); padding: 16px; display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
+  .den .view.sdet .cover-lg { width: 108px; height: 162px; grid-row: 1 / span 5; }
+  .den .view.sdet .dtitle { font-size: 20px; }
+  .den .view.sdet .dactions { grid-column: 2; }
+  .den .view.sdet .seclab, .den .view.sdet .dsyn, .den .view.sdet .dstats, .den .view.sdet .manga-tags, .den .view.sdet .taxblock, .den .view.sdet .synhost, .den .view.sdet .dmore { grid-column: 1 / -1; }
+  .den .view.sdet .dsyn.clamp { -webkit-line-clamp: 4; }
+  .den .view.sdet .chapters { min-height: 62vh; overflow: visible; }
+  .den .view.sdet .chscroll { overflow: visible; padding: 0 8px 20px; }
+  .den .view.sdet .chrow { grid-template-columns: 48px minmax(0, 1fr) 10px; gap: 10px; }
+  .den .view.sdet .chd { display: none; }
   .den .mchrow { grid-template-columns: 76px minmax(0, 1fr) 32px 8px; padding: 11px 8px; }
   .mreader-pages, .mreader-step { width: 100%; }
 }
 
+/* collapsible top bar (touch devices): hides on scroll-down, returns on scroll-up or near the top.
+   The bar is lifted out of flow; the main column takes the full dynamic viewport when collapsed. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .den .tb { position: absolute; top: 0; left: 0; right: 0; z-index: 100; transform: translateY(0); transition: transform .18s ease; }
+  .den .main { height: 100vh; height: 100dvh; padding-top: 34px; }
+  .den.bar-collapsed .tb { transform: translateY(-100%); }
+  .den.bar-collapsed .main { height: 100vh; height: 100dvh; padding-top: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .den .manga-skeleton .manga-cover, .den .manga-skeleton i, .manga-page-loading { animation: none; background: var(--row, #111); }
-  .den .manga-cover::after, .mreader-chrome, .mreader-progress, .sheet, .sheet-backdrop { transition: none; }
+  .den .manga-cover::after, .den .tb, .mreader-chrome, .mreader-progress, .sheet, .sheet-backdrop { transition: none; }
 }

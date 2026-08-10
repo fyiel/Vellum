@@ -673,6 +673,18 @@ const closeSheet = () => {
 $("#r-settings").onclick = openSheet;
 backdrop.onclick = closeSheet;
 
+// fullscreen is unavailable in some embedded contexts (iPhone Safari); hide the button there
+const fullscreenBtn = $("#r-fullscreen");
+if (fullscreenBtn && document.fullscreenEnabled) {
+    fullscreenBtn.hidden = false;
+    fullscreenBtn.onclick = async () => {
+        try {
+            if (document.fullscreenElement) await document.exitFullscreen?.();
+            else await document.documentElement.requestFullscreen?.();
+        } catch {}
+    };
+}
+
 const syncSheet = () => {
   $$("#set-theme .swatch").forEach((b) =>
     b.classList.toggle("on", b.dataset.theme === settings.theme),

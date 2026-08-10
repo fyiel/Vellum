@@ -64,6 +64,25 @@ export function mountShell() {
     if (wired) return
     wired = true
 
+    const den = $('#den')
+    // mobile: collapse the top bar on scroll-down, reveal on scroll-up or near the top (CSS-gated to touch)
+    if (matchMedia('(max-width: 640px) and (pointer: coarse)').matches) {
+        let last = 0, hidden = false
+        document.addEventListener('scroll', event => {
+            const target = event.target
+            if (!(target instanceof Element) || !den.contains(target)) return
+            if (target.scrollHeight <= target.clientHeight + 1) return
+            const y = target.scrollTop
+            const dir = y > last + 2 ? 1 : y < last - 2 ? -1 : 0
+            last = y
+            if (y < 12 || dir < 0) {
+                if (hidden) { hidden = false; den.classList.remove('bar-collapsed') }
+            } else if (dir > 0 && y > 64 && !hidden) {
+                hidden = true; den.classList.add('bar-collapsed')
+            }
+        }, { passive: true, capture: true })
+    }
+
     const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '')
     const sq = $('.sq')
     if (sq && !mac) sq.style.display = 'none'

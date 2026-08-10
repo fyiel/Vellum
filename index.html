@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#15161a">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; media-src 'self' https: blob:; frame-src https:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https:; object-src 'none'; base-uri 'self'; form-action 'none'">
@@ -162,6 +163,7 @@
     <span class="rtitle" id="r-title"></span>
     <button class="riconbtn" id="r-list" title="Chapters">☰</button>
     <button class="riconbtn" id="r-settings" title="Display">Aa</button>
+    <button class="riconbtn" id="r-fullscreen" title="Fullscreen" hidden>&#x26F6;</button>
   </div>
   <article class="reader-prose" id="reader-prose"></article>
   <div class="reader-foot" id="reader-foot"></div>
@@ -187,6 +189,7 @@
     <button class="riconbtn" id="mr-back" type="button" aria-label="Back to series">‹</button>
     <span class="mreader-title" id="mr-title" aria-live="polite"></span>
     <button class="riconbtn" id="mr-list" type="button" aria-label="Open chapter list" aria-expanded="false" aria-controls="mdrawer">☰</button>
+    <button class="riconbtn" id="mr-fullscreen" type="button" aria-label="Fullscreen" hidden>&#x26F6;</button>
   </div>
   <main class="mreader-pages" id="mr-pages"></main>
   <nav class="mreader-step" id="mr-step"></nav>

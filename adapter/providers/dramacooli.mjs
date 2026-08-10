@@ -22,11 +22,19 @@ const httpsUrl = value => {
     try { return new URL(value).protocol === 'https:' ? value : null } catch { return null }
 }
 const EMBED_HOSTS = ['embedload.cfd', 'dramacool.men', 'player.test', 'ok.test']
+// the app origin comes from request headers (Origin on cross-origin fetches, Referer otherwise);
+// embeds pointing back at the app would run same-origin with it once the sandbox is gone
+const appHost = request => {
+    const source = request.headers?.get?.('origin') || request.headers?.get?.('referer')
+    if (!source) return null
+    try { return new URL(source).hostname } catch { return null }
+}
 const embedUrl = (value, request) => {
     const url = httpsUrl(value)
     if (!url) return null
     const host = new URL(url).hostname
-    if (host === new URL(request.url).hostname) return null
+    const origin = appHost(request)
+    if (host === new URL(request.url).hostname || (origin && host === origin)) return null
     return EMBED_HOSTS.some(base => host === base || host.endsWith(`.${base}`)) ? url : null
 }
 

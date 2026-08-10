@@ -52,7 +52,7 @@ body.reading ::-webkit-scrollbar-thumb:hover { background: #444; }
 .reader {
   --rsize: 17px; --rlh: 1.3; --rfont: var(--font); --rwidth: 40em;
   --rbg: #181818; --rtext: #c9c9c9; --rmuted: #6e6e6e; --rline: #ffffff14;
-  display: none; min-height: 100vh;
+  display: none; min-height: 100vh; min-height: 100dvh;
   background: var(--rbg); color: var(--rtext);
 }
 .reader.active { display: block; }
@@ -137,6 +137,7 @@ body.reading ::-webkit-scrollbar-thumb:hover { background: #444; }
 
 .riconbtn { appearance: none; background: transparent; border: none; color: var(--rtext);
   width: 36px; height: 36px; font: 400 15px/1 var(--gohu); flex: none; display: grid; place-items: center; }
+.reader .riconbtn[hidden] { display: none; }
 .riconbtn:active { background: var(--rline); }
 
 /* sheets (settings + chapter drawer) */

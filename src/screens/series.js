@@ -4,7 +4,7 @@ import { go, hashSlug, parseHash } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
-import { $, $$, esc } from '../lib/dom.js'
+import { $, $$, esc, activeScroller } from '../lib/dom.js'
 
 const ORIGIN_LABEL = { library: 'Library', discover: 'Discover', updates: 'Updates' }
 const ORIGIN_ROUTE = { library: '#/', discover: '#/discover', updates: '#/updates' }
@@ -92,10 +92,12 @@ function chaptersHtml(slug, chapters, count) {
     const curN = posGet(slug)?.n
     const rows = [...chapters].sort(byDesc).map(c => chrow(c, read, curN)).join('')
     const list = rows || `<div class="void">no chapters yet</div>`
+    // mobile opens at the top of the page (info + newest chapters in flow); desktop auto-scrolls to the bottom
+    const mobileTop = matchMedia('(max-width: 640px)').matches
 
     return `<div class="chtool">
         <div class="srch"><input id="chsearch" placeholder="Jump to chapter&hellip;"></div>
-        <div class="seg" id="chorder"><span data-end="top">Top</span><span class="on" data-end="bottom">Bottom</span></div>
+        <div class="seg" id="chorder"><span${mobileTop ? ' class="on"' : ''} data-end="top">Top</span><span${mobileTop ? '' : ' class="on"'} data-end="bottom">Bottom</span></div>
       </div>
       <div class="chhead">Chapter list <span class="ct">&middot; ${count}</span></div>
       <div class="chscroll"><div class="chlist" id="chlist">${list}</div></div>`
@@ -168,18 +170,24 @@ function copyValue(el) {
 }
 
 let chRows = []
+let filterLastQ = '', filterTop = 0
 
-function filterChapters(q) {
+function filterChapters(q, restoreTop = 0) {
     q = q.trim().toLowerCase()
     for (const r of chRows) {
         const hit = !q || r.t.includes(q) || String(r.n).includes(q)
         r.el.style.display = hit ? '' : 'none'
     }
+    // hiding rows clamps scrollTop; put the reader back where they were when the filter clears
+    if (!q) {
+        const sc = activeScroller()
+        if (sc) sc.scrollTop = Math.min(restoreTop, sc.scrollHeight - sc.clientHeight)
+    }
 }
 
 function setOrder(seg) {
     $$('#chorder span').forEach(o => o.classList.toggle('on', o === seg))
-    const sc = $('.chscroll')
+    const sc = activeScroller()
     if (sc) sc.scrollTo({ top: seg.dataset.end === 'top' ? 0 : sc.scrollHeight, behavior: 'smooth' })
 }
 
@@ -218,7 +226,9 @@ function wire() {
         if (e.target.id !== 'chsearch') return
         clearTimeout(t)
         const v = e.target.value
-        t = setTimeout(() => filterChapters(v), 150)
+        if (!filterLastQ && v.trim()) { const sc = activeScroller(); filterTop = sc?.scrollTop ?? 0 }
+        filterLastQ = v
+        t = setTimeout(() => filterChapters(v, filterTop), 150)
     })
 
     window.addEventListener('resize', checkSynOverflow)
@@ -255,17 +265,23 @@ async function loadChapters(slug, mine) {
         stat.title = 'Click to copy'
     }
 
-    const sc = $('.chscroll')
-    if (sc) sc.scrollTop = sc.scrollHeight
+    const sc = activeScroller()
+    if (sc && sc.classList.contains('chscroll')) sc.scrollTop = sc.scrollHeight
 }
 
 export async function showSeries(key, origin) {
     wire()
-    $('#view-series').classList.remove('manga-detail')
     const mine = ++req
     const info = $('#sinfo'), chaps = $('#schapters')
-    info.innerHTML = `<div class="void">loading&hellip;</div>`
-    chaps.innerHTML = ''
+    filterLastQ = ''
+    filterTop = 0
+    // re-showing the same series: keep the rendered content (and the scroll position) until the
+    // fresh fetch lands; blanking first collapses the scroller and loses the user's place
+    const same = !!cur && cur.key === key
+    if (!same) {
+        info.innerHTML = `<div class="void">loading&hellip;</div>`
+        chaps.innerHTML = ''
+    }
 
     let series
     try { series = await getSeries(seriesKey(key)) }
@@ -285,7 +301,7 @@ export async function showSeries(key, origin) {
 
     setSeriesCrumb(ORIGIN_LABEL[origin] || 'Library', series.title, () => go(ORIGIN_ROUTE[origin] || '#/'))
     info.innerHTML = infoHtml(series, slug, count)
-    chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
+    if (!same) chaps.innerHTML = `<div class="void">loading chapters&hellip;</div>`
 
     checkSynOverflow()
     if (document.fonts?.ready) document.fonts.ready.then(() => {

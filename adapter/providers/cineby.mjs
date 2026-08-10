@@ -23,12 +23,20 @@ const httpsUrl = value => {
 }
 const yearOf = media => num(media?.year) ?? num(media?.release_date?.slice(0, 4)) ?? num(media?.first_air_date?.slice(0, 4))
 const EMBED_HOSTS = ['embed.test', 'ok.test']
+// the app origin comes from request headers (Origin on cross-origin fetches, Referer otherwise);
+// embeds pointing back at the app would run same-origin with it once the sandbox is gone
+const appHost = request => {
+    const source = request.headers?.get?.('origin') || request.headers?.get?.('referer')
+    if (!source) return null
+    try { return new URL(source).hostname } catch { return null }
+}
 const embedUrl = (value, request) => {
     let target
     try { target = new URL(value) } catch { return null }
     if (target.protocol !== 'https:') return null
     const host = target.hostname
-    if (host === new URL(request.url).hostname) return null
+    const origin = appHost(request)
+    if (host === new URL(request.url).hostname || (origin && host === origin)) return null
     return EMBED_HOSTS.some(base => host === base || host.endsWith(`.${base}`)) ? target.href : null
 }
 

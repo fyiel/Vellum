@@ -382,6 +382,16 @@ function wire() {
     wired = true
     $('#mr-back').onclick = () => go(seriesRoute(state.key))
     $('#mr-list').onclick = openDrawer
+    const fullscreenBtn = $('#mr-fullscreen')
+    if (fullscreenBtn && document.fullscreenEnabled) {
+        fullscreenBtn.hidden = false
+        fullscreenBtn.onclick = async () => {
+            try {
+                if (document.fullscreenElement) await document.exitFullscreen?.()
+                else await document.documentElement.requestFullscreen?.()
+            } catch {}
+        }
+    }
     drawerBackdrop.onclick = () => closeDrawer()
     $('#mdrawer-list').addEventListener('click', event => { if (event.target.closest('a')) closeDrawer(false) })
     $('#mdrawer-list').addEventListener('click', event => {

@@ -124,6 +124,64 @@ test('maps Miruro pewe ids through AniDB into proxied HLS Watch playback', async
     assert.deepEqual(targets.at(-1).payload, { series_id: 3880, episode_id: 3512, language: 'sub' })
 })
 
+test('maps Miruro titles through prefix matching when AniDB spells the title differently', async () => {
+    const fetchImpl = async (input, init) => {
+        if (String(input) === 'https://graphql.anilist.co') {
+            const query = JSON.parse(init.body).query
+            const media = {
+                id: 7711, title: { english: 'Date A Live: Last Date (2026)', romaji: 'Date A Live: Last Date (2026)' },
+                description: 'A date with fate.', status: 'RELEASING', format: 'TV', season: null, seasonYear: 2026, episodes: null, duration: 24,
+                genres: ['Romance'], studios: { nodes: [{ name: 'Studio' }] }, coverImage: { extraLarge: 'https://img.test/7711.jpg' }, bannerImage: null,
+            }
+            return response(query.includes('Page(')
+                ? { data: { Page: { pageInfo: { hasNextPage: false }, media: [media] } } }
+                : { data: { Media: media } })
+        }
+        const endpoint = String(input)
+        const payload = JSON.parse(init.body)
+        if (endpoint.endsWith('/anidb/source')) return response({ ok: true, status: 200, provider: 'pewe', category: 'sub', source_id: 'x', media_path: '/anidb/media/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/master.m3u8' })
+        assert.equal(endpoint, 'http://127.0.0.1:8189/anidb/fetch')
+        const target = new URL(payload.url)
+        if (target.pathname === '/browse') return response({ ok: true, status: 200, body: '<a href="https://anidb.app/anime/date-a-live-last-date-7711" title="Date A Live: Last Date">Date A Live: Last Date</a><a href="https://anidb.app/anime/date-a-live-7710" title="Date A Live">Date A Live</a>' })
+        if (target.pathname.endsWith('/episodes')) return response({ ok: true, status: 200, body: JSON.stringify({ episodes: [{ id: 42, number: 1 }] }) })
+        throw new Error(`unexpected target ${payload.url}`)
+    }
+    const env = { VELLUM_SLIPGATE_URL: 'http://127.0.0.1:8189/', VELLUM_SLIPGATE_KEY: 'local-test' }
+    const detail = await handleAnimeVideoRequest(request('/read/api/video/series/miruro%3A7711'), env, fetchImpl)
+    assert.equal(detail.status, 200)
+    const body = await detail.json()
+    assert.equal(body.episodes.length, 1) // prefix fallback mapped "(2026)" onto the AniDB title
+    assert.equal(body.title, 'Date A Live: Last Date (2026)')
+})
+
+test('keeps unmappable Miruro titles as an explicit not_found', async () => {
+    const fetchImpl = async (input, init) => {
+        if (String(input) === 'https://graphql.anilist.co') {
+            const query = JSON.parse(init.body).query
+            const media = {
+                id: 99999, title: { english: 'THE ONE PIECE', romaji: 'THE ONE PIECE' }, description: '', status: 'RELEASING', format: 'TV',
+                season: null, seasonYear: 2026, episodes: null, duration: 24, genres: [], studios: { nodes: [] },
+                coverImage: { extraLarge: 'https://img.test/99999.jpg' }, bannerImage: null,
+            }
+            return response(query.includes('Page(')
+                ? { data: { Page: { pageInfo: { hasNextPage: false }, media: [media] } } }
+                : { data: { Media: media } })
+        }
+        const endpoint = String(input)
+        const payload = JSON.parse(init.body)
+        if (endpoint.endsWith('/anidb/fetch')) {
+            const target = new URL(payload.url)
+            if (target.pathname === '/browse') return response({ ok: true, status: 200, body: '<a href="https://anidb.app/anime/one-piece-3880" title="One Piece">One Piece</a>' })
+            throw new Error(`unexpected ${payload.url}`)
+        }
+        throw new Error(`unexpected endpoint ${endpoint}`)
+    }
+    const env = { VELLUM_SLIPGATE_URL: 'http://127.0.0.1:8189/', VELLUM_SLIPGATE_KEY: 'local-test' }
+    const detail = await handleAnimeVideoRequest(request('/read/api/video/series/miruro%3A99999'), env, fetchImpl)
+    assert.equal(detail.status, 404)
+    assert.deepEqual((await detail.json()).error, { provider: 'miruro', code: 'not_found', message: 'AniDB could not map this Miruro title', retryable: false })
+})
+
 test('rejects a changed Miruro pewe identity at the Watch boundary', async () => {
     const episodeId = 'YW5pZGJhcHA6Mzg4MDozNTEy'
     const fetchImpl = async (input, init) => {

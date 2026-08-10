@@ -136,17 +136,34 @@ async function animeDbSeries(env, fetchImpl, row, request) {
         const url = new URL('/browse', ANIDB)
         url.searchParams.set('q', row.title)
         const body = await animeDbFetch(env, fetchImpl, url.href, request)
-        const names = new Set([row.title, ...row.alternateTitles].map(normalizeTitle).filter(Boolean))
+        const names = [...new Set([row.title, ...row.alternateTitles].map(normalizeTitle).filter(Boolean))]
+        // exact normalized match wins; otherwise the closest prefix match (one title is the other
+        // plus a suffix — e.g. year or season markers). Plain containment is too loose: it would
+        // map "THE ONE PIECE" (the 2026 remake) onto "One Piece".
+        let best = null
         for (const match of body.matchAll(/<a\b[^>]*>/gi)) {
             const title = htmlAttr(match[0], 'title')
             const href = htmlAttr(match[0], 'href')
-            if (!names.has(normalizeTitle(title))) continue
-            let target
-            try { target = new URL(href, ANIDB) } catch { continue }
-            const id = target.origin === ANIDB ? target.pathname.match(/^\/anime\/[a-z0-9-]+-(\d+)$/i)?.[1] : null
-            if (id) return { id, title }
+            const norm = normalizeTitle(title)
+            if (!norm) continue
+            if (names.includes(norm)) {
+                best = { title, href }
+                break
+            }
+            for (const name of names) {
+                const min = Math.min(norm.length, name.length)
+                if (min < 8) continue // too short to prefix-match safely
+                if (norm.slice(0, min) !== name.slice(0, min)) continue
+                const gap = Math.abs(norm.length - name.length)
+                if (!best || gap < best.gap) best = { title, href, gap }
+            }
         }
-        throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' })
+        if (!best) throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' })
+        let target
+        try { target = new URL(best.href, ANIDB) } catch { throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' }) }
+        const id = target.origin === ANIDB ? target.pathname.match(/^\/anime\/[a-z0-9-]+-(\d+)$/i)?.[1] : null
+        if (!id) throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' })
+        return { id, title: best.title }
     })
 }
 
@@ -245,6 +262,12 @@ const idFromKey = key => {
     const info = keyInfo(key)
     return info.provider === 'miruro' ? info.id : null
 }
+const appHost = request => {
+    const source = request.headers?.get?.('origin') || request.headers?.get?.('referer')
+    if (!source) return null
+    try { return new URL(source).hostname } catch { return null }
+}
+
 async function animeForKey(key, request, fetchImpl) {
     const id = idFromKey(key)
     if (!id) throw Object.assign(new Error('Invalid anime key'), { code: 'invalid_request' })
@@ -260,7 +283,8 @@ const ownedSources = (data, request) => (Array.isArray(data?.sources) ? data.sou
     try { target = new URL(sourceUrl) } catch { return null }
     if (target.protocol !== 'https:') return null
     if (source?.type === 'embed') {
-        if (target.hostname === new URL(request.url).hostname) return null
+        const origin = appHost(request)
+        if (target.hostname === new URL(request.url).hostname || (origin && target.hostname === origin)) return null
         return { kind: 'embed', url: target.href }
     }
     const type = source?.type === 'hls' || /\.m3u8(?:$|\?)/i.test(sourceUrl) ? 'application/x-mpegURL' : 'video/mp4'

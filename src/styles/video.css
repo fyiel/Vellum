@@ -61,7 +61,7 @@
 .den .video-episode-head { flex: none; padding: 13px 16px 9px; color: var(--hi); font: 600 11px 'Archivo'; text-transform: uppercase; letter-spacing: .8px; }
 .den .video-episode-head span { color: var(--dim); font-family: var(--mono); }
 .den .video-episode-scroll { min-height: 0; flex: 1; overflow-y: auto; padding: 0 12px 18px; }
-.den .video-episode-row { width: 100%; min-height: 48px; display: grid; grid-template-columns: 90px minmax(0, 1fr) 48px 8px; align-items: center; gap: 10px; padding: 8px 10px; appearance: none; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font-family: inherit; text-align: left; cursor: pointer; content-visibility: auto; contain-intrinsic-size: auto 48px; }
+.den .video-episode-row { width: 100%; min-height: 48px; display: grid; grid-template-columns: 90px minmax(0, 1fr) 48px 8px; align-items: center; gap: 10px; padding: 8px 10px; appearance: none; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--text); font-family: inherit; text-align: left; cursor: pointer; }
 .den .video-episode-row:hover, .den .video-episode-row.current { background: var(--row); }
 .den .video-episode-number { color: var(--hi); font: 500 10px var(--mono); }
 .den .video-episode-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

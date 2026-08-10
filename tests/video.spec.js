@@ -154,7 +154,7 @@ test('browses, follows, resumes, and detects updates through a lazy native playe
   expect(diagnostics.overflow).toBeLessThanOrEqual(1)
 })
 
-test('loads an HTTPS embed only after consent with a fixed restricted policy', async ({ page }) => {
+test('loads an HTTPS embed only after consent with allow-restrictions', async ({ page }) => {
   const state = { episodes: [episode(1), episode(2)] }
   let embedRequests = 0
   await mockVideo(page, state, id => ({
@@ -162,7 +162,8 @@ test('loads an HTTPS embed only after consent with a fixed restricted policy', a
     sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
   }))
   await page.route('https://embed.example/watch?**', route => {
-    embedRequests++
+    // the liveness probe issues a second no-cors fetch; count only the iframe's document request
+    if (route.request().resourceType() === 'document') embedRequests++
     return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Mock player</title><p>ready</p>' })
   })
 
@@ -176,8 +177,10 @@ test('loads an HTTPS embed only after consent with a fixed restricted policy', a
   await page.locator('.video-embed-load').click()
   const frame = page.locator('.video-embed-frame')
   await expect(frame).toHaveCount(1)
-  await expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-presentation')
-  await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer')
+  // no sandbox attribute: embed hosts refuse to play inside any sandboxed frame; the embed is an
+  // adapter-gated cross-origin https URL, and the remaining restrictions below still apply
+  await expect(frame).not.toHaveAttribute('sandbox')
+  await expect(frame).not.toHaveAttribute('referrerpolicy')
   await expect(frame).toHaveAttribute('allow', 'fullscreen; picture-in-picture; encrypted-media')
   await expect(frame).not.toHaveAttribute('allow', /autoplay/)
   await expect.poll(() => embedRequests).toBe(1)
@@ -187,6 +190,42 @@ test('loads an HTTPS embed only after consent with a fixed restricted policy', a
   await expect(page.locator('.video-embed-shell')).toContainText('couldn’t be opened in Vellum')
   await expect(page.locator('.video-embed-shell [role="alert"]')).toBeVisible()
   expect(await page.evaluate(k => JSON.parse(localStorage.getItem(`vellum:pos:${k}`)), key)).toMatchObject({ id: 'episode-1' })
+})
+
+test('reports an organic embed failure as blocked after the unavailable timer', async ({ page }) => {
+  const state = { episodes: [episode(1)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Embed',
+    sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
+  }))
+  await page.route('https://embed.example/watch?**', route => route.abort())
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await page.locator('.video-embed-load').click()
+  // the unavailable timer (12s) must fire: about:blank and error documents do not clear it
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'blocked', { timeout: 20000 })
+  await expect(page.locator('.video-embed-shell [role="alert"]')).toBeVisible()
+})
+
+test('marks a slow-but-successful embed ready before the unavailable timer', async ({ page }) => {
+  const state = { episodes: [episode(1)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Embed',
+    sources: [{ kind: 'embed', url: `https://embed.example/slow?v=${id}` }],
+  }))
+  await page.route('https://embed.example/slow?**', route => {
+    if (route.request().resourceType() === 'document') {
+      // the frame navigation itself is slow (> the 8s probe window if it started at click time)
+      return new Promise(resolve => setTimeout(() => resolve(route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>slow embed</title><p>ready</p>' })), 9000))
+    }
+    return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>probe</title>' })
+  })
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await page.locator('.video-embed-load').click()
+  // ready must arrive after the ~9s load and before the 12s unavailable timer
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready', { timeout: 15000 })
+  await expect(page.locator('#vplayer')).not.toHaveAttribute('data-state', 'blocked')
 })
 
 test('browses K-drama through Watch and opens its shared player', async ({ page }) => {
@@ -446,7 +485,7 @@ test('merges provider rows on Watch and names the unconfigured provider', async 
   await expect(page.locator('#vlist a[href="#/watch/series/mock%3Asignal-season"]')).toHaveCount(1)
 })
 
-test('reaches a ready player through a sandboxed provider embed with its badge', async ({ page }) => {
+test('reaches a ready player through a provider embed with its badge', async ({ page }) => {
   // cineby keys carry numeric ids and cineby series are anime
   const key = 'cineby:817'
   const state = { episodes: [episode(1), episode(2)] }
@@ -466,7 +505,7 @@ test('reaches a ready player through a sandboxed provider embed with its badge',
     }) })
   })
   await page.route('https://embed.example/player?**', route => {
-    embedRequests++
+    if (route.request().resourceType() === 'document') embedRequests++
     return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Mock player</title><p>ready</p>' })
   })
 
@@ -477,8 +516,8 @@ test('reaches a ready player through a sandboxed provider embed with its badge',
   await page.locator('.video-embed-load').click()
   const frame = page.locator('.video-embed-frame')
   await expect(frame).toHaveCount(1)
-  await expect(frame).toHaveAttribute('sandbox', 'allow-scripts allow-presentation')
-  await expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer')
+  await expect(frame).not.toHaveAttribute('sandbox')
+  await expect(frame).not.toHaveAttribute('referrerpolicy')
   await expect(frame).toHaveAttribute('allow', 'fullscreen; picture-in-picture; encrypted-media')
   await expect.poll(() => embedRequests).toBe(1)
   await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')

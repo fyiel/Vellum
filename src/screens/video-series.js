@@ -158,8 +158,9 @@ export async function showVideoSeries(key, origin = 'watch') {
         const provider = videoProviderLabel(error.provider) || videoProviderLabel(parseVideoKey(key)?.provider)
         const degraded = provider && (error.code === 'provider_unconfigured' || error.retryable === false)
         const message = !navigator.onLine ? 'You’re offline. Reconnect to load this series.'
-            : degraded ? `${provider} isn’t available in this build right now`
-                : error.message || 'Series unavailable'
+            : error.code === 'not_found' ? (error.message || `${provider || 'This source'} has no playable copy of this title`)
+                : degraded ? `${provider} isn’t available in this build right now`
+                    : error.message || 'Series unavailable'
         const action = degraded
             ? `<a id="video-series-back" href="${ORIGIN_ROUTE[origin] || '#/watch'}">Back to ${ORIGIN_LABEL[origin] || 'Watch'}</a>`
             : `<button id="video-series-retry" type="button">Try again</button>`

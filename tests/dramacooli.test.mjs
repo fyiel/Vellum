@@ -77,3 +77,9 @@ test('rejects non-https iframe embeds at the DramaCooli boundary', async () => {
     const fetchImpl = async () => response([{ slug: 'x-episode-1', content: { rendered: '<iframe src="http://player.test/embed/abc"></iframe>' } }])
     await assert.rejects(playback(ctx(fetchImpl), 'dc:7', 'sub', 'x-episode-1'), error => error?.code === 'stream_unavailable')
 })
+
+test('rejects embeds pointing back at the app origin', async () => {
+    const fetchImpl = async () => response([{ slug: 'x-episode-1', content: { rendered: '<iframe src="https://app.vellum.test/watch?v=1"></iframe>' } }])
+    const req = new Request('https://api.vellum.test/', { headers: { origin: 'https://app.vellum.test' } })
+    await assert.rejects(playback({ ...ctx(fetchImpl), request: req }, 'dc:7', 'sub', 'x-episode-1'), error => error?.code === 'stream_unavailable')
+})
