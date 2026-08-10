@@ -172,3 +172,90 @@ test('live AniList contract returns normalized anime metadata', { skip: process.
     assert.equal(body.results[0].kind, 'anime')
     assert.equal(body.results[0].source, 'Miruro')
 })
+
+test('routes dc and cineby keys through the provider registry', async () => {
+    const fetchImpl = async url => {
+        const endpoint = String(url)
+        if (endpoint === 'https://dramacooli.ws/wp-json/wp/v2/categories/7') return response({ id: 7, name: 'Doctor Slump' })
+        if (endpoint.includes('wp/v2/posts?categories=7')) return response([{
+            slug: 'doctor-slump-episode-1',
+            title: { rendered: 'Doctor Slump Ep 1' },
+            excerpt: { rendered: 'Surgeons.' },
+            _embedded: { 'wp:featuredmedia': [{ source_url: 'https://img.test/ds.jpg' }] },
+        }])
+        if (endpoint.includes('wp/v2/posts?slug=doctor-slump-episode-1')) return response([{
+            slug: 'doctor-slump-episode-1',
+            content: { rendered: '<iframe src="https://player.test/embed/abc"></iframe>' },
+        }])
+        if (endpoint === 'https://cineby.su/movie/123') {
+            return new Response(`<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+                props: { pageProps: { media: { tmdb_id: 123, title: 'Solo Leveling', seasons: [{ season_number: 1, episodes: [{ episode_number: 1 }] }] } } },
+            })}</script></html>`, { headers: { 'content-type': 'text/html' } })
+        }
+        throw new Error(`unexpected ${endpoint}`)
+    }
+
+    const drama = await handleAnimeVideoRequest(request('/read/api/video/series/dc%3A7'), {}, fetchImpl)
+    assert.equal(drama.status, 200)
+    const dramaBody = await drama.json()
+    assert.equal(dramaBody.key, 'dc:7')
+    assert.equal(dramaBody.kind, 'drama')
+    assert.equal(dramaBody.title, 'Doctor Slump')
+    assert.equal(dramaBody.source, 'DramaCooli')
+    assert.equal(dramaBody.poster, 'https://img.test/ds.jpg')
+    assert.deepEqual(dramaBody.episodes.map(item => item.id), ['doctor-slump-episode-1'])
+    assert.equal(dramaBody.partial, false)
+    assert.deepEqual(dramaBody.errors, [])
+
+    const anime = await handleAnimeVideoRequest(request('/read/api/video/series/cineby%3A123'), {}, fetchImpl)
+    assert.equal(anime.status, 200)
+    const animeBody = await anime.json()
+    assert.equal(animeBody.key, 'cineby:123')
+    assert.equal(animeBody.kind, 'anime')
+    assert.equal(animeBody.title, 'Solo Leveling')
+    assert.deepEqual(animeBody.episodes.map(item => item.id), ['s1e1'])
+
+    const legacy = await handleAnimeRequest(request('/read/api/anime/episodes?key=dc%3A7&language=sub'), {}, fetchImpl)
+    assert.equal(legacy.status, 200)
+    assert.deepEqual((await legacy.json()).episodes.map(item => item.id), ['doctor-slump-episode-1'])
+})
+
+test('kind=drama discovery aggregates DramaCooli rows without partial state', async () => {
+    const fetchImpl = async url => {
+        assert.equal(String(url), 'https://dramacooli.ws/wp-json/wp/v2/categories?orderby=count&per_page=100&page=1&hide_empty=true')
+        return response([{ id: 7, name: 'Doctor Slump' }, { id: 12, name: 'Moving' }])
+    }
+    const result = await handleAnimeVideoRequest(request('/read/api/video/discover?kind=drama'), {}, fetchImpl)
+    assert.equal(result.status, 200)
+    const body = await result.json()
+    assert.deepEqual(body.results.map(row => row.key), ['dc:7', 'dc:12'])
+    assert.deepEqual(body.results.map(row => row.kind), ['drama', 'drama'])
+    assert.equal(body.results[0].source, 'DramaCooli')
+    assert.equal(body.results[0].poster, null)
+    assert.equal(body.partial, false)
+    assert.deepEqual(body.errors, [])
+})
+
+test('rejects unknown video provider prefixes with 400', async () => {
+    const deadFetch = () => { throw new Error('must not fetch') }
+    const expected = { error: { provider: 'miruro', code: 'invalid_request', message: 'Unknown video provider', retryable: false } }
+    const routes = [
+        ['/read/api/anime/series/foo%3A123', handleAnimeRequest],
+        ['/read/api/anime/episodes?key=foo%3A123&language=sub', handleAnimeRequest],
+        ['/read/api/anime/watch?key=foo%3A123&language=sub&id=abc', handleAnimeRequest],
+        ['/read/api/video/series/foo%3A123', handleAnimeVideoRequest],
+        ['/read/api/video/playback?key=foo%3A123&id=abc', handleAnimeVideoRequest],
+    ]
+    for (const [path, handler] of routes) {
+        const result = await handler(request(path), {}, deadFetch)
+        assert.equal(result.status, 400)
+        assert.deepEqual(await result.json(), expected)
+    }
+})
+
+test('keeps the per-provider id gates on known prefixes', async () => {
+    const deadFetch = () => { throw new Error('must not fetch') }
+    const result = await handleAnimeRequest(request('/read/api/anime/series/miruro%3Anot-a-number'), {}, deadFetch)
+    assert.equal(result.status, 400)
+    assert.equal((await result.json()).error.code, 'invalid_request')
+})

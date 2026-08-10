@@ -1,15 +1,20 @@
+import { dramacooli } from './providers/dramacooli.mjs'
+import { cineby } from './providers/cineby.mjs'
+import { goplay } from './providers/goplay.mjs'
+
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }
 const ANILIST = 'https://graphql.anilist.co'
 const ANIDB = 'https://anidb.app'
 const FORMATS = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'MUSIC'])
-const VIDEO_KEY = /^miruro:(\d+)$/
+const PROVIDER_KEY = /^(miruro|dc|gp|cineby):(.+)$/
+const PROVIDER_IDS = { miruro: /^\d+$/, dc: /^[a-z0-9._-]{1,100}$/, gp: /^[a-z0-9._-]{1,100}$/, cineby: /^\d+$/ }
 const ANIDB_EPISODE = /^anidbapp:(\d+):(\d+)$/
 const ANIDB_MEDIA = /^[A-Za-z0-9_-]{32}\/[A-Za-z0-9._~/-]{1,500}$/
 const opaque = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\u0000-\u001f\u007f]/.test(value)
 const str = value => typeof value === 'string' ? value : null
 const num = value => value != null && value !== '' && Number.isFinite(Number(value)) ? Number(value) : null
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: JSON_HEADERS })
-const failure = (status, code, message, retryable = false) => json({ error: { provider: 'miruro', code, message, retryable } }, status)
+const failure = (status, code, message, retryable = false, provider = 'miruro') => json({ error: { provider, code, message, retryable } }, status)
 const providerCache = new WeakMap()
 
 const timeout = (parent, ms = 12_000) => {
@@ -71,7 +76,7 @@ const anilist = (fetchImpl, query, variables, signal) => fetchJson(fetchImpl, AN
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables }),
 }, signal)
 
-const cached = (fetchImpl, key, ttl, load) => {
+export const cached = (fetchImpl, key, ttl, load) => {
     let cache = providerCache.get(fetchImpl)
     if (!cache) { cache = new Map(); providerCache.set(fetchImpl, cache) }
     const hit = cache.get(key)
@@ -214,7 +219,18 @@ async function playback(env, fetchImpl, path, request) {
     }, request.signal)
 }
 
-const idFromKey = key => String(key || '').match(VIDEO_KEY)?.[1] || null
+const keyInfo = value => {
+    const match = String(value || '').match(PROVIDER_KEY)
+    if (!match) return { unknown: true, provider: null, id: null }
+    const provider = match[1]
+    const id = match[2]
+    if (!PROVIDER_IDS[provider].test(id)) return { unknown: false, provider, id: null }
+    return { unknown: false, provider, id }
+}
+const idFromKey = key => {
+    const info = keyInfo(key)
+    return info.provider === 'miruro' ? info.id : null
+}
 async function animeForKey(key, request, fetchImpl) {
     const id = idFromKey(key)
     if (!id) throw Object.assign(new Error('Invalid anime key'), { code: 'invalid_request' })
@@ -222,14 +238,6 @@ async function animeForKey(key, request, fetchImpl) {
     const row = anime(data?.data?.Media)
     if (!row) throw Object.assign(new Error('Anime not found'), { code: 'not_found' })
     return row
-}
-
-async function providerEpisodes(env, fetchImpl, row, language, request) {
-    if (env.VELLUM_ANIME_PLAYBACK_URL) {
-        const data = await playback(env, fetchImpl, `episodes?anilistId=${encodeURIComponent(idFromKey(row.key))}&language=${language}`, request)
-        return (Array.isArray(data) ? data : data?.episodes || []).map(episode).filter(Boolean)
-    }
-    return (await animeDbEpisodes(env, fetchImpl, row, request)).episodes
 }
 
 const ownedSources = data => (Array.isArray(data?.sources) ? data.sources : []).map(source => {
@@ -248,24 +256,68 @@ const ownedSubtitles = data => (Array.isArray(data?.subtitles) ? data.subtitles 
     try { return new URL(track.url).protocol === 'https:' && Boolean(track.lang) } catch { return false }
 })
 
-async function providerPlayback(env, fetchImpl, row, language, episodeId, request) {
-    if (env.VELLUM_ANIME_PLAYBACK_URL) {
-        const provider = env.VELLUM_ANIME_PROVIDER || 'default'
-        const data = await playback(env, fetchImpl, `sources?episodeId=${encodeURIComponent(episodeId)}&provider=${encodeURIComponent(provider)}&category=${language}`, request)
-        return { sources: ownedSources(data), subtitles: ownedSubtitles(data), providerLabel: env.VELLUM_ANIME_PROVIDER_LABEL || 'Miruro' }
-    }
-    return {
-        sources: await animeDbSources(env, fetchImpl, row, language, episodeId, request),
-        subtitles: [],
-        providerLabel: 'Miruro · pewe (AniDB App)',
-    }
+const ctxFor = (env, fetchImpl, request) => ({ env, fetchImpl, request, cached })
+
+const miruro = {
+    key: 'miruro',
+    label: 'Miruro',
+    kinds: ['anime'],
+    source: 'Miruro · pewe (AniDB App)',
+    async discover(ctx, { page, limit, format, search }) {
+        const data = await anilist(ctx.fetchImpl, PAGE_QUERY, { page, perPage: limit, search, format }, ctx.request.signal)
+        const results = (data?.data?.Page?.media || []).map(anime).filter(Boolean).map(item => ({ ...item, poster: item.cover }))
+        return { rows: results, hasMore: Boolean(data?.data?.Page?.pageInfo?.hasNextPage), partial: false, error: null }
+    },
+    async series(ctx, key) {
+        return animeForKey(key, ctx.request, ctx.fetchImpl)
+    },
+    async episodes(ctx, key, language) {
+        const { env, fetchImpl, request } = ctx
+        if (env.VELLUM_ANIME_PLAYBACK_URL) {
+            const data = await playback(env, fetchImpl, `episodes?anilistId=${encodeURIComponent(idFromKey(key))}&language=${language}`, request)
+            return (Array.isArray(data) ? data : data?.episodes || []).map(episode).filter(Boolean)
+        }
+        if (!env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
+        const row = await animeForKey(key, request, fetchImpl)
+        return (await animeDbEpisodes(env, fetchImpl, row, request)).episodes
+    },
+    async playback(ctx, key, language, episodeId) {
+        const { env, fetchImpl, request } = ctx
+        if (env.VELLUM_ANIME_PLAYBACK_URL) {
+            const provider = env.VELLUM_ANIME_PROVIDER || 'default'
+            const data = await playback(env, fetchImpl, `sources?episodeId=${encodeURIComponent(episodeId)}&provider=${encodeURIComponent(provider)}&category=${language}`, request)
+            return { sources: ownedSources(data), subtitles: ownedSubtitles(data), providerLabel: env.VELLUM_ANIME_PROVIDER_LABEL || 'Miruro' }
+        }
+        if (!env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
+        const row = await animeForKey(key, request, fetchImpl)
+        return {
+            sources: await animeDbSources(env, fetchImpl, row, language, episodeId, request),
+            subtitles: [],
+            providerLabel: 'Miruro · pewe (AniDB App)',
+        }
+    },
 }
+
+const REGISTRY = new Map([
+    ['miruro', miruro],
+    ['dc', dramacooli],
+    ['gp', goplay],
+    ['cineby', cineby],
+])
+
+const routeEntry = (info, invalid) => {
+    if (info.unknown) return failure(400, 'invalid_request', 'Unknown video provider')
+    if (info.id == null) return failure(400, 'invalid_request', invalid)
+    return REGISTRY.get(info.provider)
+}
+const unconfigured = entry => failure(503, 'provider_unconfigured', entry.unavailable || 'Provider is not configured', false, entry.key)
 
 export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
     const url = new URL(request.url)
     const root = '/read/api/anime/'
     if (request.method !== 'GET' || !url.pathname.startsWith(root)) return failure(404, 'not_found', 'Anime route not found')
     const route = url.pathname.slice(root.length)
+    let activeProvider = 'miruro'
     try {
         if (route === 'discover' || route === 'search') {
             const { page, limit, format } = pageArgs(url)
@@ -279,18 +331,23 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
 
         if (route.startsWith('series/')) {
             const key = decodeURIComponent(route.slice(7))
-            if (!idFromKey(key)) return failure(400, 'invalid_request', 'Invalid anime key')
-            const row = await animeForKey(key, request, fetchImpl)
+            const entry = routeEntry(keyInfo(key), 'Invalid anime key')
+            if (entry instanceof Response) return entry
+            activeProvider = entry.key
+            if (entry.unavailable || !entry.series) return unconfigured(entry)
+            const row = await entry.series(ctxFor(env, fetchImpl, request), key)
             return row ? json(row) : failure(404, 'not_found', 'Anime not found')
         }
 
         if (route === 'episodes') {
             const key = url.searchParams.get('key') || ''
             const language = url.searchParams.get('language') || 'sub'
-            if (!idFromKey(key) || !['sub', 'dub'].includes(language)) return failure(400, 'invalid_request', 'Invalid episode request')
-            if (!env.VELLUM_ANIME_PLAYBACK_URL && !env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
-            const row = env.VELLUM_ANIME_PLAYBACK_URL ? { key } : await animeForKey(key, request, fetchImpl)
-            const episodes = await providerEpisodes(env, fetchImpl, row, language, request)
+            const entry = routeEntry(keyInfo(key), 'Invalid episode request')
+            if (entry instanceof Response) return entry
+            if (!['sub', 'dub'].includes(language)) return failure(400, 'invalid_request', 'Invalid episode request')
+            activeProvider = entry.key
+            if (entry.unavailable || !entry.episodes) return unconfigured(entry)
+            const episodes = await entry.episodes(ctxFor(env, fetchImpl, request), key, language)
             return json({ key, language, episodes })
         }
 
@@ -298,22 +355,25 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
             const key = url.searchParams.get('key') || ''
             const language = url.searchParams.get('language') || 'sub'
             const id = url.searchParams.get('id') || ''
-            if (!idFromKey(key) || !opaque(id) || !['sub', 'dub'].includes(language)) return failure(400, 'invalid_request', 'Invalid stream request')
-            if (!env.VELLUM_ANIME_PLAYBACK_URL && !env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
-            const row = env.VELLUM_ANIME_PLAYBACK_URL ? { key } : await animeForKey(key, request, fetchImpl)
-            const playback = await providerPlayback(env, fetchImpl, row, language, id, request)
-            const sources = playback.sources.map(source => source.kind === 'embed'
+            const entry = routeEntry(keyInfo(key), 'Invalid stream request')
+            if (entry instanceof Response) return entry
+            if (!opaque(id) || !['sub', 'dub'].includes(language)) return failure(400, 'invalid_request', 'Invalid stream request')
+            activeProvider = entry.key
+            if (entry.unavailable || !entry.playback) return unconfigured(entry)
+            const value = await entry.playback(ctxFor(env, fetchImpl, request), key, language, id)
+            const sources = value.sources.map(source => source.kind === 'embed'
                 ? { url: source.url, type: 'embed' }
                 : { url: source.url, type: source.type.includes('mpegURL') ? 'hls' : 'mp4' })
-            const subtitles = playback.subtitles.map(track => ({ url: track.url, label: track.label, language: track.lang }))
-            if (!sources.length) return failure(502, 'stream_unavailable', 'Playback service returned no playable stream', true)
+            const subtitles = value.subtitles.map(track => ({ url: track.url, label: track.label, language: track.lang }))
+            if (!sources.length) return failure(502, 'stream_unavailable', 'Playback service returned no playable stream', true, entry.key)
             return json({ key, language, episode: { id, number: 0, title: null, description: null, image: null, airDate: null }, sources, subtitles })
         }
         return failure(404, 'not_found', 'Anime route not found')
     } catch (error) {
-        if (request.signal.aborted || error?.name === 'AbortError') return failure(499, 'request_cancelled', 'Anime request cancelled', true)
-        if (error?.code === 'provider_unconfigured') return failure(503, error.code, error.message)
-        return failure(502, 'provider_unavailable', route === 'episodes' || route === 'watch' ? 'Anime playback service is unavailable' : 'AniList is unavailable', true)
+        if (request.signal.aborted || error?.name === 'AbortError') return failure(499, 'request_cancelled', 'Anime request cancelled', true, activeProvider)
+        if (error?.code === 'provider_unconfigured') return failure(503, error.code, error.message, false, activeProvider)
+        if (error?.code === 'stream_unavailable') return failure(502, error.code, error.message, true, activeProvider)
+        return failure(502, 'provider_unavailable', route === 'episodes' || route === 'watch' ? 'Anime playback service is unavailable' : 'AniList is unavailable', true, activeProvider)
     }
 }
 
@@ -330,46 +390,61 @@ export async function handleAnimeVideoRequest(request, env = {}, fetchImpl = fet
         return animeDbMedia(env, fetchImpl, route.slice(6), request)
     }
     if (request.method !== 'GET') return failure(404, 'not_found', 'Video route not found')
+    let activeProvider = 'miruro'
     try {
         if (route === 'discover') {
             const kind = url.searchParams.get('kind') || 'all'
             if (!['all', 'anime', 'drama'].includes(kind)) return failure(400, 'invalid_request', 'Invalid video kind')
-            if (kind === 'drama') return json({ page: 1, results: [], hasMore: false, partial: true, errors: [{ provider: 'miruro', code: 'kind_unavailable', message: 'Anime provider does not serve K-drama' }] })
             const { page, limit, format } = pageArgs(url)
             const search = url.searchParams.get('q')?.trim() || null
             if (format && !FORMATS.has(format)) return failure(400, 'invalid_request', 'Invalid anime format')
-            const data = await anilist(fetchImpl, PAGE_QUERY, { page, perPage: limit, search, format }, request.signal)
-            const results = (data?.data?.Page?.media || []).map(anime).filter(Boolean).map(item => ({
-                ...item, poster: item.cover,
-            }))
-            return json({ page, results, hasMore: Boolean(data?.data?.Page?.pageInfo?.hasNextPage), partial: false, errors: [] })
+            const ctx = ctxFor(env, fetchImpl, request)
+            const providers = [...REGISTRY.values()].filter(entry => !entry.unavailable && typeof entry.discover === 'function' && (kind === 'all' || entry.kinds.includes(kind)))
+            const outcomes = await Promise.all(providers.map(entry => entry.discover(ctx, { page, limit, format, search })
+                .then(result => ({ entry, ...result }))
+                .catch(error => ({ entry, rows: [], hasMore: false, partial: true, error: { provider: entry.key, code: 'provider_unavailable', message: error?.message || 'Provider is unavailable' } }))))
+            return json({
+                page,
+                results: outcomes.flatMap(outcome => outcome.rows),
+                hasMore: outcomes.some(outcome => outcome.hasMore),
+                partial: outcomes.some(outcome => outcome.partial),
+                errors: outcomes.flatMap(outcome => outcome.error ? [outcome.error] : []),
+            })
         }
 
         if (route.startsWith('series/')) {
             const key = decodeURIComponent(route.slice(7))
-            if (!idFromKey(key)) return failure(400, 'invalid_request', 'Invalid anime key')
-            const row = await animeForKey(key, request, fetchImpl)
-            const episodes = await providerEpisodes(env, fetchImpl, row, 'sub', request)
+            const entry = routeEntry(keyInfo(key), 'Invalid anime key')
+            if (entry instanceof Response) return entry
+            activeProvider = entry.key
+            if (entry.unavailable || !entry.series || !entry.episodes) return unconfigured(entry)
+            const ctx = ctxFor(env, fetchImpl, request)
+            const row = await entry.series(ctx, key)
+            const episodes = await entry.episodes(ctx, key, 'sub')
             if (!episodes.length) return failure(404, 'not_found', 'No subtitled episodes found')
-            return json({ ...row, poster: row.cover, source: 'Miruro · pewe (AniDB App)', episodes, partial: false, errors: [] })
+            return json({ ...row, poster: row.poster ?? row.cover, source: entry.source ?? row.source, episodes, partial: false, errors: [] })
         }
 
         if (route === 'playback') {
             const key = url.searchParams.get('key') || ''
             const episodeId = url.searchParams.get('id') || ''
-            if (!idFromKey(key) || !opaque(episodeId)) return failure(400, 'invalid_request', 'Invalid playback request')
-            const row = await animeForKey(key, request, fetchImpl)
-            const value = await providerPlayback(env, fetchImpl, row, 'sub', episodeId, request)
-            if (!value.sources.length) return failure(502, 'stream_unavailable', 'Playback service returned no playable stream', true)
+            const entry = routeEntry(keyInfo(key), 'Invalid playback request')
+            if (entry instanceof Response) return entry
+            if (!opaque(episodeId)) return failure(400, 'invalid_request', 'Invalid playback request')
+            activeProvider = entry.key
+            if (entry.unavailable || !entry.playback) return unconfigured(entry)
+            const value = await entry.playback(ctxFor(env, fetchImpl, request), key, 'sub', episodeId)
+            if (!value.sources.length) return failure(502, 'stream_unavailable', 'Playback service returned no playable stream', true, entry.key)
             return json({ key, episodeId, providerLabel: value.providerLabel, sources: value.sources, subtitles: value.subtitles })
         }
         return failure(404, 'not_found', 'Video route not found')
     } catch (error) {
-        if (request.signal.aborted || error?.name === 'AbortError') return failure(499, 'request_cancelled', 'Video request cancelled', true)
-        if (error?.code === 'provider_unconfigured') return failure(503, error.code, error.message)
-        if (error?.code === 'invalid_request') return failure(400, error.code, error.message)
-        if (error?.code === 'not_found') return failure(404, error.code, error.message)
-        return failure(502, 'provider_unavailable', 'Anime provider is unavailable', true)
+        if (request.signal.aborted || error?.name === 'AbortError') return failure(499, 'request_cancelled', 'Video request cancelled', true, activeProvider)
+        if (error?.code === 'provider_unconfigured') return failure(503, error.code, error.message, false, activeProvider)
+        if (error?.code === 'invalid_request') return failure(400, error.code, error.message, false, activeProvider)
+        if (error?.code === 'not_found') return failure(404, error.code, error.message, false, activeProvider)
+        if (error?.code === 'stream_unavailable') return failure(502, error.code, error.message, true, activeProvider)
+        return failure(502, 'provider_unavailable', 'Anime provider is unavailable', true, activeProvider)
     }
 }
 
