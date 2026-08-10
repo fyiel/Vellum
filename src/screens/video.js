@@ -20,6 +20,7 @@ let kind = 'all'
 let page = 0
 let rows = []
 let hasMore = true
+let notice = ''
 let loading = false
 let moreFailed = false
 let gen = 0
@@ -54,7 +55,8 @@ function paintContinue() {
 }
 
 function paint() {
-    $('#vlist').innerHTML = rows.length ? rows.map(card).join('')
+    const status = notice ? `<div class="watch-notice" role="status">${esc(notice)}</div>` : ''
+    $('#vlist').innerHTML = rows.length ? status + rows.map(card).join('')
         : `<div class="watch-empty">${query ? `No matches for “${esc(query)}”` : `No ${kind === 'all' ? 'anime or K-drama' : kindName(kind)} available right now`}</div>`
     $('#vlist').setAttribute('aria-busy', String(loading))
     const more = $('#vmore')
@@ -69,6 +71,7 @@ async function fetchPage(next, fresh, mine) {
     const seen = new Set(fresh ? [] : rows.map(item => item.key))
     const incoming = data.results.filter(item => !seen.has(item.key))
     rows = fresh ? incoming : rows.concat(incoming)
+    if (fresh) notice = data.partial ? [...new Set((data.errors || []).map(error => error?.message).filter(Boolean))].join(' · ') : ''
     page = next
     hasMore = Boolean(data.hasMore) && incoming.length > 0
 }
@@ -78,6 +81,7 @@ async function start() {
     ctrl = new AbortController()
     const mine = ++gen
     rows = []
+    notice = ''
     page = 0
     hasMore = true
     loading = true

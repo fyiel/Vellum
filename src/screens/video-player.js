@@ -6,7 +6,7 @@ import { $, esc } from '../lib/dom.js'
 const player = $('#vplayer')
 const stage = $('#vp-stage')
 
-const state = { active: false, key: '', id: '', gen: 0, ctrl: null, series: null, episode: null, episodes: [], video: null, embedTimer: 0, savedAt: 0 }
+const state = { active: false, key: '', id: '', gen: 0, ctrl: null, series: null, episode: null, episodes: [], video: null, hls: null, embedTimer: 0, savedAt: 0 }
 const seriesRoute = key => `#/watch/series/${encodeURIComponent(key)}`
 const playRoute = (key, id) => `#/watch/play/${encodeURIComponent(key)}/${encodeURIComponent(id)}`
 const ordered = episodes => [...episodes].sort((a, b) => (a.season || 1) - (b.season || 1)
@@ -106,7 +106,7 @@ const providerBadge = label => {
     return badge
 }
 
-function renderDirect(playback, source) {
+function renderDirect(playback, source, Hls = null) {
     stage.replaceChildren()
     const video = document.createElement('video')
     video.className = 'video-media'
@@ -116,7 +116,13 @@ function renderDirect(playback, source) {
     video.preload = 'none'
     video.setAttribute('aria-label', `${state.series.title}, ${episodeLabel(state.episode)}`)
     if (playback.poster || state.series.backdrop || state.series.poster) video.poster = videoAssetUrl(playback.poster || state.series.backdrop || state.series.poster)
-    video.src = videoAssetUrl(source.url)
+    if (Hls) {
+        const hls = new Hls({ enableWorker: true })
+        state.hls = hls
+        hls.attachMedia(video)
+        hls.loadSource(videoAssetUrl(source.url))
+        hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) showMediaError() })
+    } else video.src = videoAssetUrl(source.url)
     for (const subtitle of playback.subtitles || []) {
         const track = document.createElement('track')
         track.src = videoAssetUrl(subtitle.url)
@@ -203,11 +209,19 @@ function renderUnsupported(playback) {
     measure('vellum:video-player:media-shell')
 }
 
-function renderMedia(playback) {
+async function renderMedia(playback) {
     const probe = document.createElement('video')
     const direct = playback.sources.find(item => item.kind === 'direct' && probe.canPlayType(item.type))
+    const hls = playback.sources.find(item => item.kind === 'direct' && ['application/x-mpegURL', 'application/vnd.apple.mpegurl'].includes(item.type))
     const embed = playback.sources.find(item => item.kind === 'embed')
     if (direct) renderDirect(playback, direct)
+    else if (hls) {
+        const { key, id, gen } = state
+        const { default: Hls } = await import('hls.js')
+        if (!stillHere(key, id, gen)) return
+        if (Hls.isSupported()) renderDirect(playback, hls, Hls)
+        else renderUnsupported(playback)
+    }
     else if (embed) renderEmbed(playback, embed)
     else renderUnsupported(playback)
 }
@@ -252,11 +266,12 @@ export async function showVideoPlayer(key, id) {
     wire()
     saveProgress(true)
     state.video?.pause()
+    state.hls?.destroy()
     state.ctrl?.abort()
     const ctrl = new AbortController()
     const gen = ++state.gen
     clearTimeout(state.embedTimer)
-    Object.assign(state, { active: true, key, id, gen, ctrl, series: null, episode: null, episodes: [], video: null, embedTimer: 0, savedAt: 0 })
+    Object.assign(state, { active: true, key, id, gen, ctrl, series: null, episode: null, episodes: [], video: null, hls: null, embedTimer: 0, savedAt: 0 })
     beginMeasure()
     player.classList.add('active')
     player.dataset.state = 'loading'
@@ -282,7 +297,8 @@ export async function showVideoPlayer(key, id) {
         measure('vellum:video-player:contract')
         recordSelection()
         player.dataset.state = 'ready'
-        renderMedia(playback)
+        await renderMedia(playback)
+        if (!stillHere(key, id, gen)) return
         renderSteps()
         player.setAttribute('aria-busy', 'false')
         player.focus({ preventScroll: true })
@@ -300,6 +316,8 @@ export function closeVideoPlayer() {
     state.gen++
     clearTimeout(state.embedTimer)
     state.embedTimer = 0
+    state.hls?.destroy()
+    state.hls = null
     if (state.video) {
         state.video.pause()
         state.video.removeAttribute('src')

@@ -185,6 +185,115 @@ test('loads an HTTPS embed only after consent with a fixed restricted policy', a
   expect(await page.evaluate(k => JSON.parse(localStorage.getItem(`vellum:pos:${k}`)), key)).toMatchObject({ id: 'episode-1' })
 })
 
+test('browses K-drama through Watch and opens its shared player', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const drama = {
+    key: 'dc:a-shop-for-killers', kind: 'drama', title: 'A Shop for Killers', poster,
+    year: 2026, status: 'Ongoing', source: 'DramaCool', synopsis: 'A niece uncovers the truth.',
+    genres: ['Action', 'Mystery'], episodes: [episode(1), episode(2)],
+  }
+  await page.route('**/read/api/video/discover?**', route => {
+    const all = new URL(route.request().url()).searchParams.get('kind') !== 'drama'
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      results: [drama], hasMore: false, partial: all,
+      errors: all ? [{ provider: 'miruro', code: 'provider_unconfigured', message: 'Anime playback is not configured' }] : [],
+    }) })
+  })
+  await page.route('**/read/api/video/series/**', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(drama) }))
+  await page.route('**/read/api/video/playback?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      key: drama.key, episodeId: id, providerLabel: 'DramaCool · EmbedLoad',
+      sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
+    }) })
+  })
+
+  await page.locator('[data-nav="watch"]').click()
+  await expect(page.locator('.watch-notice')).toContainText('Anime playback is not configured')
+  await page.locator('#vkind [data-kind="drama"]').click()
+  await expect(page.locator('#vkind [data-kind="drama"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#vlist a.watch-card')).toHaveCount(1)
+  await expect(page.locator('.watch-notice')).toHaveCount(0)
+  await page.locator('#vlist a.watch-card').click()
+  await expect(page.locator('#vinfo')).toContainText('A Shop for Killers')
+  await expect(page.locator('#video-episode-list .video-episode-row')).toHaveCount(2)
+  await page.locator('#video-episode-list .video-episode-row').first().click()
+  await expect(page.locator('.video-provider-label')).toHaveText('Provided by DramaCool · EmbedLoad')
+  await expect(page.locator('.video-embed-load')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
+})
+
+test('ignores a stale Watch search', async ({ page }) => {
+  let releaseSlow
+  const slow = new Promise(resolve => { releaseSlow = resolve })
+  await page.route('**/read/api/video/discover?**', async route => {
+    const query = new URL(route.request().url()).searchParams.get('q') || ''
+    if (query === 'slow') await slow
+    const title = query || 'Healthy title'
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      results: [{ key: `dc:${title.replaceAll(' ', '-')}`, kind: 'drama', title }],
+      hasMore: false, partial: false, errors: [],
+    }) })
+  })
+
+  await page.locator('[data-nav="watch"]').click()
+  await expect(page.locator('#vlist')).toContainText('Healthy title')
+  await page.locator('#vsearch').fill('slow')
+  await page.waitForRequest(request => request.url().includes('/video/discover?') && request.url().includes('q=slow'))
+  await page.locator('#vsearch').fill('fast')
+  await expect(page.locator('#vlist')).toContainText('fast')
+  releaseSlow()
+  await page.waitForTimeout(100)
+  await expect(page.locator('#vlist')).toContainText('fast')
+  await expect(page.locator('#vlist')).not.toContainText('slow')
+})
+
+test('preserves and retries a failed Watch pagination boundary', async ({ page }) => {
+  let pageTwoDown = true
+  await page.route('**/read/api/video/discover?**', route => {
+    const pageNumber = Number(new URL(route.request().url()).searchParams.get('page'))
+    if (pageNumber === 2 && pageTwoDown) return route.fulfill({
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'provider_unavailable', message: 'DramaCool unavailable', retryable: false } }),
+    })
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      results: [{ key: `dc:page-${pageNumber}`, kind: 'drama', title: `DramaCool page ${pageNumber}` }],
+      hasMore: pageNumber === 1, partial: false, errors: [],
+    }) })
+  })
+
+  await page.locator('[data-nav="watch"]').click()
+  await expect(page.locator('#vlist .watch-card')).toHaveCount(1)
+  await page.locator('#vmore').click()
+  await expect(page.locator('#vmore')).toHaveText('Try again')
+  await expect(page.locator('#vlist .watch-card')).toHaveCount(1)
+  page._vellumErrors.length = 0
+  pageTwoDown = false
+  await page.locator('#vmore').click()
+  await expect(page.locator('#vlist .watch-card')).toHaveCount(2)
+  await expect(page.locator('#vlist')).toContainText('DramaCool page 2')
+})
+
+test('loads HLS through the lazy fallback when native playback is unavailable', async ({ page }) => {
+  const state = { episodes: [episode(1)] }
+  let playlistRequests = 0
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock HLS',
+    sources: [{ kind: 'direct', url: '/read/api/video/media/playlist.m3u8', type: 'application/x-mpegURL' }],
+  }))
+  await page.route('**/read/api/video/media/playlist.m3u8', route => {
+    playlistRequests++
+    return route.fulfill({ contentType: 'application/vnd.apple.mpegurl', body: '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-ENDLIST\n' })
+  })
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  const media = page.locator('#vplayer video')
+  await expect(media).toHaveCount(1)
+  await expect(page.locator('.video-provider-label')).toHaveText('Provided by Mock HLS')
+  await media.evaluate(video => video.play().catch(() => {}))
+  await expect.poll(() => playlistRequests).toBeGreaterThan(0)
+})
+
 test('bounds and searches a large provider-neutral episode list', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const state = { episodes: Array.from({ length: 501 }, (_, index) => episode(index + 1)) }
