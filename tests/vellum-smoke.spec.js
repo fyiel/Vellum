@@ -251,7 +251,7 @@ test('bounds a large manga chapter list without hiding searchable chapters', asy
 test('restores manga pages, windows image memory, and separates page and chapter keys', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const key = 'mf:long-reader'
-  const chapters = [1, 2, 3].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))
+  const chapters = [1, 2, 3, 4].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))
   await page.route('**/read/api/manga/series/**', route => route.fulfill({
     contentType: 'application/json',
     body: JSON.stringify({ key, kind: 'manga', format: 'manhwa', title: 'Long Reader' }),
@@ -314,6 +314,21 @@ test('restores manga pages, windows image memory, and separates page and chapter
   await page.locator('#mr-back').click()
   await expect(page.locator('#manga-start')).toContainText('Continue · Ch. 3')
   await expect(page.locator('#mr-pages img')).toHaveCount(0)
+
+  await page.evaluate(() => { location.hash = '#/manga/read/mf%3Along-reader/chapter-2' })
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(30)
+  const stream = () => page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight)
+    window.dispatchEvent(new Event('scroll'))
+  })
+  await stream()
+  await expect.poll(() => page.locator('#mr-pages .manga-page').count()).toBeGreaterThan(30)
+  await expect(page).toHaveURL(/chapter-2$/)
+  await stream()
+  await expect.poll(() => page.locator('#mr-pages .manga-page').count()).toBeGreaterThan(60)
+  await expect(page).toHaveURL(/chapter-2$/)
+  expect(await page.locator('#mr-pages .manga-page').count()).toBeLessThanOrEqual(75)
 })
 
 test('labels an unreachable manga chapter as offline and offers retry', async ({ page }) => {
