@@ -242,6 +242,7 @@ function observePages() {
     const inChapter = index => index >= 0 && index < (state.content?.pages.length || 0)
     state.loadObserver = new IntersectionObserver(entries => {
         entries.forEach(entry => {
+            if (!entry.isIntersecting) return
             const index = Number(entry.target.dataset.page) - state.pageBase
             if (inChapter(index)) loadPage(index)
         })
