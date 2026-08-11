@@ -2,11 +2,12 @@ import { discoverVideo } from '../lib/video-api.js'
 import { library } from '../lib/store.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
-import { videoProviderLabel } from './video-series.js'
+import { videoProviderLabel, dramaLabel } from './video-series.js'
 
 const LIMIT = 30
 const isVideo = entry => entry.kind === 'anime' || entry.kind === 'drama'
-const kindName = kind => kind === 'drama' ? 'K-drama' : 'Anime'
+const kindName = kind => kind === 'drama' ? 'Drama' : 'Anime'
+const itemLabel = item => item.kind === 'drama' ? dramaLabel(item.country) : 'Anime'
 const route = key => `#/watch/series/${encodeURIComponent(key)}`
 const playRoute = entry => `#/watch/play/${encodeURIComponent(entry.slug)}/${encodeURIComponent(entry.lastId)}`
 const time = seconds => {
@@ -29,9 +30,9 @@ let ctrl = null
 let timer = null
 
 const poster = (item, eager = false) => coverImg(item.poster, item.title, { useResolver: false, eager })
-const card = (item, index) => `<a class="watch-card" href="${route(item.key)}" aria-label="${esc(`${item.title}, ${kindName(item.kind)}`)}">
+const card = (item, index) => `<a class="watch-card" href="${route(item.key)}" aria-label="${esc(`${item.title}, ${itemLabel(item)}`)}">
   <div class="watch-poster">${poster(item, index < 4) || '<span class="watch-poster-empty">No poster</span>'}${item.year ? `<span class="watch-year">${esc(item.year)}</span>` : ''}</div>
-  <div class="watch-card-copy"><h2>${esc(item.title)}</h2><div class="watch-meta"><span>${esc(kindName(item.kind))}</span>${item.status ? `<span>${esc(item.status)}</span>` : ''}</div></div>
+  <div class="watch-card-copy"><h2>${esc(item.title)}</h2><div class="watch-meta"><span>${esc(itemLabel(item))}</span>${item.status ? `<span>${esc(item.status)}</span>` : ''}</div></div>
 </a>`
 
 const skeletons = () => Array.from({ length: 8 }, () => '<div class="watch-card watch-skeleton" aria-hidden="true"><div class="watch-poster"></div><div class="watch-card-copy"><i></i><i></i></div></div>').join('')

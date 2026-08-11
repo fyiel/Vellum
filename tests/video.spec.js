@@ -467,7 +467,7 @@ test('renders DramaCooli rows in the K-drama tab with provider-prefixed keys', a
   await expect(page.locator('#vkind [data-kind="drama"]')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('#vlist .watch-card')).toHaveCount(1)
   await expect(page.locator('#vlist .watch-card')).toHaveAttribute('href', '#/watch/series/dc%3Ablood-free')
-  await expect(page.locator('#vlist .watch-card')).toHaveAttribute('aria-label', 'Blood Free, K-drama')
+  await expect(page.locator('#vlist .watch-card')).toHaveAttribute('aria-label', 'Blood Free, Drama')
   await page.locator('#vlist .watch-card').click()
   await expect(page.locator('#vinfo')).toContainText('Blood Free')
   await expect(page.locator('#vinfo .video-stats')).toContainText('DramaCooli')

@@ -11,7 +11,19 @@ const ORIGIN_LABEL = { library: 'Library', updates: 'Updates', watch: 'Watch' }
 const ORIGIN_ROUTE = { library: '#/', updates: '#/updates', watch: '#/watch' }
 const PROVIDER_LABEL = { miruro: 'Miruro', dc: 'DramaCooli', gp: 'GoPlay', goplay: 'GoPlay', cineby: 'Cineby' }
 export const videoProviderLabel = key => PROVIDER_LABEL[String(key || '').toLowerCase()] || null
-const kindName = kind => kind === 'drama' ? 'K-drama' : 'Anime'
+const kindName = kind => kind === 'drama' ? 'Drama' : 'Anime'
+// the drama origin comes from the catalogue's country (series pages carry it as "Country")
+export const dramaLabel = country => {
+    const c = String(country || '').toLowerCase().replace(/[^a-z]/g, '')
+    if (c.includes('korea')) return 'K-Drama'
+    if (c.includes('chinese') || c.includes('china')) return 'C-Drama'
+    if (c.includes('taiwan')) return 'T-Drama'
+    if (c.includes('hong')) return 'HK-Drama'
+    if (c.includes('thailand') || c === 'thai') return 'Thai-Drama'
+    if (c.includes('japan') || c === 'japanese') return 'J-Drama'
+    return 'Drama'
+}
+const kindLabel = item => item.kind === 'drama' ? dramaLabel(item.country) : 'Anime'
 const route = (key, id) => `#/watch/play/${encodeURIComponent(key)}/${encodeURIComponent(id)}`
 const followed = key => library().some(entry => entry.slug === key)
 const currentRouteIs = key => {
@@ -46,7 +58,7 @@ function entryFor(series) {
         cover: series.poster || series.cover,
         author: series.studio || series.cast?.[0],
         source: series.source || parseVideoKey(series.key)?.provider,
-        format: kindName(series.kind),
+        format: kindLabel(series),
         total: episodes.length || series.totalEpisodes || undefined,
         episodeIds: episodes.length ? episodes.map(episode => episode.id) : undefined,
         watchedCount: readSet(series.key).size,
@@ -62,7 +74,7 @@ function info(series) {
     // episodes may be absent while the interim AniList row renders before the proxy episodes arrive
     const episodes = series.episodes || []
     const cont = episodes.find(episode => episode.id === saved?.id) || episodes[0]
-    const meta = [kindName(series.kind), series.year, series.status].filter(Boolean).join(' · ')
+    const meta = [kindLabel(series), series.year, series.status].filter(Boolean).join(' · ')
     const tags = (series.genres || []).map(genre => `<span class="video-tag">${esc(genre)}</span>`).join('')
     const start = episodes.length
         ? saved ? `Continue · ${esc(episodeLabel(cont))}` : 'Watch episode 1'
