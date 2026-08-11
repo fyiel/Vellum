@@ -63,9 +63,21 @@ function paint() {
 async function fetchPage(nextPage, fresh, mine, signal) {
     const request = { query, source, format }
     const opts = { source: request.source, format: request.format, page: nextPage, limit: LIMIT, signal }
+    // when a stale page-1 feed was served instantly, this fires once the
+    // background SWR refresh lands so the grid repaints with the fresh rows
+    const onFresh = data => {
+        if (mine !== gen) return
+        if (request.query !== query || request.source !== source || request.format !== format) return
+        if (page !== nextPage) return
+        rows = data.results
+        hasMore = Boolean(data.hasMore)
+        notice = mangaResponseNotice(data, request.source)
+        pageError = false
+        paint()
+    }
     const data = request.query
-        ? await searchManga(request.query, opts)
-        : await discoverManga({ source: request.source, format: request.format, page: nextPage, limit: LIMIT }, { signal })
+        ? await searchManga(request.query, { ...opts, onFresh: fresh ? onFresh : undefined })
+        : await discoverManga({ source: request.source, format: request.format, page: nextPage, limit: LIMIT }, { signal, onFresh: fresh ? onFresh : undefined })
     if (mine !== gen) return
 
     const seen = new Set(fresh ? [] : rows.map(item => item.key))

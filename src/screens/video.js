@@ -28,6 +28,7 @@ let moreFailed = false
 let gen = 0
 let ctrl = null
 let timer = null
+let provisional = false
 
 const poster = (item, eager = false) => coverImg(item.poster, item.title, { useResolver: false, eager })
 const card = (item, index) => `<a class="watch-card" href="${route(item.key)}" aria-label="${esc(`${item.title}, ${itemLabel(item)}`)}">
@@ -63,13 +64,13 @@ function paint() {
     $('#vlist').setAttribute('aria-busy', String(loading))
     $('#vstatus').textContent = rows.length ? `Loaded ${rows.length}${hasMore ? ' so far' : ''}` : ''
     const more = $('#vmore')
-    more.hidden = !rows.length || !hasMore
+    more.hidden = provisional || !rows.length || !hasMore
     more.disabled = loading
     more.textContent = loading ? 'Loading…' : moreFailed ? 'Try again' : 'Load more'
 }
 
-async function fetchPage(next, fresh, mine) {
-    const data = await discoverVideo({ q: query, kind, page: next, limit: LIMIT, signal: ctrl?.signal })
+async function fetchPage(next, fresh, mine, progress) {
+    const data = await discoverVideo({ q: query, kind, page: next, limit: LIMIT, signal: ctrl?.signal, onProgress: progress })
     if (mine !== gen) return
     const seen = new Set(fresh ? [] : rows.map(item => item.key))
     const incoming = data.results.filter(item => !seen.has(item.key))
@@ -95,14 +96,23 @@ async function start() {
     hasMore = true
     loading = true
     moreFailed = false
+    provisional = true
     paintControls()
     paintContinue()
     $('#vlist').setAttribute('aria-busy', 'true')
     $('#vlist').innerHTML = skeletons()
     $('#vmore').hidden = true
+    // each leg of the feed paints the moment its rows land; the final merged paint
+    // follows when both have resolved (or one has failed) and stays authoritative
+    const onProgress = progress => {
+        if (mine !== gen || !provisional) return
+        rows = query ? progress.results.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : progress.results
+        hasMore = Boolean(progress.hasMore)
+        paint()
+    }
     try {
-        await fetchPage(1, true, mine)
-        if (mine === gen) paint()
+        await fetchPage(1, true, mine, onProgress)
+        if (mine === gen) { provisional = false; paint() }
     } catch (error) {
         if (mine !== gen || error.name === 'AbortError') return
         const message = !navigator.onLine ? 'You’re offline. Reconnect to browse video.'
@@ -112,6 +122,7 @@ async function start() {
         $('#vretry').onclick = start
     } finally {
         if (mine === gen) {
+            provisional = false
             loading = false
             $('#vlist').setAttribute('aria-busy', 'false')
             if (rows.length) paint()
@@ -128,6 +139,21 @@ async function more() {
     try { await fetchPage(page + 1, false, mine) }
     catch { if (mine === gen) moreFailed = true }
     finally { if (mine === gen) { loading = false; paint() } }
+}
+
+// poster hosts are cold on a first visit (~5MB per grid); preconnecting while the
+// skeletons show shaves the image waterfall without blocking the card paint
+const IMAGE_HOSTS = ['https://s4.anilist.co', 'https://dramacooli.buzz']
+const hinted = new Set()
+function hintImageHosts() {
+    for (const href of IMAGE_HOSTS) {
+        if (hinted.has(href)) continue
+        hinted.add(href)
+        const link = document.createElement('link')
+        link.rel = 'preconnect'
+        link.href = href
+        document.head.appendChild(link)
+    }
 }
 
 function wire() {
@@ -158,6 +184,7 @@ function wire() {
 
 export function showVideo() {
     wire()
+    hintImageHosts()
     clearTimeout(timer)
     paintContinue()
     if (!inited) { inited = true; start() }

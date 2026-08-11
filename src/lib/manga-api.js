@@ -131,31 +131,31 @@ const normalizeResults = (value, source, format) => {
     }
 }
 
-const resultRequest = (kind, qs, { source, format, page, signal }, message) => {
+const resultRequest = (kind, qs, { source, format, page, signal }, message, onFresh) => {
     const accept = value => validResults(value, page)
     const cacheAccept = value => accept(value) && cacheableResults(value) && normalizeResults(value, source, format) === value
     return cached(`manga:${kind}:${qs}`, kind === 'search' ? 5 * MIN : 10 * MIN,
         () => requireValue(mangaGet(`/read/api/manga/${kind}?${qs}`, signal), accept, message)
             .then(value => normalizeResults(value, source, format)),
-        { accept: cacheAccept, signal })
+        { accept: cacheAccept, signal, onFresh })
 }
 
 const validRequest = (source, format, page, limit) => PROVIDER.has(source) && FORMAT.has(format)
     && Number.isInteger(page) && page > 0 && Number.isInteger(limit) && limit > 0 && limit <= 100
 
-export const searchManga = (text, { source = 'all', format = 'all', page = 1, limit = 30, signal } = {}) => {
+export const searchManga = (text, { source = 'all', format = 'all', page = 1, limit = 30, signal, onFresh } = {}) => {
     const q = String(text || '').trim()
     if (!q) return Promise.resolve({ page: 1, results: [], hasMore: false })
     if (!validRequest(source, format, page, limit)) return Promise.reject(new Error('invalid manga search'))
     const qs = query({ q, source, format: format === 'all' ? undefined : format, page, limit })
-    return resultRequest('search', qs, { source, format, page, signal }, 'manga search unavailable')
+    return resultRequest('search', qs, { source, format, page, signal }, 'manga search unavailable', onFresh)
 }
 
-export const discoverManga = (params = {}, { signal } = {}) => {
+export const discoverManga = (params = {}, { signal, onFresh } = {}) => {
     const { source = 'all', format = 'all', page = 1, limit = 30 } = params
     if (!validRequest(source, format, page, limit)) return Promise.reject(new Error('invalid manga discovery'))
     const qs = query({ source, format: format === 'all' ? undefined : format, page, limit })
-    return resultRequest('discover', qs, { source, format, page, signal }, 'manga catalogue unavailable')
+    return resultRequest('discover', qs, { source, format, page, signal }, 'manga catalogue unavailable', onFresh)
 }
 
 export const getMangaSeries = (key, { signal } = {}) => {

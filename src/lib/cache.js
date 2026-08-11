@@ -124,18 +124,21 @@ async function load(key, ttlMs, loader, negTtlMs, accept, canStore = () => true)
     return v
 }
 
-function background(key, ttlMs, loader, negTtlMs, accept) {
+function background(key, ttlMs, loader, negTtlMs, accept, onFresh) {
     if (refreshing.has(key)) return
     refreshing.add(key)
     const token = {}
     writers.set(key, token)
-    load(key, ttlMs, loader, negTtlMs, accept, () => writers.get(key) === token).catch(() => {}).finally(() => {
-        refreshing.delete(key)
-        if (writers.get(key) === token) writers.delete(key)
-    })
+    load(key, ttlMs, loader, negTtlMs, accept, () => writers.get(key) === token)
+        .then(v => { if (accept(v)) onFresh?.(v) })
+        .catch(() => {})
+        .finally(() => {
+            refreshing.delete(key)
+            if (writers.get(key) === token) writers.delete(key)
+        })
 }
 
-async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore) {
+async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore, onFresh) {
     const now = Date.now()
     const disk = await idbGet(key)
     // a stored value that fails accept (eg an empty page cached while a source was down) is
@@ -144,7 +147,7 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, clai
     if (disk && accept(disk.v)) {
         memPut(key, disk)
         if (disk.exp > now) return disk.v
-        if (swr) { background(key, ttlMs, loader, negTtlMs, accept); return disk.v }
+        if (swr) { background(key, ttlMs, loader, negTtlMs, accept, onFresh); return disk.v }
     }
 
     claimStore()
@@ -152,7 +155,7 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, clai
 }
 
 export function cached(rawKey, ttlMs, loader, opts = {}) {
-    const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined, signal } = opts
+    const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined, signal, onFresh } = opts
     const key = vkey(rawKey)
 
     if (signal?.aborted) return Promise.reject(Object.assign(new Error('request aborted'), { name: 'AbortError' }))
@@ -168,7 +171,7 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
         if (signal?.aborted || inflight.get(key) !== entry) return
         writers.set(key, entry)
     }
-    const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept, () => writers.get(key) === entry, claimStore).finally(() => {
+    const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept, () => writers.get(key) === entry, claimStore, onFresh).finally(() => {
         if (inflight.get(key) === entry) inflight.delete(key)
         if (writers.get(key) === entry) writers.delete(key)
     })

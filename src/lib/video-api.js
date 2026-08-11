@@ -93,7 +93,7 @@ const providerError = (provider, error) => error?.status === 404
     ? { provider, code: 'provider_unconfigured', message: `${provider === 'miruro' ? 'Anime' : 'Drama'} playback is not configured` }
     : { provider, code: 'provider_unavailable', message: `${provider === 'miruro' ? 'Anime' : 'Drama'} provider unavailable` }
 
-export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, signal } = {}) {
+export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, signal, onProgress } = {}) {
     const qText = String(q).trim()
     const qs = query({ q: qText, kind, page, limit })
     const dramaLeg = () => apiGet(`/read/api/video/discover?${query({ q: qText, kind: 'drama', page, limit })}`, { signal })
@@ -101,16 +101,33 @@ export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, sign
         if (kind === 'drama') {
             return requireValue(dramaLeg(), validResults, 'video catalogue unavailable')
         }
-        const [anime, drama] = await Promise.all([
-            anilistDiscover({ q: qText, page, limit, signal })
-                .then(value => ({ rows: value.rows.map(row => ({ ...row, poster: row.cover })), hasMore: value.hasMore, error: null }))
-                .catch(error => ({ rows: [], hasMore: false, error })),
-            kind === 'all'
-                ? dramaLeg()
-                    .then(value => ({ rows: value.results || [], hasMore: Boolean(value.hasMore), partial: Boolean(value.partial), errors: value.errors || [], error: null }))
-                    .catch(error => ({ rows: [], hasMore: false, partial: false, errors: [], error }))
-                : { rows: [], hasMore: false, partial: false, errors: [], error: null },
-        ])
+        const animePromise = anilistDiscover({ q: qText, page, limit, signal })
+            .then(value => ({ rows: value.rows.map(row => ({ ...row, poster: row.cover })), hasMore: value.hasMore, error: null }))
+            .catch(error => ({ rows: [], hasMore: false, error }))
+        const dramaPromise = kind === 'all'
+            ? dramaLeg()
+                .then(value => ({ rows: value.results || [], hasMore: Boolean(value.hasMore), partial: Boolean(value.partial), errors: value.errors || [], error: null }))
+                .catch(error => ({ rows: [], hasMore: false, partial: false, errors: [], error }))
+            : Promise.resolve({ rows: [], hasMore: false, partial: false, errors: [], error: null })
+        // progressive first paint: hand the screen the best-known interleaved grid as each
+        // leg lands, instead of holding the fast leg hostage to the slow one (WATCH-INSTANT).
+        // Only the cold loader path can observe this — warm/SWR hits resolve from cache and
+        // never run the loader, so revisits keep the full instant grid.
+        if (onProgress && page === 1) {
+            let animeSeen = null
+            let dramaSeen = null
+            const deliver = () => {
+                const grid = {
+                    page,
+                    results: interleave(animeSeen?.rows || [], dramaSeen?.rows || [], limit),
+                    hasMore: Boolean(animeSeen?.hasMore || dramaSeen?.hasMore),
+                }
+                if (grid.results.length) onProgress(grid)
+            }
+            animePromise.then(value => { if (!value.error) { animeSeen = value; deliver() } }).catch(() => {})
+            dramaPromise.then(value => { if (!value.error) { dramaSeen = value; deliver() } }).catch(() => {})
+        }
+        const [anime, drama] = await Promise.all([animePromise, dramaPromise])
         // anime is client-side (AniList is CORS-open); only drama goes through the proxy
         if (kind === 'anime') {
             if (anime.error) throw anime.error
