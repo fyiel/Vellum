@@ -79,6 +79,8 @@ body { background: #15161a; overflow: hidden; }
 .den .pcell { display: flex; align-items: center; gap: 9px; }
 .den .bar { flex: 1; height: 4px; background: var(--track); }
 .den .bar > span { display: block; height: 100%; background: var(--ac); }
+/* current-episode timestamp overlay: distinct from the episode-count fill */
+.den .bar > span.ep { background: var(--hi); opacity: .55; }
 .den .pct { font: 400 11px var(--mono); color: var(--text); min-width: 28px; text-align: right; }
 .den .chp { font: 400 12px var(--mono); color: var(--text); text-align: right; }
 .den .upd { font: 400 11px var(--mono); color: var(--dim); text-align: right; }

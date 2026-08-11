@@ -16,12 +16,13 @@ const isManga = e => e.kind === 'manga'
 const isVideo = e => e.kind === 'anime' || e.kind === 'drama'
 const read = e => isVideo(e) ? (e.watchedCount || 0) : (e.readCount || 0)
 const total = e => e.total || 0
-const partial = e => {
+// episode-progress bar: fully watched entries; the current episode's timestamp fraction is
+// drawn as a separate overlay strip (epPct) so a long series still shows where you are in the episode
+const pctOf = e => total(e) ? Math.min(100, Math.round((read(e) / total(e)) * 100)) : 0
+const epPct = e => {
     if (!isVideo(e) || Number(e.lastDuration) <= 0) return 0
-    const ratio = Number(e.lastPosition || 0) / Number(e.lastDuration)
-    return ratio >= .9 ? 0 : Math.min(1, ratio)
+    return Math.min(100, Math.round((Number(e.lastPosition || 0) / Number(e.lastDuration)) * 100))
 }
-const pctOf = e => total(e) ? Math.min(100, Math.round(((read(e) + partial(e)) / total(e)) * 100)) : 0
 const started = e => read(e) > 0 || e.lastN != null || e.lastId != null
 const done = e => total(e) > 0 && read(e) >= total(e) && (!isManga(e) || !e.pageCount || e.lastPage >= e.pageCount)
 const resumeN = e => (e.lastN != null ? e.lastN : 1)
@@ -52,12 +53,13 @@ const cover = (e, ph) => coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>
 
 const contTile = e => {
     const pct = pctOf(e)
+    const ep = epPct(e)
     return `<div class="ctile" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" data-n="${esc(resumeN(e))}" ${e.lastId ? `data-id="${esc(e.lastId)}"` : ''}>
       <div class="cv">${cover(e, 'COV')}</div>
       <div class="cbd">
         <div class="ti">${esc(e.title)}</div>
         ${(isManga(e) || isVideo(e)) ? `<div class="cm">${esc(entryMeta(e))}</div>` : ''}
-        <div class="mt"><span class="last-read">${esc(lastRead(e))}</span><span class="bar"><span style="width:${pct}%"></span></span>${pct}%</div>
+        <div class="mt"><span class="last-read">${esc(lastRead(e))}</span><span class="bar"><span style="width:${pct}%"></span>${ep ? `<span class="ep" style="width:${ep}%"></span>` : ''}</span>${pct}%</div>
       </div>
     </div>`
 }
@@ -71,11 +73,12 @@ function updCell(e) {
 
 const row = e => {
     const pct = pctOf(e)
+    const ep = epPct(e)
     const meta = entryMeta(e)
     return `<div class="trow" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" data-n="${esc(resumeN(e))}">
       <span class="cv">${cover(e, '')}</span>
       <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(meta)}</div>${(isManga(e) || isVideo(e)) && e.lastLabel ? `<div class="last">${isVideo(e) ? 'Last watched' : 'Last read'} ${esc(lastRead(e))}</div>` : ''}</div>
-      <div class="pcell"><span class="bar"><span style="width:${pct}%"></span></span><span class="pct">${pct}%</span></div>
+      <div class="pcell"><span class="bar"><span style="width:${pct}%"></span>${ep ? `<span class="ep" style="width:${ep}%"></span>` : ''}</span><span class="pct">${pct}%</span></div>
       <span class="chp">${esc(read(e))}/${esc(total(e))}</span>
       ${updCell(e)}
     </div>`
