@@ -2,7 +2,7 @@ import { getVideoPlayback, getVideoSeries, parseVideoKey, videoAssetUrl } from '
 import { go, parseHash } from '../lib/router.js'
 import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
-import { videoProviderLabel } from './video-series.js'
+import { videoProviderLabel, dramaLabel } from './video-series.js'
 
 const player = $('#vplayer')
 const stage = $('#vp-stage')
@@ -51,7 +51,7 @@ function libraryEntry(position, duration) {
         cover: state.series.poster,
         author: state.series.studio || state.series.cast?.[0],
         source: state.series.source,
-        format: state.series.kind === 'drama' ? 'K-drama' : 'Anime',
+        format: state.series.kind === 'drama' ? dramaLabel(state.series.country) : 'Anime',
         total: state.episodes.length,
         episodeIds: state.episodes.map(episode => episode.id),
         watchedCount: readSet(state.key).size,

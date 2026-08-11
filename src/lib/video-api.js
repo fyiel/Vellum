@@ -90,8 +90,8 @@ const interleave = (left, right, limit) => {
 }
 
 const providerError = (provider, error) => error?.status === 404
-    ? { provider, code: 'provider_unconfigured', message: `${provider === 'miruro' ? 'Anime' : 'K-drama'} playback is not configured` }
-    : { provider, code: 'provider_unavailable', message: `${provider === 'miruro' ? 'Anime' : 'K-drama'} provider unavailable` }
+    ? { provider, code: 'provider_unconfigured', message: `${provider === 'miruro' ? 'Anime' : 'Drama'} playback is not configured` }
+    : { provider, code: 'provider_unavailable', message: `${provider === 'miruro' ? 'Anime' : 'Drama'} provider unavailable` }
 
 export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, signal } = {}) {
     const qText = String(q).trim()
