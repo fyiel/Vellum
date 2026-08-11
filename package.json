@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "test:e2e": "playwright test tests",
-    "test:adapter": "node --test tests/anime-adapter.test.mjs tests/cineby.test.mjs tests/dramacooli.test.mjs tests/goplay.test.mjs",
+    "test:adapter": "node --test tests/anime-adapter.test.mjs tests/cineby.test.mjs tests/dramacooli.test.mjs tests/goplay.test.mjs tests/kisskh.test.mjs",
     "web:build": "VITE_BASE=/Vellum/ VITE_WEB_ABS=1 vite build",
     "preview": "vite preview",
     "desktop": "tauri dev",

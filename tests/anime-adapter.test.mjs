@@ -303,7 +303,9 @@ test('routes dc and cineby keys through the provider registry', async () => {
 
 test('kind=drama discovery aggregates DramaCooli rows without partial state', async () => {
     const fetchImpl = async url => {
-        assert.equal(String(url), 'https://dramacooli.ws/wp-json/wp/v2/categories?orderby=count&per_page=100&page=1&hide_empty=true')
+        const target = String(url)
+        if (target.startsWith('https://kisskh.co/api/')) return response([]) // kiss leg: empty feed
+        assert.equal(target, 'https://dramacooli.ws/wp-json/wp/v2/categories?orderby=count&per_page=100&page=1&hide_empty=true')
         return response([{ id: 7, name: 'Doctor Slump' }, { id: 12, name: 'Moving' }])
     }
     const result = await handleAnimeVideoRequest(request('/read/api/video/discover?kind=drama'), {}, fetchImpl)

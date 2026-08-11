@@ -9,7 +9,7 @@ import { $, esc } from '../lib/dom.js'
 const BATCH = 200
 const ORIGIN_LABEL = { library: 'Library', updates: 'Updates', watch: 'Watch' }
 const ORIGIN_ROUTE = { library: '#/', updates: '#/updates', watch: '#/watch' }
-const PROVIDER_LABEL = { miruro: 'Miruro', dc: 'DramaCooli', gp: 'GoPlay', goplay: 'GoPlay', cineby: 'Cineby' }
+const PROVIDER_LABEL = { miruro: 'Miruro', dc: 'DramaCooli', gp: 'GoPlay', goplay: 'GoPlay', cineby: 'Cineby', kiss: 'KissKH' }
 export const videoProviderLabel = key => PROVIDER_LABEL[String(key || '').toLowerCase()] || null
 const kindName = kind => kind === 'drama' ? 'Drama' : 'Anime'
 // the drama origin comes from the catalogue's country (series pages carry it as "Country")

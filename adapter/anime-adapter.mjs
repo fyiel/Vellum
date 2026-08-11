@@ -1,13 +1,14 @@
 import { dramacooli } from './providers/dramacooli.mjs'
 import { cineby } from './providers/cineby.mjs'
 import { goplay } from './providers/goplay.mjs'
+import { kisskh } from './providers/kisskh.mjs'
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }
 const ANILIST = 'https://graphql.anilist.co'
 const ANIDB = 'https://anidb.app'
 const FORMATS = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'MUSIC'])
-const PROVIDER_KEY = /^(miruro|dc|gp|cineby):(.+)$/
-const PROVIDER_IDS = { miruro: /^\d+$/, dc: /^[a-z0-9._-]{1,100}$/, gp: /^[a-z0-9._-]{1,100}$/, cineby: /^\d+$/ }
+const PROVIDER_KEY = /^(miruro|dc|gp|cineby|kiss):(.+)$/
+const PROVIDER_IDS = { miruro: /^\d+$/, dc: /^[a-z0-9._-]{1,100}$/, gp: /^[a-z0-9._-]{1,100}$/, cineby: /^\d+$/, kiss: /^\d+$/ }
 const ANIDB_EPISODE = /^anidbapp:(\d+):(\d+)$/
 const ANIDB_MEDIA = /^[A-Za-z0-9_-]{32}\/[A-Za-z0-9._~/-]{1,500}$/
 const opaque = value => typeof value === 'string' && value.length > 0 && value.length <= 512 && !/[\u0000-\u001f\u007f]/.test(value)
@@ -358,6 +359,7 @@ const REGISTRY = new Map([
     ['dc', dramacooli],
     ['gp', goplay],
     ['cineby', cineby],
+    ['kiss', kisskh],
 ])
 
 const routeEntry = (info, invalid) => {

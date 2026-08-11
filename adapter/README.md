@@ -14,6 +14,7 @@ handlers. Each handler receives a context of `{ env, fetchImpl, request, cached 
 | `dc` | DramaCooli | drama | open WordPress REST API (`wp-json/wp/v2/*`) |
 | `gp` | GoPlay | drama | **unavailable** - goplay.su blocks automated access (Cloudflare Turnstile) |
 | `cineby` | Cineby | anime | SSR `__NEXT_DATA__` pages |
+| `kiss` | KissKH | drama | public JSON API + per-episode AES-128-CBC kkey; **unavailable from datacenter egress** (Cloudflare + ASN-blocked HLS CDNs) |
 
 Keys are `provider:id` with a per-provider id gate: `miruro` and `cineby` take
 numeric ids, `dc` and `gp` take `[a-z0-9._-]{1,100}` slugs. An unknown prefix

@@ -426,7 +426,7 @@ test('names an offline player failure and recovers from a lazy chunk failure', a
 test('keeps provider prefixes intact through parseVideoKey', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const { parseVideoKey } = await import('/src/lib/video-api.js')
-    return ['mock:signal-season', 'dc:a-shop-for-killers', 'cineby:817', 'gp:dark-city', 'miruro:12345', 'nokey']
+    return ['mock:signal-season', 'dc:a-shop-for-killers', 'cineby:817', 'gp:dark-city', 'miruro:12345', 'kiss:7302', 'nokey']
       .map(key => ({ key, parsed: parseVideoKey(key) }))
   })
   expect(result).toEqual([
@@ -435,6 +435,7 @@ test('keeps provider prefixes intact through parseVideoKey', async ({ page }) =>
     { key: 'cineby:817', parsed: { provider: 'cineby', id: '817' } },
     { key: 'gp:dark-city', parsed: { provider: 'gp', id: 'dark-city' } },
     { key: 'miruro:12345', parsed: { provider: 'miruro', id: '12345' } },
+    { key: 'kiss:7302', parsed: { provider: 'kiss', id: '7302' } },
     { key: 'nokey', parsed: null },
   ])
 })
