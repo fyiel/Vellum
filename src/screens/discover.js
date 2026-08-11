@@ -1,6 +1,5 @@
 import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
 import { srcIds, srcLabel } from '../lib/source.js'
-import { go } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
 
@@ -33,6 +32,7 @@ let loadingGen = 0
 let done = false
 let enrichedFirst = false
 let feedError = false
+let moreFailed = false
 // filters as applied to the current feed, staged chip changes must not leak into pagination
 let appliedFiltersState = null
 
@@ -96,29 +96,26 @@ const metaInit = r => [srcLabel(srcIds(r)[0]) || r.sourceName, r.year].filter(Bo
 const stars = r => r.rating ? `<span class="st">★</span>${Number(r.rating).toFixed(1)}` : ''
 
 function rowHtml(r, i) {
-    const rank = i + 1
-    const top = rank <= 3 ? ' top' : ''
     const cover = coverImg(r.cover, r.title)
-    return `<div class="rrow${top}" data-key="${esc(r.key)}">
-      <span class="rk">${rank}</span>
-      <span class="cv">${cover}</span>
-      <div class="tt"><div class="n">${esc(r.title)}</div><div class="au">${esc(metaInit(r))}</div></div>
-      <span class="rt">${stars(r)}</span>
-      <span class="chp">${r.chapters ? `${r.chapters} ch` : ''}</span>
-      <span class="tr"></span>
-    </div>`
+    const meta = metaInit(r)
+    return `<a class="dcard" href="#/series/${encodeURIComponent(r.key)}" data-key="${esc(r.key)}">
+      <span class="dcard-cv">${cover}</span>
+      <div class="dcard-copy"><h2>${esc(r.title)}</h2><div class="dcard-meta"><span>${esc(meta)}</span>${stars(r) ? `<span class="rt">${stars(r)}</span>` : ''}</div></div>
+    </a>`
 }
 
 function enrich(list) {
-    const rows = new Map([...$$('#dlist .rrow')].map(el => [el.dataset.key, el]))
+    const rows = new Map([...$$('#dlist .dcard')].map(el => [el.dataset.key, el]))
     list.slice(0, ENRICH_MAX).forEach(r => {
         getSeries(r.key).then(s => {
             if (!s) return
             const el = rows.get(r.key)
             if (!el) return
             const meta = [s.author, s.genres?.[0]].filter(Boolean).join(' · ')
-            if (meta) el.querySelector('.au').textContent = meta
-            if (s.rating) el.querySelector('.rt').innerHTML = `<span class="st">★</span>${s.rating.toFixed(1)}`
+            const metaEl = el.querySelector('.dcard-meta > span:first-child')
+            if (meta && metaEl) metaEl.textContent = meta
+            const rt = el.querySelector('.dcard-meta .rt')
+            if (rt && s.rating) rt.innerHTML = `<span class="st">★</span>${s.rating.toFixed(1)}`
         }).catch(() => {})
     })
 }
@@ -163,6 +160,7 @@ async function startFeed(commitFilters = false) {
     loadingGen = 0
     enrichedFirst = false
     feedError = false
+    moreFailed = false
     seenKeys = new Set()
     setLabel()
     const sc = scroller()
@@ -175,6 +173,7 @@ async function startFeed(commitFilters = false) {
 async function loadMore(fresh = false, gen = feedGen) {
     if (loadingGen !== 0 || done) return
     loadingGen = gen
+    moreFailed = false
 
     const p = page + 1
     let data
@@ -187,8 +186,11 @@ async function loadMore(fresh = false, gen = feedGen) {
             feedError = true
             $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
             $('#rescount').textContent = ''
-        } else if (!$('#dmore-err')) {
-            $('#dlist').insertAdjacentHTML('beforeend', `<div class="void" id="dmore-err">couldn't load more<button class="freset" id="dmore-retry">retry</button></div>`)
+        } else {
+            moreFailed = true
+            if (!$('#dmore-err')) {
+                $('#dlist').insertAdjacentHTML('beforeend', `<div class="void" id="dmore-err">couldn't load more<button class="freset" id="dmore-retry">retry</button></div>`)
+            }
         }
         return
     }
@@ -230,7 +232,7 @@ async function loadMore(fresh = false, gen = feedGen) {
 }
 
 function fillViewport() {
-    if (done || loadingGen !== 0) return
+    if (done || loadingGen !== 0 || moreFailed) return
     const sc = scroller()
     if (sc && sc.scrollHeight <= sc.clientHeight + 40) loadMore()
 }
@@ -371,17 +373,24 @@ function wire() {
     $('#freset').addEventListener('click', resetAll)
     $('#dlist').addEventListener('click', e => {
         if (e.target.closest('#dmore-retry')) {
+            moreFailed = false
             $('#dmore-err')?.remove()
             loadMore()
             return
         }
-        const r = e.target.closest('.rrow')
-        if (r) go(`#/series/${encodeURIComponent(r.dataset.key)}`)
     })
+
+    // bottom sentinel drives loadMore as the user scrolls; a failed load-more stops auto-retries
+    const moreObserver = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)) return
+        if (loadingGen !== 0 || done || moreFailed) return
+        loadMore()
+    }, { rootMargin: '800px 0px' })
+    moreObserver.observe($('#dlist-sentinel'))
 
     scroller()?.addEventListener('scroll', () => {
         const sc = scroller()
-        if (!sc || loadingGen !== 0 || done) return
+        if (!sc || loadingGen !== 0 || done || moreFailed) return
         if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 600) loadMore()
     }, { passive: true })
 

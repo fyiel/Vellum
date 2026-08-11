@@ -145,6 +145,14 @@ function wire() {
         start()
     })
     $('#vmore').addEventListener('click', more)
+    // bottom sentinel drives the same more() as the button, which stays as the
+    // keyboard and Try again fallback; the sentinel itself never auto retries
+    const moreObserver = new IntersectionObserver(entries => {
+        if (!entries.some(entry => entry.isIntersecting)) return
+        if (!hasMore || loading || moreFailed) return
+        more()
+    }, { rootMargin: '800px 0px' })
+    moreObserver.observe($('#vmore-sentinel'))
     window.addEventListener('online', () => { if (!$('#view-watch').hidden && !rows.length) start() })
 }
 

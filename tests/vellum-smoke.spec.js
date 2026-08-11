@@ -26,11 +26,11 @@ test('walks the complete reading journey', async ({ page }) => {
   await expect(page.getByText('nothing in your library yet')).toBeVisible()
 
   await page.locator('[data-nav="discover"]').click()
-  await expect(page.locator('#dlist .rrow').first()).toBeVisible()
+  await expect(page.locator('#dlist .dcard').first()).toBeVisible()
 
   await page.locator('#dsearch').fill('Lord of the Mysteries')
-  await expect(page.locator('#dlist .rrow').first()).toContainText('Lord of the Mysteries')
-  await page.locator('#dlist .rrow').first().click()
+  await expect(page.locator('#dlist .dcard').first()).toContainText('Lord of the Mysteries')
+  await page.locator('#dlist .dcard').first().click()
 
   await expect(page.locator('#sinfo .dtitle')).toHaveText('Lord of the Mysteries')
   await expect(page.locator('#chlist .chrow').first()).toBeVisible()
@@ -65,7 +65,7 @@ test('walks the complete reading journey', async ({ page }) => {
 
 test('walks discover filters and empty updates', async ({ page }) => {
   await page.locator('[data-nav="discover"]').click()
-  await expect(page.locator('#dlist .rrow').first()).toBeVisible()
+  await expect(page.locator('#dlist .dcard').first()).toBeVisible()
 
   await page.locator('#ftoggle').click()
   await expect(page.locator('#fpanel')).toHaveClass(/open/)
@@ -73,7 +73,7 @@ test('walks discover filters and empty updates', async ({ page }) => {
   await expect(page.locator('#tokdrop .topt').first()).toBeVisible()
   await page.locator('#tokdrop .topt').first().click()
   await page.locator('#fapply').click()
-  await expect(page.locator('#dlist .rrow').first()).toBeVisible()
+  await expect(page.locator('#dlist .dcard').first()).toBeVisible()
 
   await page.locator('[data-nav="updates"]').click()
   await expect(page.locator('#ufeed')).toContainText('all caught up')
@@ -95,15 +95,15 @@ test('shows recoverable API failures', async ({ page }) => {
   page._vellumErrors.length = 0
   await page.locator('#ftoggle').click()
   await page.locator('#freset').click()
-  await expect(page.locator('#dlist .rrow').first()).toBeVisible()
+  await expect(page.locator('#dlist .dcard').first()).toBeVisible()
 })
 
 test('loads search, series, and reader at a phone viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.locator('[data-nav="discover"]').click()
   await page.locator('#dsearch').fill('Mother of Learning')
-  await expect(page.locator('#dlist .rrow').first()).toContainText('Mother of Learning')
-  await page.locator('#dlist .rrow').first().click()
+  await expect(page.locator('#dlist .dcard').first()).toContainText('Mother of Learning')
+  await page.locator('#dlist .dcard').first().click()
   await expect(page.locator('#sinfo .dtitle')).toContainText('Mother of Learning')
   await page.locator('#contbtn').click()
   await expect(page.locator('#reader .ch-block').first()).toBeVisible()
@@ -608,7 +608,7 @@ test('keeps loading when an older tab blocks the cache upgrade', async ({ page, 
   })
 
   await page.locator('[data-nav="discover"]').click()
-  await expect(page.locator('#dlist .rrow').first()).toBeVisible()
+  await expect(page.locator('#dlist .dcard').first()).toBeVisible()
   await holder.evaluate(() => window._heldVellumDb.close())
 })
 
@@ -1075,7 +1075,7 @@ test('does not call a failed updates check all caught up', async ({ page }) => {
 
 test('sorts trending without applying staged filters', async ({ page }) => {
   await page.locator('[data-nav="discover"]').click()
-  await expect(page.locator('#dlist .rrow').first()).toBeVisible()
+  await expect(page.locator('#dlist .dcard').first()).toBeVisible()
   await page.locator('#ftoggle').click()
   await page.locator('[data-filter="status"] [data-v="ongoing"]').click()
 

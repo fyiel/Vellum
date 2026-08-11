@@ -40,18 +40,20 @@
 .den .disco .lab { margin: 0 0 11px; display: flex; align-items: baseline; gap: 8px; }
 .den .disco .lab .ct { color: var(--dim); letter-spacing: .5px; }
 
-.den .rrow { display: grid; grid-template-columns: 34px 48px minmax(0, 1fr) 88px 64px 52px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
-.den .rrow:hover { background: var(--rowh); }
-.den .rk { font: 600 17px var(--mono); color: var(--dim); text-align: right; }
-.den .rrow.top .rk { color: var(--ac); }
-.den .rrow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
-.den .disco .tt .au { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.den .rt { font: 400 12px var(--mono); color: var(--text); text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
-.den .rt .st { color: var(--ac); }
-.den .tr { font: 400 11px var(--mono); text-align: right; color: var(--dim); }
+/* stylized cover-card grid, matching Manga and Watch */
+.den #dlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(142px, 1fr)); gap: 22px 14px; }
+.den .dcard { min-width: 0; color: inherit; text-decoration: none; cursor: pointer; }
+.den .dcard-cv { display: block; aspect-ratio: 2/3; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .dcard-cv img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.den .dcard-copy { padding: 9px 2px 0; }
+.den .dcard h2 { margin: 0; color: var(--hi); font: 600 13px/1.3 'Archivo'; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.den .dcard-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; margin-top: 5px; color: var(--dim); font: 500 9px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .45px; }
+.den .dcard-meta .rt { color: var(--text); }
+.den .dcard-meta .rt .st { color: var(--ac); }
+.den #dlist > .void { grid-column: 1 / -1; }
 
-.den.d-compact .rrow { padding: 6px 10px; }
-.den.d-compact .rrow .cv { width: 36px; height: 48px; }
-.den.d-dense .rrow { padding: 3px 10px; }
-.den.d-dense .rrow .cv { width: 28px; height: 38px; }
-.den.d-dense .rk { font-size: 15px; }
+@media (max-width: 640px) {
+  .den #dlist { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
+  .den .dcard-copy { padding-top: 7px; }
+  .den .dcard h2 { font-size: 12px; }
+}
