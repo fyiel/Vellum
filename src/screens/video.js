@@ -59,7 +59,7 @@ function paintContinue() {
 function paint() {
     const status = notice ? `<div class="watch-notice" role="status">${esc(notice)}</div>` : ''
     $('#vlist').innerHTML = rows.length ? status + rows.map(card).join('')
-        : `<div class="watch-empty">${query ? `No matches for “${esc(query)}”` : `No ${kind === 'all' ? 'anime or K-drama' : kindName(kind)} available right now`}</div>`
+        : `<div class="watch-empty">${query ? `No matches for “${esc(query)}”` : `No ${kind === 'all' ? 'anime or drama' : kindName(kind)} available right now`}</div>`
     $('#vlist').setAttribute('aria-busy', String(loading))
     $('#vstatus').textContent = rows.length ? `Loaded ${rows.length}${hasMore ? ' so far' : ''}` : ''
     const more = $('#vmore')
