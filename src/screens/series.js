@@ -242,6 +242,11 @@ async function loadChapters(slug, mine) {
         chapters = d.chapters
     } catch (e) {
         if (mine === req && parseHash().name === 'series' && parseHash().key === cur?.key) {
+            // MangaBaka catalogue entries have no readable chapters in Vellum — offer their external links
+            if (cur?.series?.links?.length && cur.series.readable === false) {
+                $('#schapters').innerHTML = `<div class="void">This title is a MangaBaka catalogue entry with no readable chapters in Vellum.<div class="mb-links">${cur.series.links.map(url => `<a href="${esc(url)}" target="_blank" rel="noopener">Read externally ↗</a>`).join('')}</div></div>`
+                return
+            }
             $('#schapters').innerHTML = `<div class="void">couldn't load the chapter list<button class="btn" id="schapters-retry">retry</button></div>`
             $('#schapters-retry').onclick = () => loadChapters(slug, mine)
         }
