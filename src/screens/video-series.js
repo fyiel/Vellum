@@ -1,4 +1,5 @@
 import { getVideoSeries, parseVideoKey } from '../lib/video-api.js'
+import { anilistSeries } from '../lib/anilist.js'
 import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
 import { coverImg } from '../lib/cover.js'
@@ -35,20 +36,22 @@ let limit = BATCH
 
 function entryFor(series) {
     const saved = posGet(series.key)
+    const episodes = series.episodes || []
+    const savedEpisode = saved?.id ? episodes.find(episode => episode.id === saved.id) : undefined
     return {
         slug: series.key,
         key: series.key,
         kind: series.kind,
         title: series.title,
-        cover: series.poster,
+        cover: series.poster || series.cover,
         author: series.studio || series.cast?.[0],
         source: series.source || parseVideoKey(series.key)?.provider,
         format: kindName(series.kind),
-        total: series.episodes.length,
-        episodeIds: series.episodes.map(episode => episode.id),
+        total: episodes.length || series.totalEpisodes || undefined,
+        episodeIds: episodes.length ? episodes.map(episode => episode.id) : undefined,
         watchedCount: readSet(series.key).size,
         lastId: saved?.id,
-        lastLabel: series.episodes.find(episode => episode.id === saved?.id) ? episodeLabel(series.episodes.find(episode => episode.id === saved.id)) : undefined,
+        lastLabel: savedEpisode ? episodeLabel(savedEpisode) : undefined,
         lastPosition: saved?.id ? (saved.position || 0) : undefined,
         lastDuration: saved?.id ? (saved.duration || 0) : undefined,
     }
@@ -56,13 +59,19 @@ function entryFor(series) {
 
 function info(series) {
     const saved = posGet(series.key)
+    // episodes may be absent while the interim AniList row renders before the proxy episodes arrive
+    const episodes = series.episodes || []
+    const cont = episodes.find(episode => episode.id === saved?.id) || episodes[0]
     const meta = [kindName(series.kind), series.year, series.status].filter(Boolean).join(' · ')
     const tags = (series.genres || []).map(genre => `<span class="video-tag">${esc(genre)}</span>`).join('')
+    const start = episodes.length
+        ? saved ? `Continue · ${esc(episodeLabel(cont))}` : 'Watch episode 1'
+        : 'Loading episodes…'
     return `<div class="video-poster-lg">${coverImg(series.poster, series.title, { useResolver: false, eager: true }) || '<span>No poster</span>'}</div>
       <div class="video-copy"><div class="video-title">${esc(series.title)}</div>${meta ? `<div class="video-meta">${esc(meta)}</div>` : ''}${tags ? `<div class="video-tags">${tags}</div>` : ''}
-      <div class="video-actions"><button class="btn primary" id="video-start" type="button">${saved ? `Continue · ${esc(episodeLabel(series.episodes.find(episode => episode.id === saved.id) || series.episodes[0]))}` : 'Watch episode 1'}</button><button class="btn${followed(series.key) ? ' on' : ''}" id="video-follow" type="button">${followed(series.key) ? 'Following' : 'Follow'}</button><button class="btn video-reset" id="video-reset" type="button" ${saved || readSet(series.key).size ? '' : 'hidden'}>Reset progress</button></div></div>
+      <div class="video-actions"><button class="btn primary" id="video-start" type="button"${episodes.length ? '' : ' disabled'}>${start}</button><button class="btn${followed(series.key) ? ' on' : ''}" id="video-follow" type="button">${followed(series.key) ? 'Following' : 'Follow'}</button><button class="btn video-reset" id="video-reset" type="button" ${saved || readSet(series.key).size ? '' : 'hidden'}>Reset progress</button></div></div>
       ${series.synopsis ? `<div class="video-synopsis"><div class="seclab">Synopsis</div><div class="dsyn">${esc(series.synopsis)}</div></div>` : ''}
-      <div class="video-stats"><div class="drow"><span class="k">Episodes</span><span class="v">${series.episodes.length}</span></div>${series.source ? `<div class="drow"><span class="k">Source</span><span class="v">${esc(series.source)}</span></div>` : ''}</div>`
+      <div class="video-stats"><div class="drow"><span class="k">Episodes</span><span class="v">${episodes.length ? episodes.length : (series.totalEpisodes ?? '…')}</span></div>${series.source ? `<div class="drow"><span class="k">Source</span><span class="v">${esc(series.source)}</span></div>` : ''}</div>`
 }
 
 function episodeRows(episodes) {
@@ -84,6 +93,7 @@ function renderEpisodes() {
 }
 
 function startEpisode() {
+    if (!current.episodes.length) return // interim AniList row — episodes not loaded yet
     const saved = posGet(current.series.key)?.id
     return current.episodes.find(episode => episode.id === saved) || current.episodes[0]
 }
@@ -141,8 +151,20 @@ export async function showVideoSeries(key, origin = 'watch') {
     $('#vepisodes').setAttribute('aria-busy', 'true')
     $('#vinfo').innerHTML = '<div class="video-state" role="status">Loading series…</div>'
     $('#vepisodes').innerHTML = '<div class="video-state" role="status">Finding episodes…</div>'
+    const seriesRequest = getVideoSeries(key)
+    // miruro: render the info block from AniList (client-side, instant) while episodes load via
+    // the proxy; the authoritative proxy response overwrites the interim render when it lands
+    const parsed = parseVideoKey(key)
+    if (parsed?.provider === 'miruro' && parsed.id) {
+        anilistSeries(parsed.id).then(row => {
+            if (mine !== request || !currentRouteIs(key) || current?.series?.episodes?.length) return
+            current = { series: { ...row, poster: row.cover, source: 'Miruro · pewe (AniDB App)' }, episodes: [] }
+            $('#vinfo').innerHTML = info(current.series)
+            $('#vinfo').setAttribute('aria-busy', 'false')
+        }).catch(() => {})
+    }
     try {
-        const series = await getVideoSeries(key)
+        const series = await seriesRequest
         if (mine !== request || !currentRouteIs(key)) return
         const episodes = ordered(series.episodes)
         current = { series: { ...series, episodes }, episodes }
@@ -161,6 +183,14 @@ export async function showVideoSeries(key, origin = 'watch') {
             : error.code === 'not_found' ? (error.message || `${provider || 'This source'} has no playable copy of this title`)
                 : degraded ? `${provider} isn’t available in this build right now`
                     : error.message || 'Series unavailable'
+        $('#vinfo').setAttribute('aria-busy', 'false')
+        $('#vepisodes').setAttribute('aria-busy', 'false')
+        // the interim AniList info is still valid — fail only the episode list
+        if (current?.series?.title && !current.series.episodes?.length) {
+            $('#vepisodes').innerHTML = `<div class="video-state" role="status">${esc(message)}<button id="video-episode-retry" type="button">Try again</button></div>`
+            $('#video-episode-retry').onclick = () => showVideoSeries(key, origin)
+            return
+        }
         const action = degraded
             ? `<a id="video-series-back" href="${ORIGIN_ROUTE[origin] || '#/watch'}">Back to ${ORIGIN_LABEL[origin] || 'Watch'}</a>`
             : `<button id="video-series-retry" type="button">Try again</button>`
@@ -169,7 +199,5 @@ export async function showVideoSeries(key, origin = 'watch') {
         const back = $('#video-series-back')
         if (back) back.addEventListener('click', event => { event.preventDefault(); go(ORIGIN_ROUTE[origin] || '#/watch') })
         else $('#video-series-retry').onclick = () => showVideoSeries(key, origin)
-        $('#vinfo').setAttribute('aria-busy', 'false')
-        $('#vepisodes').setAttribute('aria-busy', 'false')
     }
 }

@@ -136,7 +136,7 @@ async function animeDbFetch(env, fetchImpl, target, request) {
 }
 
 async function animeDbSeries(env, fetchImpl, row, request) {
-    return cached(fetchImpl, `anidb:series:${row.key}`, 30 * 60_000, async () => {
+    return cached(fetchImpl, `anidb:series:${row.key}`, 6 * 60 * 60_000, async () => {
         const url = new URL('/browse', ANIDB)
         url.searchParams.set('q', row.title)
         const body = await animeDbFetch(env, fetchImpl, url.href, request)
@@ -185,7 +185,7 @@ const animeDbEpisode = (seriesId, value) => {
 }
 
 async function animeDbEpisodes(env, fetchImpl, row, request) {
-    return cached(fetchImpl, `anidb:episodes:${row.key}`, 10 * 60_000, async () => {
+    return cached(fetchImpl, `anidb:episodes:${row.key}`, 30 * 60_000, async () => {
         const series = await animeDbSeries(env, fetchImpl, row, request)
         const body = await animeDbFetch(env, fetchImpl, `${ANIDB}/api/frontend/anime/${series.id}/episodes`, request)
         const data = JSON.parse(body)

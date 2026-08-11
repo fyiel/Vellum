@@ -148,7 +148,8 @@ export function getVideoSeries(key, { signal, fresh = false } = {}) {
     if (!parseVideoKey(key)) return Promise.reject(new Error('invalid video key'))
     const accept = value => validVideoDetail(value, key) && complete(value)
     const load = () => requireValue(apiGet(`/read/api/video/series/${enc(key)}`, { signal }), accept, 'series unavailable')
-    return fresh ? load() : cached(`video:series:${key}`, 10 * MIN, load, {
+    // 30min: episode lists change slowly and a warm revisit should feel instant
+    return fresh ? load() : cached(`video:series:${key}`, 30 * MIN, load, {
         accept, signal,
     })
 }

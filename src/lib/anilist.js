@@ -14,6 +14,7 @@ const ANILIST = 'https://graphql.anilist.co'
 const MEDIA_FIELDS = `id title { romaji english native userPreferred } synonyms description status format season seasonYear episodes duration genres studios(isMain: true) { nodes { name } } coverImage { extraLarge large } bannerImage`
 const PAGE_QUERY = `query($page:Int,$perPage:Int,$search:String){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,search:$search,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
 const FEED_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,status_not:NOT_YET_RELEASED,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
+const SERIES_QUERY = `query($id:Int){Media(id:$id,type:ANIME){${MEDIA_FIELDS}}}`
 
 const str = value => typeof value === 'string' ? value : null
 const num = value => value != null && value !== '' && Number.isFinite(Number(value)) ? Number(value) : null
@@ -75,6 +76,13 @@ async function graphql(query, variables, signal) {
         clearTimeout(timer)
         signal?.removeEventListener('abort', onAbort)
     }
+}
+
+export async function anilistSeries(id, { signal } = {}) {
+    const data = await graphql(SERIES_QUERY, { id: Number(id) }, signal)
+    const row = anilistAnimeRow(data?.data?.Media)
+    if (!row) throw new Error('AniList returned no series')
+    return row
 }
 
 export async function anilistDiscover({ q = '', page = 1, limit = 30, signal } = {}) {
