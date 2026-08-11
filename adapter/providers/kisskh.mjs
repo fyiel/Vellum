@@ -25,6 +25,7 @@ const MINUTE = 60_000
 const KISS_KEY = Buffer.from('4f6bdaa39e2f8cb07f5e722d9edef314', 'hex')
 const KISS_IV = Buffer.from('01504af356e619cf2e42bba68c3f70f9', 'hex')
 const KISS_VI_GUID = '62f176f3bb1b5b8e70e39932ad34a0c7'
+const KISS_SUB_GUID = 'VgV52sWhwvBSf8BsM3BRY9weWiiCbtGp'
 const UA = 'Vellum/1.0 (+https://pumg.fyi/read)'
 
 const str = value => typeof value === 'string' ? value : null
@@ -65,9 +66,11 @@ async function kissJson(ctx, path, ttl) {
     })
 }
 
-export async function discover(ctx) {
+export async function discover(ctx, { search } = {}) {
+    const q = String(search || '').trim()
+    const path = q ? `/DramaList/Search?q=${encodeURIComponent(q)}&type=0` : '/DramaList/LastUpdate?ispc=1'
     try {
-        const rows = await kissJson(ctx, '/DramaList/LastUpdate?ispc=1', 10 * MINUTE)
+        const rows = await kissJson(ctx, path, 10 * MINUTE)
         return {
             rows: (Array.isArray(rows) ? rows : []).map(row => ({
                 key: `kiss:${row.id}`, kind: 'drama', title: str(row.title) || 'Untitled',
@@ -116,10 +119,20 @@ export async function playback(ctx, key, language, episodeId) {
     const kkey = kisskhKkey(episodeId)
     const ep = await kissJson(ctx, `/DramaList/Episode/${episodeId}.png?err=false&ts=&time=&kkey=${kkey}`, 0)
     if (ep?.Type === 1 && typeof ep.Video === 'string' && ep.Video.startsWith('https://')) {
-        return { sources: [{ kind: 'direct', url: ep.Video, type: 'application/vnd.apple.mpegurl' }], subtitles: [], providerLabel: 'KissKH' }
+        const subtitles = await kissSubtitles(ctx, episodeId)
+        return { sources: [{ kind: 'direct', url: ep.Video, type: 'application/vnd.apple.mpegurl' }], subtitles, providerLabel: 'KissKH' }
     }
     // Type 2 / ThirdParty are awish.pro anti-bot embeds — not playable; fail closed
     throw Object.assign(new Error('KissKH returned no playable stream'), { code: 'stream_unavailable' })
+}
+
+// subtitle tracks resolve via a separate subGuid-based kkey; episodes with sub:0 return []
+async function kissSubtitles(ctx, episodeId) {
+    const subkkey = kisskhKkey(episodeId, KISS_SUB_GUID)
+    const tracks = await kissJson(ctx, `/Sub/${episodeId}?kkey=${subkkey}`, 0)
+    return (Array.isArray(tracks) ? tracks : [])
+        .map(track => ({ url: str(track?.src), label: str(track?.label), lang: str(track?.land) || str(track?.label) }))
+        .filter(track => track.url && track.url.startsWith('https://') && track.lang)
 }
 
 export const kisskh = {

@@ -23,6 +23,16 @@ test('normalizes KissKH recent feed rows', async () => {
     assert.equal(result.partial, false)
 })
 
+test('searches KissKH when a query is present', async () => {
+    const fetchImpl = async url => {
+        assert.equal(String(url), 'https://kisskh.co/api/DramaList/Search?q=mashle&type=0')
+        return response([{ id: 7302, title: 'Mashle', thumbnail: 'https://img.test/m.jpg' }])
+    }
+    const result = await kisskh.discover(ctx(fetchImpl), { search: 'mashle' })
+    assert.deepEqual(result.rows.map(row => row.key), ['kiss:7302'])
+    assert.equal(result.partial, false)
+})
+
 test('maps KissKH detail to series and sorted episodes', async () => {
     const fetchImpl = async url => {
         assert.match(String(url), /\/DramaList\/Drama\/7302\?isq=true$/)
@@ -42,14 +52,29 @@ test('maps KissKH detail to series and sorted episodes', async () => {
     assert.deepEqual(eps[0], { id: '129337', number: 1, title: 'Episode 1', description: null, image: null, airDate: null })
 })
 
-test('resolves Type-1 episodes to direct HLS', async () => {
+test('resolves Type-1 episodes to direct HLS with subtitles', async () => {
     const fetchImpl = async url => {
-        assert.match(String(url), /\/DramaList\/Episode\/129348\.png\?err=false&ts=&time=&kkey=/)
+        const target = String(url)
+        if (target.includes('/Sub/')) {
+            assert.match(target, /\/Sub\/129348\?kkey=/)
+            return response([{ src: 'https://sub.cdnvideo11.shop/ep.12.en.srt?v=1', label: 'English', land: 'en', default: true }])
+        }
+        assert.match(target, /\/DramaList\/Episode\/129348\.png\?err=false&ts=&time=&kkey=/)
         return response({ Video: 'https://hls10.cdnvideo11.shop/hls10/x/ep.12.m3u8', Type: 1, ThirdParty: 'https://awish.pro/e/x', dataSaver: null })
     }
     const result = await kisskh.playback(ctx(fetchImpl), 'kiss:7302', 'sub', '129348')
     assert.deepEqual(result.sources, [{ kind: 'direct', url: 'https://hls10.cdnvideo11.shop/hls10/x/ep.12.m3u8', type: 'application/vnd.apple.mpegurl' }])
+    assert.deepEqual(result.subtitles, [{ url: 'https://sub.cdnvideo11.shop/ep.12.en.srt?v=1', label: 'English', lang: 'en' }])
     assert.equal(result.providerLabel, 'KissKH')
+})
+
+test('drops subtitle tracks without a usable source or language', async () => {
+    const fetchImpl = async url => {
+        if (String(url).includes('/Sub/')) return response([{ src: 'https://sub.test/a.srt', label: 'English', land: 'en', default: true }, { src: 'http://insecure.test/x.srt', label: 'Broken', land: 'en' }, { src: 'https://sub.test/nolang.srt', label: '' }])
+        return response({ Video: 'https://hls10.cdnvideo11.shop/hls10/x/ep.m3u8', Type: 1 })
+    }
+    const result = await kisskh.playback(ctx(fetchImpl), 'kiss:7302', 'sub', '129348')
+    assert.deepEqual(result.subtitles, [{ url: 'https://sub.test/a.srt', label: 'English', lang: 'en' }])
 })
 
 test('fails closed on Type-2 third-party embeds', async () => {
