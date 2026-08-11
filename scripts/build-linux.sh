@@ -5,6 +5,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# tauri's --ci flag maps to the CI env var but only accepts true/false, so a
+# shell with CI=1 (common in CI-ish environments) aborts the build with a
+# bogus "invalid value '1' for '--ci'". strip it, we never want prompting anyway
+unset CI 2>/dev/null || true
+
 # 1. linuxdeploy bundles an old strip that cannot read the .relr.dyn sections in arch's system libraries, so
 #    every strip call fails and the bundle aborts. the libraries are fine, we just skip stripping
 export NO_STRIP=true
