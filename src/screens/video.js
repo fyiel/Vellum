@@ -69,18 +69,35 @@ function paint() {
     more.textContent = loading ? 'Loading…' : moreFailed ? 'Try again' : 'Load more'
 }
 
+const providerNotice = data => {
+    const providers = [...new Set((data.errors || []).map(error => videoProviderLabel(error?.provider)).filter(Boolean))]
+    return data.partial && providers.length
+        ? `${providers.join(' and ')} ${providers.length > 1 ? 'are' : 'is'} temporarily unavailable; others still show`
+        : ''
+}
+
 async function fetchPage(next, fresh, mine, progress) {
-    const data = await discoverVideo({ q: query, kind, page: next, limit: LIMIT, signal: ctrl?.signal, onProgress: progress })
+    const request = { q: query, kind }
+    // when a stale page-1 feed was served instantly, this fires once the background
+    // SWR refresh lands so the grid repaints with the fresh rows (same contract as
+    // the manga shelf's onFresh)
+    const onFresh = data => {
+        if (mine !== gen) return
+        if (request.q !== query || request.kind !== kind) return
+        if (page !== next) return
+        rows = query ? data.results.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : data.results
+        hasMore = Boolean(data.hasMore)
+        notice = providerNotice(data)
+        paint()
+    }
+    const data = await discoverVideo({ q: query, kind, page: next, limit: LIMIT, signal: ctrl?.signal, onProgress: progress, onFresh: fresh ? onFresh : undefined })
     if (mine !== gen) return
     const seen = new Set(fresh ? [] : rows.map(item => item.key))
     const incoming = data.results.filter(item => !seen.has(item.key))
     const matched = query ? incoming.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : incoming
     rows = fresh ? matched : rows.concat(matched)
     if (fresh) {
-        const providers = [...new Set((data.errors || []).map(error => videoProviderLabel(error?.provider)).filter(Boolean))]
-        notice = data.partial && providers.length
-            ? `${providers.join(' and ')} ${providers.length > 1 ? 'are' : 'is'} temporarily unavailable; others still show`
-            : ''
+        notice = providerNotice(data)
     }
     page = next
     hasMore = Boolean(data.hasMore) && (query ? incoming.length > 0 : matched.length > 0)

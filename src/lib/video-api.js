@@ -93,7 +93,7 @@ const providerError = (provider, error) => error?.status === 404
     ? { provider, code: 'provider_unconfigured', message: `${provider === 'miruro' ? 'Anime' : 'Drama'} playback is not configured` }
     : { provider, code: 'provider_unavailable', message: `${provider === 'miruro' ? 'Anime' : 'Drama'} provider unavailable` }
 
-export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, signal, onProgress } = {}) {
+export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, signal, onProgress, onFresh } = {}) {
     const qText = String(q).trim()
     const qs = query({ q: qText, kind, page, limit })
     const dramaLeg = () => apiGet(`/read/api/video/discover?${query({ q: qText, kind: 'drama', page, limit })}`, { signal })
@@ -157,7 +157,7 @@ export function discoverVideo({ q = '', kind = 'all', page = 1, limit = 30, sign
         }
     }
     return cached(`video:discover:${qs}`, 5 * MIN, load, {
-        accept: value => validResults(value) && value.results.length > 0 && complete(value), signal,
+        accept: value => validResults(value) && value.results.length > 0 && complete(value), signal, onFresh,
     })
 }
 
