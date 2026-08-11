@@ -76,13 +76,20 @@ const episodeFromPost = post => {
     return { id, number, title: clean(post?.title?.rendered) || `Episode ${number}`, description: null, image: null, airDate: null }
 }
 
+const DRAMA_COUNTRY = {
+    'korean drama': 'korean',
+    'chinese drama': 'chinese',
+    'taiwanese drama': 'taiwanese',
+}
+
 export async function discover(ctx) {
     const data = await ctx.cached(ctx.fetchImpl, 'dc:categories', 6 * 60 * MINUTE, () => wpJson(ctx, '/wp-json/wp/v2/categories?orderby=count&per_page=100&page=1&hide_empty=true'))
     const rows = (Array.isArray(data) ? data : []).map(cat => {
         const id = cat?.id == null ? '' : String(cat.id)
         const title = clean(cat?.name)
         if (!id || !DC_ID.test(id) || !title) return null
-        return { key: `dc:${id}`, kind: 'drama', title, source: 'DramaCooli', poster: null }
+        const country = DRAMA_COUNTRY[title.toLowerCase()]
+        return { key: `dc:${id}`, kind: 'drama', title, source: 'DramaCooli', poster: null, ...(country ? { country } : {}) }
     }).filter(Boolean)
     return { rows, hasMore: false, partial: false, error: null }
 }

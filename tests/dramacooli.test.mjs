@@ -10,12 +10,13 @@ const ctx = fetchImpl => ({ env: {}, fetchImpl, request: request(), cached })
 test('normalizes DramaCooli categories into dc: rows', async () => {
     const fetchImpl = async url => {
         assert.equal(url, 'https://dramacooli.ws/wp-json/wp/v2/categories?orderby=count&per_page=100&page=1&hide_empty=true')
-        return response([{ id: 7, name: 'Korean Drama' }, { id: 12, name: 'Chinese Drama' }])
+        return response([{ id: 7, name: 'Korean Drama' }, { id: 12, name: 'Chinese Drama' }, { id: 21, name: 'Hong Kong Drama' }])
     }
     const result = await discover(ctx(fetchImpl))
     assert.deepEqual(result.rows, [
-        { key: 'dc:7', kind: 'drama', title: 'Korean Drama', source: 'DramaCooli', poster: null },
-        { key: 'dc:12', kind: 'drama', title: 'Chinese Drama', source: 'DramaCooli', poster: null },
+        { key: 'dc:7', kind: 'drama', title: 'Korean Drama', source: 'DramaCooli', poster: null, country: 'korean' },
+        { key: 'dc:12', kind: 'drama', title: 'Chinese Drama', source: 'DramaCooli', poster: null, country: 'chinese' },
+        { key: 'dc:21', kind: 'drama', title: 'Hong Kong Drama', source: 'DramaCooli', poster: null },
     ])
     assert.equal(result.hasMore, false)
     assert.equal(result.partial, false)
