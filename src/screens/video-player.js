@@ -1,4 +1,5 @@
 import { getVideoPlayback, getVideoSeries, parseVideoKey, videoAssetUrl } from '../lib/video-api.js'
+import { encryptedTrackUrl } from '../lib/kiss-sub.js'
 import { go, parseHash } from '../lib/router.js'
 import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
@@ -107,6 +108,22 @@ const providerBadge = label => {
     return badge
 }
 
+const appendTrack = (video, src, subtitle) => {
+    const track = document.createElement('track')
+    track.src = src
+    track.srclang = subtitle.lang
+    track.label = subtitle.label || subtitle.lang.toUpperCase()
+    track.kind = 'subtitles'
+    track.default = Boolean(subtitle.default)
+    video.append(track)
+}
+// encrypted tracks (KissKH) are fetched and decrypted client-side — the sub CDN blocks the API host
+const addEncryptedTrack = async (video, subtitle) => {
+    const src = await encryptedTrackUrl(videoAssetUrl(subtitle.url)).catch(() => null)
+    if (!src || !video.isConnected) return
+    appendTrack(video, src, subtitle)
+}
+
 function renderDirect(playback, source, Hls = null) {
     stage.replaceChildren()
     const video = document.createElement('video')
@@ -125,13 +142,8 @@ function renderDirect(playback, source, Hls = null) {
         hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) showMediaError() })
     } else video.src = videoAssetUrl(source.url)
     for (const subtitle of playback.subtitles || []) {
-        const track = document.createElement('track')
-        track.src = videoAssetUrl(subtitle.url)
-        track.srclang = subtitle.lang
-        track.label = subtitle.label || subtitle.lang.toUpperCase()
-        track.kind = 'subtitles'
-        track.default = Boolean(subtitle.default)
-        video.append(track)
+        if (subtitle.encrypted) { void addEncryptedTrack(video, subtitle); continue }
+        appendTrack(video, videoAssetUrl(subtitle.url), subtitle)
     }
     const hint = document.createElement('div')
     hint.className = 'video-player-hint'
