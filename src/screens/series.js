@@ -3,6 +3,7 @@ import { srcName } from '../lib/source.js'
 import { go, hashSlug, parseHash } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
 import { cancelNovelDownload, deleteNovelDownload, downloadNovelChapter, novelDlActive, novelDlEntry, onNovelDl } from '../lib/dl-novel.js'
+import { dlBatch } from '../lib/downloads.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc, activeScroller } from '../lib/dom.js'
@@ -84,6 +85,44 @@ function infoHtml(s, slug, count) {
 }
 
 const dlFailed = new Map()
+let batch = null
+
+// batch buttons sit in .chtool; "next" counts from the continue chapter, skipping
+// chapters that are already downloaded or in flight
+const batchPaint = () => {
+    const next = $('#dl-next'), all = $('#dl-all')
+    if (!next || !all) return
+    next.disabled = all.disabled = !!batch
+    next.textContent = batch ? `↓ ${batch.done}/${batch.total}` : '↓ next 10'
+    all.textContent = '↓ all'
+}
+
+const batchCandidates = count => {
+    const pos = posGet(cur.slug)?.n
+    const pending = [...cur.chapters].sort((a, b) => a.n - b.n)
+        .filter(c => (pos == null || c.n >= pos) && !novelDlEntry(cur.slug, c.n) && !novelDlActive(cur.slug, c.n))
+    return count ? pending.slice(0, count) : pending
+}
+
+async function runBatch(count) {
+    if (batch || !cur) return
+    const ns = batchCandidates(count).map(c => c.n)
+    if (!ns.length) {
+        const next = $('#dl-next')
+        if (next) { next.textContent = 'up to date'; setTimeout(batchPaint, 1500) }
+        return
+    }
+    if (count == null && !confirm(`Download all ${ns.length} chapters of ${cur.series.title}?`)) return
+    batch = { done: 0, total: ns.length }
+    batchPaint()
+    await dlBatch(ns, n => downloadNovelChapter(cur.slug, n, cur.series.title), {
+        onStep: done => { if (batch) { batch.done = done; batchPaint() } },
+        onError: (n, error) => { dlFailed.set(n, error?.message || 'Download failed'); paintDl() },
+    })
+    batch = null
+    batchPaint()
+}
+
 const dlState = (slug, n) => {
     const active = novelDlActive(slug, n)
     const state = active ? 'active' : novelDlEntry(slug, n) ? 'done' : dlFailed.has(n) ? 'failed' : ''
@@ -121,6 +160,7 @@ function chaptersHtml(slug, chapters, count) {
 
     return `<div class="chtool">
         <div class="srch"><input id="chsearch" placeholder="Jump to chapter&hellip;"></div>
+        <div class="chbatch"><button type="button" id="dl-next">↓ next 10</button><button type="button" id="dl-all">↓ all</button></div>
         <div class="seg" id="chorder"><span${mobileTop ? ' class="on"' : ''} data-end="top">Top</span><span${mobileTop ? '' : ' class="on"'} data-end="bottom">Bottom</span></div>
       </div>
       <div class="chhead">Chapter list <span class="ct">&middot; ${count}</span></div>
@@ -239,6 +279,8 @@ function wire() {
     })
 
     $('#schapters').addEventListener('click', e => {
+        if (e.target.closest('#dl-next')) { runBatch(10); return }
+        if (e.target.closest('#dl-all')) { runBatch(null); return }
         const dl = e.target.closest('.chdl')
         if (dl && cur) {
             const n = Number(dl.dataset.dl)
@@ -301,6 +343,7 @@ async function loadChapters(slug, mine) {
     if (followed(slug)) touchLibrary({ slug, total: count })
 
     $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
+    batchPaint()
     chRows = [...$$('#chlist .chrow')].map(el => ({ el, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
 
     const stat = $('#chstat')

@@ -3,6 +3,7 @@ import { anilistSeries } from '../lib/anilist.js'
 import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
 import { cancelVideoDownload, deleteVideoDownload, downloadVideoEpisode, onVideoDl, videoDlActive, videoDlEntry } from '../lib/dl-video.js'
+import { dlBatch } from '../lib/downloads.js'
 import { coverImg } from '../lib/cover.js'
 import { setSeriesCrumb } from './shell.js'
 import { $, esc } from '../lib/dom.js'
@@ -88,6 +89,45 @@ function info(series) {
 }
 
 const dlFailed = new Map()
+let batch = null
+
+// batch buttons sit in .video-episode-tool; "next" counts from the continue episode,
+// skipping episodes that are already downloaded or in flight
+const batchPaint = () => {
+    const next = $('#vdl-next'), all = $('#vdl-all')
+    if (!next || !all) return
+    next.disabled = all.disabled = !!batch
+    next.textContent = batch ? `↓ ${batch.done}/${batch.total}` : '↓ next 10'
+    all.textContent = '↓ all'
+}
+
+const batchCandidates = count => {
+    const saved = posGet(current.series.key)?.id
+    const index = saved ? current.episodes.findIndex(episode => episode.id === saved) : -1
+    const pending = current.episodes.slice(Math.max(index, 0))
+        .filter(episode => !videoDlEntry(current.series.key, episode.id) && !videoDlActive(current.series.key, episode.id))
+    return count ? pending.slice(0, count) : pending
+}
+
+async function runBatch(count) {
+    if (batch || !current) return
+    const ids = batchCandidates(count).map(episode => episode.id)
+    if (!ids.length) {
+        const next = $('#vdl-next')
+        if (next) { next.textContent = 'up to date'; setTimeout(batchPaint, 1500) }
+        return
+    }
+    if (count == null && !confirm(`Download all ${ids.length} episodes of ${current.series.title}? Episodes can be hundreds of MB each.`)) return
+    batch = { done: 0, total: ids.length }
+    batchPaint()
+    const labelFor = id => episodeLabel(current.episodes.find(item => item.id === id) || { id })
+    await dlBatch(ids, id => downloadVideoEpisode(current.series.key, id, { title: current.series.title, label: labelFor(id) }), {
+        onStep: done => { if (batch) { batch.done = done; batchPaint() } },
+        onError: (id, error) => { dlFailed.set(id, error?.message || 'Download failed') },
+    })
+    batch = null
+    batchPaint()
+}
 const dlButton = (key, id) => {
     const active = videoDlActive(key, id)
     const label = active ? (active.total ? `${Math.min(99, Math.round(active.done / active.total * 100))}%` : '…')
@@ -147,6 +187,8 @@ function wire() {
         }
     })
     $('#vepisodes').addEventListener('click', event => {
+        if (event.target.closest('#vdl-next')) { runBatch(10); return }
+        if (event.target.closest('#vdl-all')) { runBatch(null); return }
         const dl = event.target.closest('.chdl')
         if (dl && current) {
             const id = dl.dataset.dl
@@ -220,8 +262,9 @@ export async function showVideoSeries(key, origin = 'watch') {
         if (followed(key)) touchLibrary(entryFor(current.series))
         setSeriesCrumb(ORIGIN_LABEL[origin] || 'Watch', series.title, () => go(ORIGIN_ROUTE[origin] || '#/watch'))
         $('#vinfo').innerHTML = info(current.series)
-        $('#vepisodes').innerHTML = `<div class="video-episode-tool"><div class="srch"><input id="video-episode-search" inputmode="search" autocomplete="off" aria-label="Find an episode" placeholder="Find an episode…"></div></div><div class="video-episode-head">Episodes <span>· ${episodes.length}</span></div><div class="video-episode-scroll"><div id="video-episode-list"></div></div>`
+        $('#vepisodes').innerHTML = `<div class="video-episode-tool"><div class="srch"><input id="video-episode-search" inputmode="search" autocomplete="off" aria-label="Find an episode" placeholder="Find an episode…"></div><div class="chbatch"><button type="button" id="vdl-next">↓ next 10</button><button type="button" id="vdl-all">↓ all</button></div></div><div class="video-episode-head">Episodes <span>· ${episodes.length}</span></div><div class="video-episode-scroll"><div id="video-episode-list"></div></div>`
         renderEpisodes()
+        batchPaint()
         $('#vinfo').setAttribute('aria-busy', 'false')
         $('#vepisodes').setAttribute('aria-busy', 'false')
     } catch (error) {

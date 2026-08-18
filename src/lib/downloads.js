@@ -154,3 +154,19 @@ export async function dlUnregister(kind, key, id, path) {
 }
 
 export const dlTotalSize = () => load().reduce((sum, entry) => sum + (entry.size || 0), 0)
+
+// sequential batch runner for the "download next/all" buttons: fn(item) per item,
+// a user cancel (abort) stops the batch, other failures are counted and keep going
+export async function dlBatch(items, fn, { onStep, onError } = {}) {
+    let done = 0, failed = 0
+    for (const item of items) {
+        onStep?.(done + failed, items.length)
+        try { await fn(item); done++ }
+        catch (error) {
+            if (/cancel|abort/i.test(String(error?.message))) break
+            failed++
+            onError?.(item, error)
+        }
+    }
+    return { done, failed }
+}

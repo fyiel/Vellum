@@ -99,6 +99,11 @@
 .den .chdl.done { color: var(--ac); }
 .den .chdl.failed { color: #c66; }
 .den .chdl.active { color: var(--text); }
+/* batch download controls in the chapter-list toolbar (novel, manga, video series pages) */
+.den .chbatch { display: flex; flex: none; gap: 6px; }
+.den .chbatch button { appearance: none; border: 1px solid var(--line2); background: transparent; color: var(--dim); font: 500 10px var(--mono); padding: 5px 8px; cursor: pointer; }
+.den .chbatch button:hover:not(:disabled) { color: var(--ac); border-color: var(--ac); }
+.den .chbatch button:disabled { cursor: default; opacity: .55; }
 .den .chdot { width: 7px; height: 7px; border: 1px solid var(--line2); justify-self: center; }
 .den .chrow.read .chdot { background: var(--dim); border-color: var(--dim); }
 .den .chrow.cur .chdot { background: var(--ac); border-color: var(--ac); }

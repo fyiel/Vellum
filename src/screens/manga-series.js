@@ -2,6 +2,7 @@ import { getMangaChapters, getMangaSeries, mangaErrorMessage, mangaProviderName,
 import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
 import { cancelMangaDownload, deleteMangaDownload, downloadMangaChapter, mangaDlActive, mangaDlEntry, onMangaDl } from '../lib/dl-manga.js'
+import { dlBatch } from '../lib/downloads.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, esc, activeScroller } from '../lib/dom.js'
@@ -18,6 +19,44 @@ let chapterQuery = ''
 let chapterLimit = CHAPTER_BATCH
 let filterLastQ = '', filterTop = 0
 const dlFailed = new Map()
+let batch = null
+
+// batch buttons sit in .chtool; "next" counts from the continue chapter, skipping
+// chapters that are already downloaded or in flight
+const batchPaint = () => {
+    const next = $('#mdl-next'), all = $('#mdl-all')
+    if (!next || !all) return
+    next.disabled = all.disabled = !!batch
+    next.textContent = batch ? `↓ ${batch.done}/${batch.total}` : '↓ next 10'
+    all.textContent = '↓ all'
+}
+
+const batchCandidates = count => {
+    const orderedList = orderMangaChapters(current.chapters)
+    const index = current.saved ? orderedList.findIndex(chapter => chapter.id === current.saved) : -1
+    const pending = orderedList.slice(Math.max(index, 0))
+        .filter(chapter => !mangaDlEntry(current.key, chapter.id) && !mangaDlActive(current.key, chapter.id))
+    return count ? pending.slice(0, count) : pending
+}
+
+async function runBatch(count) {
+    if (batch || !current) return
+    const ids = batchCandidates(count).map(chapter => chapter.id)
+    if (!ids.length) {
+        const next = $('#mdl-next')
+        if (next) { next.textContent = 'up to date'; setTimeout(batchPaint, 1500) }
+        return
+    }
+    if (count == null && !confirm(`Download all ${ids.length} chapters of ${current.series.title}?`)) return
+    batch = { done: 0, total: ids.length }
+    batchPaint()
+    await dlBatch(ids, id => downloadMangaChapter(current.key, id), {
+        onStep: done => { if (batch) { batch.done = done; batchPaint() } },
+        onError: (id, error) => { dlFailed.set(id, error?.message || 'Download failed') },
+    })
+    batch = null
+    batchPaint()
+}
 
 const dlButton = (key, id) => {
     const active = mangaDlActive(key, id)
@@ -137,6 +176,8 @@ function wire() {
         }
     })
     $('#schapters').addEventListener('click', event => {
+        if (event.target.closest('#mdl-next')) { runBatch(10); return }
+        if (event.target.closest('#mdl-all')) { runBatch(null); return }
         const dl = event.target.closest('.chdl')
         if (dl && current) {
             const id = dl.dataset.dl
@@ -264,10 +305,11 @@ export async function showMangaSeries(key, origin = 'manga') {
     const start = $('#manga-start')
     start.disabled = false
     start.textContent = saved ? `Continue · ${chapterLabel(current.first)}` : 'Start reading'
-    $('#schapters').innerHTML = `<div class="chtool"><div class="srch"><input id="mchsearch" inputmode="search" autocomplete="off" aria-label="Find a chapter" placeholder="Find a chapter…"></div></div>
+    $('#schapters').innerHTML = `<div class="chtool"><div class="srch"><input id="mchsearch" inputmode="search" autocomplete="off" aria-label="Find a chapter" placeholder="Find a chapter…"></div><div class="chbatch"><button type="button" id="mdl-next">↓ next 10</button><button type="button" id="mdl-all">↓ all</button></div></div>
       <div class="chhead">Chapter list <span class="ct">· ${chapters.length}</span></div>
       <div class="chscroll"><div id="mchapter-list"></div><div class="sronly" id="mchapter-status" role="status"></div></div>`
     renderChapterList()
+    batchPaint()
     $('#schapters').setAttribute('aria-busy', 'false')
     prefetchMangaChapter(key, current.first.id)
 }
