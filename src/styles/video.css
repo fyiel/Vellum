@@ -41,20 +41,21 @@
 @keyframes watch-shimmer { to { background-position: -220% 0; } }
 
 .den .video-detail { min-height: 0; flex-direction: row; }
-.den .video-info { width: 390px; flex: none; overflow-y: auto; padding: 22px 20px; border-right: 1px solid var(--line); display: grid; grid-template-columns: 112px minmax(0, 1fr); align-content: start; gap: 13px 16px; }
-.den .video-poster-lg { width: 112px; aspect-ratio: 2/3; overflow: hidden; border: 1px solid var(--line2); background: var(--row); display: grid; place-items: center; color: var(--dim); font: 500 9px var(--mono); }
+/* same stacked detail column as the manga/novel pages (.info in series.css) */
+.den .video-info { width: 344px; flex: none; overflow-y: auto; padding: 22px 20px; border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 16px; }
+/* explicit height, not aspect-ratio: overflow:hidden zeroes a flex item's auto minimum,
+   which makes Chromium drop the ratio and collapse the box; flex:none like .cover-lg so the
+   shrinking column can't crush it either */
+.den .video-poster-lg { width: 148px; height: 222px; flex: none; overflow: hidden; border: 1px solid var(--line2); background: var(--row); display: grid; place-items: center; color: var(--dim); font: 500 9px var(--mono); }
 .den .video-poster-lg img { width: 100%; height: 100%; object-fit: cover; }
-.den .video-copy { min-width: 0; }
 .den .video-title { color: var(--hi); font-size: 23px; font-weight: 600; line-height: 1.1; }
-.den .video-meta { margin-top: 7px; color: var(--dim); font: 500 10px var(--mono); }
-.den .video-tags { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.den .video-meta { margin-top: -6px; color: var(--dim); font: 500 10px var(--mono); }
+.den .video-tags { display: flex; flex-wrap: wrap; gap: 5px; }
 .den .video-tag { padding: 3px 7px; border: 1px solid var(--line2); color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; }
-.den .video-actions { display: flex; flex-direction: column; gap: 7px; margin-top: 14px; }
+.den .video-actions { display: flex; flex-direction: column; gap: 7px; }
 .den .video-actions .btn { min-height: 40px; }
 .den .video-reset { color: var(--dim); }
 .den .video-reset[hidden] { display: none; }
-.den .video-synopsis, .den .video-stats { grid-column: 1 / -1; }
-.den .video-synopsis { padding-top: 5px; }
 .den .video-synopsis .dsyn { margin-top: 7px; color: var(--text); line-height: 1.65; }
 .den .video-episodes { min-width: 0; flex: 1; display: flex; flex-direction: column; }
 .den .video-episode-tool { flex: none; padding: 12px 14px; border-bottom: 1px solid var(--line); }
@@ -115,9 +116,11 @@
   .den .watch-scroll { padding: 9px 10px 20px; }
   .den .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
   .den .video-detail { overflow-y: auto; flex-direction: column; }
-  .den .video-info { width: 100%; overflow: visible; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--line); grid-template-columns: 104px minmax(0, 1fr); gap: 10px 13px; }
-  .den .video-poster-lg { width: 104px; }
+  .den .video-info { width: 100%; overflow: visible; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
+  .den .video-poster-lg { width: 108px; height: 162px; grid-row: 1 / span 5; }
   .den .video-title { font-size: 20px; }
+  .den .video-actions { grid-column: 2; }
+  .den .video-tags, .den .video-synopsis, .den .video-stats { grid-column: 1 / -1; }
   .den .video-actions .btn { min-height: 44px; }
   .den .video-episodes { min-height: 62vh; overflow: visible; }
   .den .video-episode-scroll { overflow: visible; padding: 0 6px 18px; }

@@ -2,6 +2,7 @@ import { getVideoSeries, parseVideoKey } from '../lib/video-api.js'
 import { anilistSeries } from '../lib/anilist.js'
 import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
+import { cancelVideoDownload, deleteVideoDownload, downloadVideoEpisode, onVideoDl, videoDlActive, videoDlEntry } from '../lib/dl-video.js'
 import { coverImg } from '../lib/cover.js'
 import { setSeriesCrumb } from './shell.js'
 import { $, esc } from '../lib/dom.js'
@@ -80,18 +81,29 @@ function info(series) {
         ? saved ? `Continue · ${esc(episodeLabel(cont))}` : 'Watch episode 1'
         : 'Loading episodes…'
     return `<div class="video-poster-lg">${coverImg(series.poster, series.title, { useResolver: false, eager: true }) || '<span>No poster</span>'}</div>
-      <div class="video-copy"><div class="video-title">${esc(series.title)}</div>${meta ? `<div class="video-meta">${esc(meta)}</div>` : ''}${tags ? `<div class="video-tags">${tags}</div>` : ''}
-      <div class="video-actions"><button class="btn primary" id="video-start" type="button"${episodes.length ? '' : ' disabled'}>${start}</button><button class="btn${followed(series.key) ? ' on' : ''}" id="video-follow" type="button">${followed(series.key) ? 'Following' : 'Follow'}</button><button class="btn video-reset" id="video-reset" type="button" ${saved || readSet(series.key).size ? '' : 'hidden'}>Reset progress</button></div></div>
+      <div class="video-title">${esc(series.title)}</div>${meta ? `<div class="video-meta">${esc(meta)}</div>` : ''}${tags ? `<div class="video-tags">${tags}</div>` : ''}
+      <div class="video-actions"><button class="btn primary" id="video-start" type="button"${episodes.length ? '' : ' disabled'}>${start}</button><button class="btn${followed(series.key) ? ' on' : ''}" id="video-follow" type="button">${followed(series.key) ? 'Following' : 'Follow'}</button><button class="btn video-reset" id="video-reset" type="button" ${saved || readSet(series.key).size ? '' : 'hidden'}>Reset progress</button></div>
       ${series.synopsis ? `<div class="video-synopsis"><div class="seclab">Synopsis</div><div class="dsyn">${esc(series.synopsis)}</div></div>` : ''}
       <div class="video-stats"><div class="drow"><span class="k">Episodes</span><span class="v">${episodes.length ? episodes.length : (series.totalEpisodes ?? '…')}</span></div>${series.source ? `<div class="drow"><span class="k">Source</span><span class="v">${esc(series.source)}</span></div>` : ''}</div>`
+}
+
+const dlFailed = new Map()
+const dlButton = (key, id) => {
+    const active = videoDlActive(key, id)
+    const label = active ? (active.total ? `${Math.min(99, Math.round(active.done / active.total * 100))}%` : '…')
+        : videoDlEntry(key, id) ? '✓'
+            : dlFailed.has(id) ? '!' : '↓'
+    const state = active ? 'active' : videoDlEntry(key, id) ? 'done' : dlFailed.has(id) ? 'failed' : ''
+    const hint = active ? 'Cancel download' : state === 'done' ? 'Delete downloaded episode' : state === 'failed' ? dlFailed.get(id) : 'Download for offline watching'
+    return `<button type="button" class="chdl${state ? ` ${state}` : ''}" data-dl="${esc(id)}" title="${esc(hint)}" aria-label="${esc(hint)}">${label}</button>`
 }
 
 function episodeRows(episodes) {
     const watched = readSet(current.series.key)
     const saved = posGet(current.series.key)?.id
-    return episodes.map(episode => `<button type="button" class="video-episode-row${watched.has(episode.id) ? ' watched' : ''}${saved === episode.id ? ' current' : ''}" data-id="${esc(episode.id)}"${saved === episode.id ? ' aria-current="page"' : ''}>
+    return episodes.map(episode => `<div class="chline"><button type="button" class="video-episode-row${watched.has(episode.id) ? ' watched' : ''}${saved === episode.id ? ' current' : ''}" data-id="${esc(episode.id)}"${saved === episode.id ? ' aria-current="page"' : ''}>
       <span class="video-episode-number">${esc(episodeLabel(episode))}</span><span class="video-episode-name">${esc(episodeName(episode))}</span>${episode.runtime ? `<span class="video-runtime">${esc(episode.runtime)}m</span>` : '<span></span>'}<span class="video-episode-dot"></span>
-    </button>`).join('')
+    </button>${dlButton(current.series.key, episode.id)}</div>`).join('')
 }
 
 function renderEpisodes() {
@@ -135,6 +147,25 @@ function wire() {
         }
     })
     $('#vepisodes').addEventListener('click', event => {
+        const dl = event.target.closest('.chdl')
+        if (dl && current) {
+            const id = dl.dataset.dl
+            if (videoDlActive(current.series.key, id)) {
+                cancelVideoDownload(current.series.key, id)
+                return
+            }
+            if (videoDlEntry(current.series.key, id)) {
+                if (confirm('Delete the downloaded copy of this episode?')) deleteVideoDownload(current.series.key, id)
+                return
+            }
+            dlFailed.delete(id)
+            const episode = current.episodes.find(item => item.id === id)
+            downloadVideoEpisode(current.series.key, id, { title: current.series.title, label: episodeLabel(episode || { id }) }).catch(error => {
+                dlFailed.set(id, error?.message || 'Download failed')
+                renderEpisodes()
+            })
+            return
+        }
         if (event.target.closest('#video-episode-more')) {
             const before = $('#video-episode-list').querySelectorAll('.video-episode-row').length
             limit += BATCH
@@ -150,6 +181,12 @@ function wire() {
         query = event.target.value.trim()
         limit = BATCH
         renderEpisodes()
+    })
+    // download progress/cancel/delete lands here; repaint the rows in place, coalesced
+    let dlPaintT = 0
+    onVideoDl(() => {
+        if (!current || dlPaintT) return
+        dlPaintT = setTimeout(() => { dlPaintT = 0; if (current) renderEpisodes() }, 250)
     })
 }
 
