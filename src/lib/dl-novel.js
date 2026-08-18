@@ -1,6 +1,6 @@
 import { getChapter } from './api.js'
 import { apiUrl, rawFetch } from './http.js'
-import { dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
+import { dlEntries, dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
 
 // in-flight downloads: `${key}:${n}` -> { ctrl }
 const active = new Map()
@@ -43,16 +43,17 @@ async function downloadImages(key, n, html, signal) {
     return { html: doc.body.innerHTML, size }
 }
 
-export async function downloadNovelChapter(key, n, title) {
+export async function downloadNovelChapter(key, n, title, { force = false } = {}) {
     const id = String(n)
     const tag = `${key}:${id}`
-    if (active.has(tag) || dlEntry('novel', key, id)) return
+    if (active.has(tag) || (!force && dlEntry('novel', key, id))) return
     const ctrl = new AbortController()
     active.set(tag, { ctrl })
     notify()
     try {
         const chapter = await getChapter(key, n, { signal: ctrl.signal })
         if (ctrl.signal.aborted) throw new Error('download cancelled')
+        if (force) await dlRemove(dlPath.novelImages(key, n))
         const images = await downloadImages(key, n, chapter.html, ctrl.signal)
         const text = JSON.stringify({ ...chapter, html: images.html })
         await dlWrite(dlPath.novelChapter(key, n), text)
@@ -93,4 +94,26 @@ export async function loadDownloadedNovelChapter(key, n) {
         }
         return value
     } catch { return null }
+}
+
+// repair pass for chapters saved before in-chapter images were downloaded: any stored
+// chapter whose html still points at remote image urls gets re-downloaded (which now
+// fetches the images too). runs once per launch, online only, sequential in the
+// background — the registry updates itself as each chapter completes
+let upgraded = false
+export async function upgradeNovelDownloads() {
+    if (upgraded || !navigator.onLine) return
+    upgraded = true
+    for (const entry of dlEntries()) {
+        if (entry.kind !== 'novel') continue
+        try {
+            const blob = await dlRead(dlPath.novelChapter(entry.key, entry.id))
+            if (!blob) continue
+            const value = JSON.parse(await blob.text())
+            if (typeof value?.html !== 'string') continue
+            const doc = new DOMParser().parseFromString(value.html, 'text/html')
+            const stale = [...doc.querySelectorAll('img[src]')].some(img => /^(https?:)?\/\//i.test(img.getAttribute('src')))
+            if (stale) await downloadNovelChapter(entry.key, entry.id, entry.title, { force: true })
+        } catch {}
+    }
 }

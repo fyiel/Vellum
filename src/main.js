@@ -54,6 +54,11 @@ if (import.meta.env.PROD && !window.__TAURI_INTERNALS__ && 'serviceWorker' in na
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
 }
 
+// background repair: novel chapters saved before images were downloaded get re-fetched
+if (navigator.onLine) {
+    import('./lib/dl-novel.js').then(m => m.upgradeNovelDownloads()).catch(() => {})
+}
+
 let origin = 'library'
 
 const readerRouteIs = route => {
