@@ -19,6 +19,7 @@ data are cached locally, so searching, browsing, and reading stay responsive
 - **Updates** new chapters for the series you follow
 - **Reader** clean, distraction-free reading view
 - **Downloads** save chapters and episodes for offline reading and watching
+- **Offline** the web app loads without a connection once visited; desktop is fully local
 
 ## Try it
 

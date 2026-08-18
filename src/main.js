@@ -49,6 +49,11 @@ await setupNative()
 installCoverFallback()
 warmNuClearance()
 
+// the web build precaches its shell so the site boots fully offline; desktop is local already
+if (import.meta.env.PROD && !window.__TAURI_INTERNALS__ && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
+}
+
 let origin = 'library'
 
 const readerRouteIs = route => {
