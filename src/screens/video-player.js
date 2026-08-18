@@ -1,4 +1,5 @@
 import { getVideoPlayback, getVideoSeries, parseVideoKey, videoAssetUrl } from '../lib/video-api.js'
+import { loadDownloadedVideoUrl, videoDlEntry } from '../lib/dl-video.js'
 import { encryptedTrackUrl } from '../lib/kiss-sub.js'
 import { go, parseHash } from '../lib/router.js'
 import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
@@ -321,6 +322,7 @@ function wire() {
 export async function showVideoPlayer(key, id) {
     wire()
     saveProgress(true)
+    if (state.localUrl) { URL.revokeObjectURL(state.localUrl); state.localUrl = null }
     state.video?.pause()
     state.hls?.destroy()
     state.ctrl?.abort()
@@ -339,10 +341,26 @@ export async function showVideoPlayer(key, id) {
     $('#vp-step').innerHTML = ''
     stage.innerHTML = '<div class="video-player-state" role="status"><div class="spinner" aria-hidden="true"></div><span>Preparing stream…</span></div>'
     try {
-        const [series, playback] = await Promise.all([
-            getVideoSeries(key, { signal: ctrl.signal }),
-            getVideoPlayback(key, id, { signal: ctrl.signal }),
-        ])
+        // a downloaded episode plays from disk even online — it is the offline copy
+        const localUrl = await loadDownloadedVideoUrl(key, id).catch(() => null)
+        state.localUrl = localUrl
+        const localPlayback = localUrl
+            ? { providerLabel: 'Downloaded copy', sources: [{ kind: 'direct', url: localUrl, type: 'video/mp4' }], subtitles: [] }
+            : null
+        let series = null
+        let playback = localPlayback
+        try {
+            ;[series, playback] = await Promise.all([
+                getVideoSeries(key, { signal: ctrl.signal }),
+                localPlayback ? Promise.resolve(localPlayback) : getVideoPlayback(key, id, { signal: ctrl.signal }),
+            ])
+        } catch (error) {
+            // offline with a downloaded copy: play it with the registry's metadata for chrome
+            const entry = videoDlEntry(key, id)
+            if (!localPlayback || !entry) throw error
+            series = { key, kind: 'anime', title: entry.title, episodes: [{ id, number: null, title: entry.label }] }
+            playback = localPlayback
+        }
         if (!stillHere(key, id, gen)) return
         const episodes = ordered(series.episodes)
         const episode = episodes.find(item => item.id === id)
@@ -366,6 +384,8 @@ export async function showVideoPlayer(key, id) {
 export function closeVideoPlayer() {
     if (!state.active) return
     saveProgress(true)
+    if (state.localUrl) URL.revokeObjectURL(state.localUrl)
+    state.localUrl = null
     state.active = false
     state.ctrl?.abort()
     state.ctrl = null

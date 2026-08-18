@@ -78,7 +78,8 @@ const requireValue = (promise, accept, message) => promise.then(value => {
     return value
 })
 
-export const videoAssetUrl = value => /^https:/i.test(value || '') ? value : apiUrl(value || '')
+// absolute/scheme URLs (https, blob object URLs for downloaded copies) pass through untouched
+export const videoAssetUrl = value => /^[a-z][a-z0-9+.-]*:/i.test(value || '') ? value : apiUrl(value || '')
 
 const interleave = (left, right, limit) => {
     const output = []

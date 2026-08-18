@@ -91,6 +91,14 @@
 .den .chrow.cur .chn { color: var(--ac); }
 .den .cht { font: 500 13px 'Archivo'; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .den .chd { font: 400 11px var(--mono); color: var(--dim); text-align: right; }
+/* chapter/episode row with a trailing download control (novel, manga, video series pages) */
+.den .chline { display: grid; grid-template-columns: minmax(0, 1fr) 40px; border-bottom: 1px solid var(--line); }
+.den .chline .chrow, .den .chline .mchrow, .den .chline .video-episode-row { border-bottom: 0; }
+.den .chdl { appearance: none; border: 0; background: transparent; color: var(--dim); font: 500 10px var(--mono); cursor: pointer; }
+.den .chdl:hover { color: var(--ac); }
+.den .chdl.done { color: var(--ac); }
+.den .chdl.failed { color: #c66; }
+.den .chdl.active { color: var(--text); }
 .den .chdot { width: 7px; height: 7px; border: 1px solid var(--line2); justify-self: center; }
 .den .chrow.read .chdot { background: var(--dim); border-color: var(--dim); }
 .den .chrow.cur .chdot { background: var(--ac); border-color: var(--ac); }

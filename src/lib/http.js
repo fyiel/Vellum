@@ -10,6 +10,8 @@ export const apiUrl = path => (isNative || WEB_ABS ? HOST : '') + path
 
 let transport = (url, init) => fetch(url, init)
 export const setTransport = fn => { transport = fn }
+// binary fetches (downloads) go through the same transport so Tauri stays CORS-free
+export const rawFetch = (url, init) => transport(url, init)
 
 const TIMEOUT_MS = 15_000
 const aborted = () => Object.assign(new Error('request aborted'), { name: 'AbortError' })

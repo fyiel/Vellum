@@ -1,6 +1,7 @@
 import { getMangaChapters, getMangaSeries, mangaErrorMessage, mangaProviderName, orderMangaChapters, parseMangaKey, prefetchMangaChapter } from '../lib/manga-api.js'
 import { go, parseHash } from '../lib/router.js'
 import { dropLibrary, library, posGet, readSet, resetProgress, touchLibrary } from '../lib/store.js'
+import { cancelMangaDownload, deleteMangaDownload, downloadMangaChapter, mangaDlActive, mangaDlEntry, onMangaDl } from '../lib/dl-manga.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, esc, activeScroller } from '../lib/dom.js'
@@ -16,6 +17,17 @@ let wired = false
 let chapterQuery = ''
 let chapterLimit = CHAPTER_BATCH
 let filterLastQ = '', filterTop = 0
+const dlFailed = new Map()
+
+const dlButton = (key, id) => {
+    const active = mangaDlActive(key, id)
+    const label = active ? (active.total ? `${Math.round(active.done / active.total * 100)}%` : '…')
+        : mangaDlEntry(key, id) ? '✓'
+            : dlFailed.has(id) ? '!' : '↓'
+    const state = active ? 'active' : mangaDlEntry(key, id) ? 'done' : dlFailed.has(id) ? 'failed' : ''
+    const hint = active ? 'Cancel download' : state === 'done' ? 'Delete downloaded chapter' : state === 'failed' ? dlFailed.get(id) : 'Download for offline reading'
+    return `<button type="button" class="chdl${state ? ` ${state}` : ''}" data-dl="${esc(id)}" title="${esc(hint)}" aria-label="${esc(hint)}">${label}</button>`
+}
 
 const chapterLabel = chapter => chapter.number == null ? (chapter.title || 'Special') : `Ch. ${chapter.number}`
 const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
@@ -60,9 +72,9 @@ function info(series) {
 
 function chapterRows(chapters, activeId) {
     const read = readSet(current.key)
-    return chapters.map(chapter => `<button type="button" class="mchrow${read.has(chapter.id) ? ' read' : ''}${chapter.id === activeId ? ' current' : ''}" data-id="${esc(chapter.id)}"${chapter.id === activeId ? ' aria-current="page"' : ''} aria-label="${esc(`${chapterLabel(chapter)}${chapterName(chapter) ? `, ${chapterName(chapter)}` : ''}${chapter.language ? `, ${chapter.language}` : ''}`)}">
+    return chapters.map(chapter => `<div class="chline"><button type="button" class="mchrow${read.has(chapter.id) ? ' read' : ''}${chapter.id === activeId ? ' current' : ''}" data-id="${esc(chapter.id)}"${chapter.id === activeId ? ' aria-current="page"' : ''} aria-label="${esc(`${chapterLabel(chapter)}${chapterName(chapter) ? `, ${chapterName(chapter)}` : ''}${chapter.language ? `, ${chapter.language}` : ''}`)}">
       <span class="mchn">${esc(chapterLabel(chapter))}</span><span class="mcht">${esc(chapterName(chapter))}</span><span class="mchlang">${esc(chapter.language || '')}</span><span class="mchdot"></span>
-    </button>`).join('')
+    </button>${dlButton(current.key, chapter.id)}</div>`).join('')
 }
 
 const filteredChapters = () => {
@@ -125,6 +137,24 @@ function wire() {
         }
     })
     $('#schapters').addEventListener('click', event => {
+        const dl = event.target.closest('.chdl')
+        if (dl && current) {
+            const id = dl.dataset.dl
+            if (mangaDlActive(current.key, id)) {
+                cancelMangaDownload(current.key, id)
+                return
+            }
+            if (mangaDlEntry(current.key, id)) {
+                if (confirm(`Delete the downloaded copy of this chapter?`)) deleteMangaDownload(current.key, id)
+                return
+            }
+            dlFailed.delete(id)
+            downloadMangaChapter(current.key, id).catch(error => {
+                dlFailed.set(id, error?.message || 'Download failed')
+                renderChapterList()
+            })
+            return
+        }
         if (event.target.closest('#mchapter-more')) {
             const before = $('#mchapter-list').querySelectorAll('.mchrow').length
             chapterLimit += CHAPTER_BATCH
@@ -161,6 +191,13 @@ function wire() {
         if (scroller !== $('#view-series') && !$('#view-series').contains(scroller)) return
         if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - REVEAL_RADIUS) revealMore()
     }, { passive: true, capture: true })
+    // download progress/cancel/delete lands here; repaint the rows in place, coalesced
+    // so a 50-page chapter doesn't rebuild the list 50 times
+    let dlPaintT = 0
+    onMangaDl(() => {
+        if (!current || dlPaintT) return
+        dlPaintT = setTimeout(() => { dlPaintT = 0; if (current) renderChapterList() }, 250)
+    })
 }
 
 export async function showMangaSeries(key, origin = 'manga') {

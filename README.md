@@ -18,6 +18,7 @@ data are cached locally, so searching, browsing, and reading stay responsive
 - **Watch** browse and play anime and K-drama
 - **Updates** new chapters for the series you follow
 - **Reader** clean, distraction-free reading view
+- **Downloads** save chapters and episodes for offline reading and watching
 
 ## Try it
 

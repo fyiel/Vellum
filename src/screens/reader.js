@@ -7,6 +7,7 @@ import {
   seriesKey,
 } from "../lib/api.js";
 import { go, back, hashSlug } from "../lib/router.js";
+import { loadDownloadedNovelChapter } from "../lib/dl-novel.js";
 import {
   readSet,
   saveRead,
@@ -206,7 +207,15 @@ async function startAt(slug, idx, p = 0) {
   ensureBuffer();
 }
 
-const fetchChapter = (n) => getChapter(rd.slug, n, { signal: rd.ctrl?.signal });
+// a downloaded chapter reads from disk even online — it is the offline copy;
+// on network failure fall back to it as well
+const fetchChapter = async (n) =>
+  (await loadDownloadedNovelChapter(rd.slug, n).catch(() => null)) ??
+  getChapter(rd.slug, n, { signal: rd.ctrl?.signal }).catch(async (error) => {
+    const local = await loadDownloadedNovelChapter(rd.slug, n).catch(() => null);
+    if (local) return local;
+    throw error;
+  });
 
 const prefetch = (idx) => {
   const c = state.chapters[idx];

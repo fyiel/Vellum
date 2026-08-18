@@ -1,4 +1,5 @@
 import { getMangaChapter, getMangaChapters, getMangaSeries, mangaErrorMessage, mangaPageUrl, orderMangaChapters, parseMangaKey } from '../lib/manga-api.js'
+import { loadDownloadedMangaChapter } from '../lib/dl-manga.js'
 import { go, parseHash } from '../lib/router.js'
 import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
@@ -458,6 +459,9 @@ function wire() {
 export async function showMangaReader(key, id) {
     wire()
     saveProgress()
+    for (const page of state.content?.pages || []) {
+        if (typeof page?.url === 'string' && page.url.startsWith('blob:')) URL.revokeObjectURL(page.url)
+    }
     state.ctrl?.abort()
     state.loadObserver?.disconnect()
     state.pageObserver?.disconnect()
@@ -483,11 +487,14 @@ export async function showMangaReader(key, id) {
     $('#mr-step').innerHTML = ''
     pages.innerHTML = '<div class="mreader-loading" role="status"><div class="spinner" aria-hidden="true"></div><span>Loading chapter…</span></div>'
 
+    let local = null
     try {
+        // a downloaded chapter reads from disk even online — it is the offline copy
+        local = await loadDownloadedMangaChapter(key, id).catch(() => null)
         const [series, chapterData, content] = await Promise.all([
             getMangaSeries(key, { signal: ctrl.signal }),
             getMangaChapters(key, { signal: ctrl.signal }),
-            getMangaChapter(key, id, { signal: ctrl.signal }),
+            local ? Promise.resolve(local.content) : getMangaChapter(key, id, { signal: ctrl.signal }),
         ])
         if (!stillHere(key, id, gen)) return
         const chapter = chapterData.chapters.find(item => item.id === id)
@@ -503,13 +510,32 @@ export async function showMangaReader(key, id) {
         posSet(key, { id, page: saved?.id === id ? saved.page || 0 : 0, at: Date.now() })
         updateLibrary()
     } catch (error) {
-        if (stillHere(key, id, gen)) showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))
+        if (!stillHere(key, id, gen)) return
+        // network or provider failure: fall back to the downloaded copy when one exists
+        local ??= await loadDownloadedMangaChapter(key, id).catch(() => null)
+        if (local && stillHere(key, id, gen)) {
+            Object.assign(state, {
+                series: { title: local.entry.title },
+                chapters: [],
+                chapter: local.content.chapter,
+                content: local.content,
+            })
+            $('#mr-title').textContent = `${local.entry.title} · ${chapterLabel(local.content.chapter)}`
+            renderPages(local.content)
+            setReaderState('ready')
+            return
+        }
+        showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))
     }
 }
 
 export function closeMangaReader() {
     if (!state.active) return
     saveProgress()
+    // downloaded chapters hand out object URLs; hand them back
+    for (const page of state.content?.pages || []) {
+        if (typeof page?.url === 'string' && page.url.startsWith('blob:')) URL.revokeObjectURL(page.url)
+    }
     state.active = false
     state.ctrl?.abort()
     state.ctrl = null

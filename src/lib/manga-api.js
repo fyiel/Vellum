@@ -42,7 +42,8 @@ const validPageUrl = (value, key, chapterId, page) => {
         && url.searchParams.get('page') === String(page)
 }
 
-export const mangaPageUrl = page => apiUrl(page?.url || '')
+// downloaded pages carry blob: object URLs — pass any absolute/scheme URL through untouched
+export const mangaPageUrl = page => /^[a-z][a-z0-9+.-]*:/i.test(page?.url || '') ? page.url : apiUrl(page?.url || '')
 
 export const validMangaSeries = (value, expectedKey) =>
     sameKey(value?.key, expectedKey)

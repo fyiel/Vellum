@@ -2,6 +2,7 @@ import { getSeries, getChapters, prefetchChapter, seriesKey } from '../lib/api.j
 import { srcName } from '../lib/source.js'
 import { go, hashSlug, parseHash } from '../lib/router.js'
 import { library, touchLibrary, dropLibrary, readSet, posGet } from '../lib/store.js'
+import { cancelNovelDownload, deleteNovelDownload, downloadNovelChapter, novelDlActive, novelDlEntry, onNovelDl } from '../lib/dl-novel.js'
 import { setSeriesCrumb } from './shell.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc, activeScroller } from '../lib/dom.js'
@@ -82,15 +83,38 @@ function infoHtml(s, slug, count) {
       ${statsHtml(s, slug, count)}`
 }
 
-function chrow(c, read, curN) {
+const dlFailed = new Map()
+const dlState = (slug, n) => {
+    const active = novelDlActive(slug, n)
+    const state = active ? 'active' : novelDlEntry(slug, n) ? 'done' : dlFailed.has(n) ? 'failed' : ''
+    const label = active ? '…' : state === 'done' ? '✓' : state === 'failed' ? '!' : '↓'
+    const hint = active ? 'Cancel download' : state === 'done' ? 'Delete downloaded chapter' : state === 'failed' ? dlFailed.get(n) : 'Download for offline reading'
+    return { state, label, hint }
+}
+const dlButton = (slug, n) => {
+    const { state, label, hint } = dlState(slug, n)
+    return `<button type="button" class="chdl${state ? ` ${state}` : ''}" data-dl="${esc(n)}" title="${esc(hint)}" aria-label="${esc(hint)}">${label}</button>`
+}
+function paintDl() {
+    if (!cur) return
+    $$('#chlist .chdl').forEach(btn => {
+        const { state, label, hint } = dlState(cur.slug, Number(btn.dataset.dl))
+        btn.className = `chdl${state ? ` ${state}` : ''}`
+        btn.textContent = label
+        btn.title = hint
+        btn.setAttribute('aria-label', hint)
+    })
+}
+
+function chrow(slug, c, read, curN) {
     const cls = ['chrow', read.has(c.n) && 'read', c.n === curN && 'cur'].filter(Boolean).join(' ')
-    return `<div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>`
+    return `<div class="chline"><div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>${dlButton(slug, c.n)}</div>`
 }
 
 function chaptersHtml(slug, chapters, count) {
     const read = readSet(slug)
     const curN = posGet(slug)?.n
-    const rows = [...chapters].sort(byDesc).map(c => chrow(c, read, curN)).join('')
+    const rows = [...chapters].sort(byDesc).map(c => chrow(slug, c, read, curN)).join('')
     const list = rows || `<div class="void">no chapters yet</div>`
     // mobile opens at the top of the page (info + newest chapters in flow); desktop auto-scrolls to the bottom
     const mobileTop = matchMedia('(max-width: 640px)').matches
@@ -215,6 +239,21 @@ function wire() {
     })
 
     $('#schapters').addEventListener('click', e => {
+        const dl = e.target.closest('.chdl')
+        if (dl && cur) {
+            const n = Number(dl.dataset.dl)
+            if (novelDlActive(cur.slug, n)) return cancelNovelDownload(cur.slug, n)
+            if (novelDlEntry(cur.slug, n)) {
+                if (confirm('Delete the downloaded copy of this chapter?')) deleteNovelDownload(cur.slug, n)
+                return
+            }
+            dlFailed.delete(n)
+            downloadNovelChapter(cur.slug, n, cur.series.title).catch(error => {
+                dlFailed.set(n, error?.message || 'Download failed')
+                paintDl()
+            })
+            return
+        }
         const seg = e.target.closest('#chorder span')
         if (seg) return setOrder(seg)
         const row = e.target.closest('.chrow')
@@ -232,6 +271,7 @@ function wire() {
     })
 
     window.addEventListener('resize', checkSynOverflow)
+    onNovelDl(paintDl)
 }
 
 async function loadChapters(slug, mine) {

@@ -6,7 +6,7 @@
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#15161a">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: nucover:; media-src 'self' https: blob:; frame-src https:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nucover:; media-src 'self' https: blob:; frame-src https:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -57,6 +57,8 @@
           <div class="lab" id="cont-lab">Continue</div>
           <div class="cont" id="continue"></div>
           <div id="libtable"></div>
+          <div class="lab" id="dl-lab" hidden>Downloads <span class="dl-size" id="dl-size"></span></div>
+          <div id="dltable"></div>
         </div>
       </div>
 

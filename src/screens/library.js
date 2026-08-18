@@ -1,5 +1,9 @@
 import { library, loadLibSort, saveLibSort } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
+import { dlEntries, dlListen, dlTotalSize } from '../lib/downloads.js'
+import { deleteMangaDownload } from '../lib/dl-manga.js'
+import { deleteNovelDownload } from '../lib/dl-novel.js'
+import { deleteVideoDownload } from '../lib/dl-video.js'
 import { go, hashSlug } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
@@ -82,6 +86,40 @@ const row = e => {
       <span class="chp">${esc(read(e))}/${esc(total(e))}</span>
       ${updCell(e)}
     </div>`
+}
+
+const fmtSize = bytes => {
+    const n = Number(bytes) || 0
+    return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`
+}
+const DL_KIND_LABEL = { manga: 'Manga', novel: 'Novel', video: 'Video' }
+const dlRow = e => `<div class="dlrow" data-kind="${esc(e.kind)}" data-key="${esc(e.key)}" data-id="${esc(e.id)}">
+  <div class="tt"><div class="n">${esc(e.title || e.key)}</div><div class="au">${esc(DL_KIND_LABEL[e.kind] || e.kind)} · ${esc(e.label || '')}</div></div>
+  <span class="dlsize">${esc(fmtSize(e.size))}</span>
+  <button type="button" class="dldel" title="Delete download" aria-label="Delete download">✕</button>
+</div>`
+
+function renderDownloads() {
+    const entries = dlEntries()
+    $('#dl-lab').hidden = !entries.length
+    $('#dl-size').textContent = entries.length ? `· ${fmtSize(dlTotalSize())}` : ''
+    $('#dltable').innerHTML = entries.map(dlRow).join('')
+}
+
+function openDownload(el) {
+    const { kind, key, id } = el.dataset
+    if (!key) return
+    if (kind === 'manga') go(`#/manga/read/${encodeURIComponent(key)}/${encodeURIComponent(id)}`)
+    else if (kind === 'video') go(`#/watch/play/${encodeURIComponent(key)}/${encodeURIComponent(id)}`)
+    else go(`#/read/${hashSlug(key)}/${id}`)
+}
+
+function deleteDownload(el) {
+    const { kind, key, id } = el.dataset
+    if (!confirm(`Delete this downloaded ${DL_KIND_LABEL[kind]?.toLowerCase() || 'item'}?`)) return
+    if (kind === 'manga') deleteMangaDownload(key, id)
+    else if (kind === 'video') deleteVideoDownload(key, id)
+    else deleteNovelDownload(key, id)
 }
 
 function render() {
@@ -169,6 +207,13 @@ function wire() {
 
     $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) continueEntry(t) })
     $('#libtable').addEventListener('click', e => { const r = e.target.closest('.trow'); if (r) openEntry(r) })
+    $('#dltable').addEventListener('click', e => {
+        const del = e.target.closest('.dldel')
+        if (del) { deleteDownload(del.closest('.dlrow')); return }
+        const r = e.target.closest('.dlrow')
+        if (r) openDownload(r)
+    })
+    dlListen(renderDownloads)
 
     paintSort()
 }
@@ -176,5 +221,6 @@ function wire() {
 export function showLibrary() {
     wire()
     render()
+    renderDownloads()
     checkUpdates()
 }
