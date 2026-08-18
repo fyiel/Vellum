@@ -233,8 +233,9 @@ const CLEAN = {
     "img", "figure", "figcaption", "span", "sub", "sup", "a",
   ],
   ALLOWED_ATTR: ["href", "src", "class"],
-  // a data uri may not hide behind an http prefix, fail closed on the whole value
-  ALLOWED_URI_REGEXP: /^(?:(?:https?):(?!.*data:)|(?!\/\/)\/|data:image\/(?:png|jpe?g|gif|webp|avif|bmp))/i,
+  // a data uri may not hide behind an http prefix, fail closed on the whole value;
+  // blob: covers downloaded chapter images served from local storage
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|blob):(?!.*data:)|(?!\/\/)\/|data:image\/(?:png|jpe?g|gif|webp|avif|bmp))/i,
 };
 
 // dompurify's data uri allowlist is additive only, so scrub any data uri that

@@ -15,6 +15,8 @@ export const dlPath = {
     mangaPage: (key, id, page) => `${dlPath.manga(key, id)}/${page}`,
     novel: key => `novel/${safe(key)}`,
     novelChapter: (key, n) => `${dlPath.novel(key)}/${n}.json`,
+    novelImages: (key, n) => `${dlPath.novel(key)}/${n}.img`,
+    novelImage: (key, n, i) => `${dlPath.novelImages(key, n)}/${i}`,
     video: (key, id) => `video/${safe(key)}/${safe(id)}.mp4`,
 }
 
