@@ -112,7 +112,7 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .view.sdet .info { width: 100%; overflow: visible; border: 0; border-bottom: 1px solid var(--line); padding: 16px; display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
   .den .view.sdet .cover-lg { width: 108px; height: 162px; grid-row: 1 / span 5; }
   .den .view.sdet .dtitle { font-size: 20px; }
-  .den .view.sdet .dactions { grid-column: 2; }
+  .den .view.sdet .dactions { grid-column: 1 / -1; }
   .den .view.sdet .seclab, .den .view.sdet .dsyn, .den .view.sdet .dstats, .den .view.sdet .manga-tags, .den .view.sdet .taxblock, .den .view.sdet .synhost, .den .view.sdet .dmore { grid-column: 1 / -1; }
   .den .view.sdet .dsyn.clamp { -webkit-line-clamp: 4; }
   .den .view.sdet .chapters { min-height: 62vh; overflow: visible; }
