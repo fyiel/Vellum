@@ -147,7 +147,7 @@ function paintDl() {
 
 function chrow(slug, c, read, curN) {
     const cls = ['chrow', read.has(c.n) && 'read', c.n === curN && 'cur'].filter(Boolean).join(' ')
-    return `<div class="chline"><div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>${dlButton(slug, c.n)}</div>`
+    return `<div class="chline"><div class="${cls}" data-n="${esc(c.n)}"><span class="chn">${esc(c.d ?? c.n)}</span><span class="cht">${esc(c.t || '')}</span><span class="chd"></span><span class="chdot"></span></div>${dlButton(slug, c.n)}</div>`
 }
 
 function chaptersHtml(slug, chapters, count) {
@@ -351,6 +351,15 @@ async function loadChapters(slug, mine) {
         stat.textContent = count
         stat.classList.add('copyable')
         stat.title = 'Click to copy'
+    }
+
+    // the continue label was written before the list loaded; swap in the source's own
+    // chapter number when it diverges from the sequence (renumbered uploads)
+    const posN = posGet(slug)?.n
+    const posCh = posN != null ? chapters.find(c => c.n === posN) : null
+    if (posCh?.d != null) {
+        const cont = $('#contbtn')
+        if (cont) cont.textContent = `Continue · Ch ${posCh.d}`
     }
 
     const sc = activeScroller()

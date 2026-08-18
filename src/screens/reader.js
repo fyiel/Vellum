@@ -269,7 +269,7 @@ const makeBlock = (idx, c, ch) => {
   const body = cleanBody(rd.slug, c.n, ch.html);
   const title = ch.title || c.t;
   block.innerHTML =
-    `<div class="reader-ch-meta">chapter ${esc(c.n)} of ${state.chapters.length}</div>` +
+    `<div class="reader-ch-meta">chapter ${esc(c.d ?? c.n)} of ${state.chapters.length}</div>` +
     (title ? `<h2>${esc(title)}</h2>` : "") +
     body;
   return block;
@@ -518,7 +518,7 @@ const updateProgress = () => {
   const p = chapterProgress();
   $("#rprogbar").style.width = (p * 100).toFixed(1) + "%";
   $("#r-pos").textContent =
-    `${state.chapters[rd.cur].n} / ${state.chapters.length} · ${Math.round(p * 100)}%`;
+    `${state.chapters[rd.cur].d ?? state.chapters[rd.cur].n} / ${state.chapters.length} · ${Math.round(p * 100)}%`;
 };
 
 let ticking = false;
@@ -645,7 +645,7 @@ function renderDrawer() {
     c,
     i,
   }) => `<a class="chap${set.has(c.n) ? " read" : ""}${i === rd.cur ? " current" : ""}" href="#/read/${hashSlug(rd.slug)}/${esc(c.n)}">
-      <span class="n">#${esc(c.n)}</span><span class="t">${esc(c.t)}</span><span class="dot"></span></a>`;
+      <span class="n">#${esc(c.d ?? c.n)}</span><span class="t">${esc(c.t)}</span><span class="dot"></span></a>`;
   listEl.innerHTML =
     (!dw.q && dw.lo > 0
       ? `<button class="drawer-more" id="dw-earlier">${dw.lo} earlier…</button>`
