@@ -226,3 +226,67 @@ test('keeps the view steady when a jump leaves far-away chapters to trim', async
     expect({ text: after.text, idx: after.idx }, JSON.stringify({ before, after })).toEqual({ text: before.text, idx: before.idx })
     expect(errors).toEqual([])
 })
+
+// iOS keeps the momentum running after the finger lifts, and resolves a programmatic scroll
+// differently mid-gesture than a wheel does, which is what can throw the reader out of place.
+// On a touch device every scroll correction waits for the page to settle instead.
+test.describe('touch device', () => {
+    test.use({ hasTouch: true })
+
+    test('defers scroll corrections until the gesture has settled', async ({ page }) => {
+        const long = Array.from({ length: 60 }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+        const errors = []
+        page.on('pageerror', error => errors.push(error.message))
+
+        await page.route('**/read/api/series/**', route => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ key: 'nu:touch', kind: 'novel', title: 'Touch', status: 'ongoing' }),
+        }))
+        await page.route('**/read/api/chapters?**', route => route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ slug: 'touch', chapters: long, total: long.length, errors: [] }),
+        }))
+        await page.route('**/read/api/chapter?**', route => {
+            const n = Number(new URL(route.request().url()).searchParams.get('n'))
+            return route.fulfill({
+                contentType: 'application/json',
+                body: JSON.stringify({ slug: 'touch', n, title: `Chapter ${n}`, html: body(n, 8) }),
+            })
+        })
+
+        const state = () => page.evaluate(() => ({
+            blocks: document.querySelectorAll('.ch-block').length,
+            first: Number(document.querySelector('.ch-block')?.dataset.idx ?? -1),
+            last: Number(document.querySelector('.ch-block:last-of-type')?.dataset.idx ?? -1),
+        }))
+
+        await page.goto(`${app}#/read/touch/1`)
+        await expect(page.locator('.ch-block').first()).toBeVisible()
+
+        // fill the buffer past the trim threshold while the page is quiet
+        for (let i = 0; i < 90; i++) {
+            await page.evaluate(() => window.scrollBy(0, 150))
+            await page.waitForTimeout(20)
+        }
+        const deep = await state()
+        expect(deep.last - deep.first, `no deep buffer: ${JSON.stringify(deep)}`).toBeGreaterThan(20)
+
+        // keep the scroll events coming: every 120th tick would trim on a non-touch device
+        let trimmedMidGesture = 0
+        for (let i = 0; i < 140; i++) {
+            const before = await state()
+            await page.evaluate(() => window.scrollBy(0, 130))
+            await page.waitForTimeout(20)
+            const after = await state()
+            if (after.blocks < before.blocks) trimmedMidGesture += 1
+        }
+        expect(trimmedMidGesture, 'a trim ran while the gesture was still active').toBe(0)
+
+        // let it settle: the deferred work happens now
+        const settledBefore = await state()
+        await page.waitForTimeout(700)
+        const settledAfter = await state()
+        expect(settledAfter.blocks, `nothing trimmed after settling: ${JSON.stringify({ settledBefore, settledAfter })}`).toBeLessThan(settledBefore.blocks)
+        expect(errors).toEqual([])
+    })
+})

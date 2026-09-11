@@ -83,6 +83,26 @@ const scrollY = () => window.scrollY;
 const viewH = () => window.innerHeight;
 const docH = () => document.documentElement.scrollHeight;
 
+// A touch gesture — and the momentum that keeps running after the finger lifts — both keep
+// firing scroll events, so "no scroll event for a moment" is the only reliable sign that the
+// page has settled. iOS resolves a programmatic scroll during a gesture differently from a
+// wheel, so on touch devices we never move the scroll mid-gesture: corrections are deferred to
+// the idle pass, which is gesture-safe precisely because momentum keeps resetting its timer.
+const touchDevice = navigator.maxTouchPoints > 0;
+let lastScrollAt = 0;
+let pendingShift = 0;
+const gestureActive = () => touchDevice && performance.now() - lastScrollAt < 250;
+const shiftBy = (delta) => {
+  if (!delta) return;
+  if (gestureActive()) pendingShift += delta;
+  else window.scrollBy(0, delta);
+};
+const flushShift = () => {
+  const delta = pendingShift;
+  pendingShift = 0;
+  if (delta && state.view === "reader") window.scrollBy(0, delta);
+};
+
 prose.addEventListener(
   "load",
   (e) => {
@@ -91,7 +111,7 @@ prose.addEventListener(
     const r = img.getBoundingClientRect();
     // compensate the full growth so the reading text never drifts, this is exact
     // because chapter images always grow from zero height
-    if (r.top < 0) window.scrollBy(0, r.bottom - r.top);
+    if (r.top < 0) shiftBy(r.bottom - r.top);
     rebuildOffsets();
   },
   true,
@@ -155,6 +175,7 @@ async function hydrateSeries(slug, ctrl) {
 export const closeReader = () => {
   rd.ctrl?.abort();
   rd.ctrl = null;
+  pendingShift = 0;
   rd.gen++; // invalidate any pending chapter load so it can't keep mutating the hidden reader
   clearTimeout(idleTimer);
   posSave();
@@ -172,6 +193,7 @@ export const closeReader = () => {
 
 async function startAt(slug, idx, p = 0) {
   const gen = ++rd.gen;
+  pendingShift = 0;
   Object.assign(rd, {
     slug,
     first: idx,
@@ -533,6 +555,7 @@ window.addEventListener(
   "scroll",
   () => {
     if (state.view !== "reader") return;
+    lastScrollAt = performance.now();
     if (!ticking) {
       ticking = true;
       const gen = rd.gen;
@@ -545,8 +568,9 @@ window.addEventListener(
         setCurrent(topChapterIdx());
         updateProgress();
         ensureBuffer();
-        // a binge never idles long enough for the idle trim, shed old blocks on a timer
-        if (++trimTick % 120 === 0 && rd.last - rd.first > 20) trimTop();
+        // a binge never idles long enough for the idle trim, shed old blocks on a timer — but
+        // never mid-gesture on a touch device, where moving the scroll fights the momentum
+        if (++trimTick % 120 === 0 && rd.last - rd.first > 20 && !gestureActive()) trimTop();
         ticking = false;
       });
     }
@@ -558,6 +582,7 @@ window.addEventListener(
 
 const onScrollIdle = () => {
   if (state.view !== "reader" || rd.cur < 0) return;
+  flushShift();
   trimTop();
   posSave();
   if (chapterProgress() >= 0.98) {
