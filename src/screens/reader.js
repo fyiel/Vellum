@@ -395,6 +395,7 @@ async function loadPrev() {
   if (gen !== rd.gen) return;
 
   const h = docH();
+  const y = scrollY(); // same reason as trimTop: compensate from the pre-mutation position
   $("#ch-prev")?.remove();
   try {
     prose.prepend(makeBlock(idx, c, ch));
@@ -407,7 +408,7 @@ async function loadPrev() {
   rd.first = idx;
   renderPrevHint();
   rebuildOffsets(); // the hint button shifts every block top
-  window.scrollTo(0, scrollY() + (docH() - h));
+  window.scrollTo(0, Math.max(0, y + (docH() - h)));
   rd.ploading = false;
 }
 
@@ -418,10 +419,14 @@ function trimTop() {
     if (first.offsetTop + first.offsetHeight > scrollY() - viewH()) break;
 
     const h = docH();
+    // read the position before the mutation: dropping a block can shorten the document past
+    // where we are, and the browser clamps the scroll on its own, so compensating off the
+    // post-removal value would subtract the height twice and throw the reader back a chapter
+    const y = scrollY();
     first.remove();
     rd.first = Number(first.dataset.idx) + 1;
     renderPrevHint();
-    window.scrollTo(0, Math.max(0, scrollY() - (h - docH())));
+    window.scrollTo(0, Math.max(0, y - (h - docH())));
   }
   rebuildOffsets();
 }
