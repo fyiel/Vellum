@@ -4,7 +4,7 @@
 // registry, and coverImg's error fallback swaps the stored copy in when the network fails.
 
 import { dlPath, dlRead, dlRemove, dlWrite } from './downloads.js'
-import { apiUrl, rawFetch } from './http.js'
+import { apiUrl, isNative, rawFetch } from './http.js'
 
 const NS = 'vellum'
 // covers are small; this bounds the cache at a few tens of MB even at the high end
@@ -44,9 +44,9 @@ const inflight = new Set()
 // bytes back (`proxy=1`), which is same-origin in dev and CORS-enabled on pages; desktop reads
 // the exact url, CORS-free. A cold title costs the API a few upstream searches, so this is only
 // asked for by the download surfaces, never for a whole feed.
-const isTauri = () => !!window.__TAURI_INTERNALS__
 const sourceFor = (url, title) => {
-    if (isTauri()) return url
+    // native transport is not subject to CORS, so it reads the url straight
+    if (isNative) return url
     if (placeholder(url) && !title) return null
     const target = apiUrl(`/read/api/cover?t=${encodeURIComponent(title || '')}`)
     return `${target}${target.includes('?') ? '&' : '?'}proxy=1`
