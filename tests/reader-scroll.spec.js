@@ -82,3 +82,69 @@ test('keeps the reading position while buffering, trimming and a late image land
     expect(violations, `\n${JSON.stringify(violations, null, 1)}`).toEqual([])
     expect(errors).toEqual([])
 })
+
+// the mid-scroll trim (reader.js:549) only fires once 20+ chapters sit in the DOM, and the
+// idle trim clears that buffer whenever the reader pauses: drive a long stream with short,
+// continuous steps so the buffer grows past the threshold, then hold the reader to "scrolling
+// down never goes back" while that trim runs
+test('never walks the reader backwards while a deep stream trims mid-scroll', async ({ page }) => {
+    const long = Array.from({ length: 60 }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    const errors = []
+    page.on('pageerror', error => errors.push(error.message))
+
+    await page.route('**/read/api/series/**', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ key: 'nu:deep', kind: 'novel', title: 'Deep', status: 'ongoing' }),
+    }))
+    await page.route('**/read/api/chapters?**', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'deep', chapters: long, total: long.length, errors: [] }),
+    }))
+    await page.route('**/read/api/chapter?**', route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ slug: 'deep', n, title: `Chapter ${n}`, html: body(n, 8) }),
+        })
+    })
+
+    const state = () => page.evaluate(() => ({
+        title: document.querySelector('#r-title')?.textContent ?? '',
+        blocks: document.querySelectorAll('.ch-block').length,
+        first: Number(document.querySelector('.ch-block')?.dataset.idx ?? -1),
+        last: Number(document.querySelector('.ch-block:last-of-type')?.dataset.idx ?? -1),
+        y: Math.round(window.scrollY),
+    }))
+    const chapterOf = title => Number(String(title).match(/Chapter (\d+)/)?.[1] ?? 0)
+
+    await page.goto(`${app}#/read/deep/1`)
+    await expect(page.locator('.ch-block').first()).toBeVisible()
+
+    // short chapters + small continuous steps: every scroll event appends more, so the DOM
+    // fills past the trim threshold before anything can idle
+    let deepest = { first: 0, last: 0 }
+    for (let i = 0; i < 90; i++) {
+        await page.evaluate(() => window.scrollBy(0, 150))
+        await page.waitForTimeout(20)
+        const now = await state()
+        if (now.last - now.first > deepest.last - deepest.first) deepest = now
+    }
+    expect(deepest.last - deepest.first, `never buffered a deep stream: ${JSON.stringify({ deepest, ...(await state()) })}`).toBeGreaterThan(20)
+
+    // keep stepping: every 120th scroll event runs the mid-scroll trim on the deep buffer
+    let previousChapter = chapterOf((await state()).title)
+    const regressions = []
+    for (let i = 0; i < 200; i++) {
+        await page.evaluate(() => window.scrollBy(0, 130))
+        await page.waitForTimeout(20)
+        const now = await state()
+        const chapter = chapterOf(now.title)
+        if (chapter < previousChapter) regressions.push({ step: i, was: previousChapter, now: chapter, y: now.y, blocks: now.blocks })
+        previousChapter = Math.max(previousChapter, chapter)
+    }
+    const end = await state()
+    console.log(JSON.stringify({ deepest: { first: deepest.first, last: deepest.last, blocks: deepest.blocks }, end, regressions: regressions.length }, null, 1))
+
+    expect(regressions, `reader went backwards while only scrolling down:\n${JSON.stringify(regressions, null, 1)}`).toEqual([])
+    expect(errors).toEqual([])
+})
