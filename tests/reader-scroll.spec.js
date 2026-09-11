@@ -114,6 +114,16 @@ test('never walks the reader backwards while a deep stream trims mid-scroll', as
         first: Number(document.querySelector('.ch-block')?.dataset.idx ?? -1),
         last: Number(document.querySelector('.ch-block:last-of-type')?.dataset.idx ?? -1),
         y: Math.round(window.scrollY),
+        // the chapter actually under the top of the viewport, straight from layout
+        actual: (() => {
+            const edge = window.scrollY + 90
+            let idx = null
+            for (const block of document.querySelectorAll('.ch-block')) {
+                if (block.offsetTop <= edge) idx = Number(block.dataset.idx)
+                else break
+            }
+            return idx
+        })(),
     }))
     const chapterOf = title => Number(String(title).match(/Chapter (\d+)/)?.[1] ?? 0)
 
@@ -134,6 +144,7 @@ test('never walks the reader backwards while a deep stream trims mid-scroll', as
     // keep stepping: every 120th scroll event runs the mid-scroll trim on the deep buffer
     let previousChapter = chapterOf((await state()).title)
     const regressions = []
+    const mismatches = []
     for (let i = 0; i < 200; i++) {
         await page.evaluate(() => window.scrollBy(0, 130))
         await page.waitForTimeout(20)
@@ -141,10 +152,16 @@ test('never walks the reader backwards while a deep stream trims mid-scroll', as
         const chapter = chapterOf(now.title)
         if (chapter < previousChapter) regressions.push({ step: i, was: previousChapter, now: chapter, y: now.y, blocks: now.blocks })
         previousChapter = Math.max(previousChapter, chapter)
+        // the header drives the url, the progress bar and the saved resume point, so it has to
+        // name the chapter the reader is actually looking at (fixture blocks are idx = chapter - 1)
+        if (now.actual != null && chapter !== now.actual + 1) {
+            mismatches.push({ step: i, shown: chapter, actual: now.actual + 1, y: now.y, blocks: now.blocks })
+        }
     }
     const end = await state()
-    console.log(JSON.stringify({ deepest: { first: deepest.first, last: deepest.last, blocks: deepest.blocks }, end, regressions: regressions.length }, null, 1))
+    console.log(JSON.stringify({ deepest: { first: deepest.first, last: deepest.last, blocks: deepest.blocks }, end, regressions: regressions.length, mismatches: mismatches.slice(0, 5) }, null, 1))
 
     expect(regressions, `reader went backwards while only scrolling down:\n${JSON.stringify(regressions, null, 1)}`).toEqual([])
+    expect(mismatches, `header named a chapter the reader was not looking at:\n${JSON.stringify(mismatches.slice(0, 10), null, 1)}`).toEqual([])
     expect(errors).toEqual([])
 })
