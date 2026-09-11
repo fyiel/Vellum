@@ -6,6 +6,7 @@ import { deleteNovelDownload } from '../lib/dl-novel.js'
 import { deleteVideoDownload } from '../lib/dl-video.js'
 import { go, hashSlug } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
+import { storeCover } from '../lib/cover-cache.js'
 import { $, $$, esc } from '../lib/dom.js'
 import { relTime } from '../lib/time.js'
 
@@ -53,7 +54,9 @@ function sortEntries(list) {
     })
 }
 
-const cover = (e, ph) => coverImg(e.cover, e.title) || (ph ? `<span>${ph}</span>` : '')
+// the library is what you see with no network: its tiles carry the lookup key for a stored copy,
+// and series you actually downloaded get one kept (see keepDownloadedCovers)
+const cover = (e, ph) => coverImg(e.cover, e.title, { offline: true }) || (ph ? `<span>${ph}</span>` : '')
 
 const contTile = e => {
     const pct = pctOf(e)
@@ -218,9 +221,21 @@ function wire() {
     paintSort()
 }
 
+// A series you downloaded is one you expect to open with no network, so keep its cover. This is
+// driven by the download registry rather than the grid: one resolver call per downloaded series
+// instead of one per tile, and the store itself de-dupes and bounds the copies.
+function keepDownloadedCovers() {
+    const downloaded = new Set(dlEntries().map(entry => entry.title).filter(Boolean))
+    if (!downloaded.size) return
+    for (const entry of library()) {
+        if (entry.cover && downloaded.has(entry.title)) void storeCover(entry.cover, entry.title)
+    }
+}
+
 export function showLibrary() {
     wire()
     render()
     renderDownloads()
+    keepDownloadedCovers()
     checkUpdates()
 }

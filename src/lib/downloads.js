@@ -18,6 +18,7 @@ export const dlPath = {
     novelImages: (key, n) => `${dlPath.novel(key)}/${n}.img`,
     novelImage: (key, n, i) => `${dlPath.novelImages(key, n)}/${i}`,
     video: (key, id) => `video/${safe(key)}/${safe(id)}.mp4`,
+    cover: name => `covers/${safe(name)}`,
 }
 
 // ---- backend: tauri -------------------------------------------------------
