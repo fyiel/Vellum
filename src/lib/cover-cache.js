@@ -52,15 +52,30 @@ const sourceFor = (url, title) => {
     return `${target}${target.includes('?') ? '&' : '?'}proxy=1`
 }
 const placeholder = url => !url || NO_IMAGE.test(url)
-export async function storeCover(url, title) {
-    if (!cacheable(url) || navigator.onLine === false) return null
-    const source = sourceFor(url, title)
-    if (!source) return null
-    const known = load()
-    if (known[url]) return known[url]
-    if (inflight.has(url)) return null
+// One cold title costs the API several upstream searches, and the library renders every
+// downloaded series at once on boot, so the work is queued instead of fired together
+const queue = []
+const LIMIT = 2
+let active = 0
+const pump = () => {
+    while (active < LIMIT && queue.length) {
+        const job = queue.shift()
+        active += 1
+        job().catch(() => {}).finally(() => { active -= 1; pump() })
+    }
+}
+// fire and forget: covers fill in over the session rather than all at once
+export function storeCover(url, title) {
+    if (!cacheable(url) || navigator.onLine === false) return
+    if (load()[url] || inflight.has(url)) return
     inflight.add(url)
+    queue.push(() => keep(url, title))
+    pump()
+}
+async function keep(url, title) {
+    const source = sourceFor(url, title)
     try {
+        if (!source) return null
         const response = await rawFetch(source).catch(() => null)
         if (!response?.ok) return null
         const blob = await response.blob().catch(() => null)
@@ -79,7 +94,7 @@ export async function storeCover(url, title) {
         }
         save(next)
         return path
-    } catch { return null } finally { inflight.delete(url) }
+    } finally { inflight.delete(url) }
 }
 
 // the stored bytes for a url, or null when this cover was never seen online
