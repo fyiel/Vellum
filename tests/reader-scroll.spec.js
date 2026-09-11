@@ -165,3 +165,64 @@ test('never walks the reader backwards while a deep stream trims mid-scroll', as
     expect(mismatches, `header named a chapter the reader was not looking at:\n${JSON.stringify(mismatches.slice(0, 10), null, 1)}`).toEqual([])
     expect(errors).toEqual([])
 })
+
+// a jump (drawer / link / restored position) leaves every earlier chapter thousands of px above
+// the viewport, so one idle trim pass sheds many blocks at once. The compensation has to keep the
+// text under the reader still no matter how far away the removed blocks were.
+test('keeps the view steady when a jump leaves far-away chapters to trim', async ({ page }) => {
+    // long enough that no amount of buffering reaches the end of the stream: the reader has to
+    // stay mid-book with chapters far above it for the trim to have work to do
+    const long = Array.from({ length: 200 }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    const errors = []
+    page.on('pageerror', error => errors.push(error.message))
+
+    await page.route('**/read/api/series/**', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ key: 'nu:jump', kind: 'novel', title: 'Jump', status: 'ongoing' }),
+    }))
+    await page.route('**/read/api/chapters?**', route => route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ slug: 'jump', chapters: long, total: long.length, errors: [] }),
+    }))
+    await page.route('**/read/api/chapter?**', route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return route.fulfill({
+            contentType: 'application/json',
+            body: JSON.stringify({ slug: 'jump', n, title: `Chapter ${n}`, html: body(n, 12) }),
+        })
+    })
+
+    // what is under the top of the viewport right now
+    const probe = () => page.evaluate(() => {
+        const el = document.elementFromPoint(Math.round(window.innerWidth / 2), Math.round(window.innerHeight * 0.3))
+        const block = el?.closest?.('.ch-block')
+        return {
+            text: (el?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40),
+            idx: block ? Number(block.dataset.idx) : null,
+            y: Math.round(window.scrollY),
+            blocks: document.querySelectorAll('.ch-block').length,
+            firstTop: (() => { const b = document.querySelector('.ch-block'); return b ? Math.round(b.offsetTop) : null })(),
+        }
+    })
+
+    await page.goto(`${app}#/read/jump/1`)
+    await expect(page.locator('.ch-block').first()).toBeVisible()
+    // buffer deep without idling so nothing trims yet
+    for (let i = 0; i < 34; i++) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight * 2))
+        await page.waitForTimeout(15)
+    }
+
+    // jump: land far from every buffered chapter, then let the idle trim run untouched
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight * 4))
+    await page.waitForTimeout(120)
+    const before = await probe()
+    await page.waitForTimeout(900)
+    const after = await probe()
+
+    console.log('DUMP ' + JSON.stringify({ before, after, removed: before.blocks - after.blocks }))
+    expect(before.blocks - after.blocks, `no trim ran, test proves nothing:\n${JSON.stringify({ before, after })}`).toBeGreaterThan(0)
+    // the reader was not scrolling during that window, so the text under the top must not move
+    expect({ text: after.text, idx: after.idx }, JSON.stringify({ before, after })).toEqual({ text: before.text, idx: before.idx })
+    expect(errors).toEqual([])
+})
