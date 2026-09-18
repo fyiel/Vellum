@@ -6,6 +6,8 @@ import { kisskh } from './providers/kisskh.mjs'
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }
 const ANILIST = 'https://graphql.anilist.co'
 const ANIDB = 'https://anidb.app'
+const ANIDB_LABEL = 'Miruro · pewe (AniDB App)'
+const HIANIME_LABEL = 'HiAnime'
 const FORMATS = new Set(['TV', 'MOVIE', 'OVA', 'ONA', 'SPECIAL', 'MUSIC'])
 const PROVIDER_KEY = /^(miruro|dc|gp|cineby|kiss):(.+)$/
 const PROVIDER_IDS = { miruro: /^\d+$/, dc: /^[a-z0-9._-]{1,100}$/, gp: /^[a-z0-9._-]{1,100}$/, cineby: /^\d+$/, kiss: /^\d+$/ }
@@ -40,10 +42,16 @@ async function fetchJson(fetchImpl, input, init, parent) {
 
 const MEDIA_FIELDS = `id title { romaji english native userPreferred } synonyms description status format season seasonYear episodes duration genres studios(isMain: true) { nodes { name } } coverImage { extraLarge large } bannerImage`
 // search is unfiltered (miruro parity — unreleased titles show when looked up); the no-query
-// feed excludes NOT_YET_RELEASED so browsing surfaces watchable titles. AniList returns empty
-// when search is combined with an explicit null format, so format is filtered client-side.
+// feed excludes NOT_YET_RELEASED so browsing surfaces watchable titles. format is a declared but
+// omittable variable: omitting it keeps the unfiltered query, while a value filters and paginates
+// server side. filtering the returned page in the app instead threw away most of every page and
+// reported hasMore for titles the reader could never reach, so the filter only ever looked empty.
+// a format-less search does not even declare the variable — AniList answers an explicit null
+// format with an empty page and the plain search has to stay unfiltered — so the declaring
+// query is only used once the reader actually names a format.
 const PAGE_QUERY = `query($page:Int,$perPage:Int,$search:String){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,search:$search,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
-const FEED_QUERY = `query($page:Int,$perPage:Int){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,status_not:NOT_YET_RELEASED,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
+const PAGE_FORMAT_QUERY = `query($page:Int,$perPage:Int,$search:String,$format:MediaFormat){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,search:$search,format:$format,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
+const FEED_QUERY = `query($page:Int,$perPage:Int,$format:MediaFormat){Page(page:$page,perPage:$perPage){pageInfo{hasNextPage} media(type:ANIME,format:$format,status_not:NOT_YET_RELEASED,sort:[TRENDING_DESC,POPULARITY_DESC]){${MEDIA_FIELDS}}}}`
 const SERIES_QUERY = `query($id:Int){Media(id:$id,type:ANIME){${MEDIA_FIELDS}}}`
 
 const cleanDescription = value => str(value)?.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || null
@@ -77,30 +85,140 @@ const positive = (value, fallback, max) => {
 }
 const pageArgs = url => ({ page: positive(url.searchParams.get('page'), 1, 10_000), limit: positive(url.searchParams.get('limit'), 24, 50), format: url.searchParams.get('format')?.toUpperCase() || null })
 
-const anilist = (fetchImpl, query, variables, signal) => fetchJson(fetchImpl, ANILIST, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables }),
-}, signal)
-
-export const cached = (fetchImpl, key, ttl, load) => {
-    let cache = providerCache.get(fetchImpl)
-    if (!cache) { cache = new Map(); providerCache.set(fetchImpl, cache) }
-    const hit = cache.get(key)
-    if (hit && hit.expires > Date.now()) {
-        cache.delete(key)
-        cache.set(key, hit)
-        return hit.value
-    }
-    const value = load().catch(error => { cache.delete(key); throw error })
-    if (cache.size >= 100) {
-        let victim
-        for (const entryKey of [...cache.keys()].reverse()) {
-            if (!cache.get(entryKey).hit) { victim = entryKey; break }
-        }
-        cache.delete(victim ?? cache.keys().next().value)
-    }
-    cache.set(key, { value, expires: Date.now() + ttl, hit: false })
-    return value
+const anilist = async (fetchImpl, query, variables) => {
+    try {
+        return await fetchJson(fetchImpl, ANILIST, {
+            method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, variables }),
+        }, budgetSignal(null, ANILIST_BUDGET))
+    } catch (error) { throw upstreamError(error) }
 }
+
+// entries live per fetchImpl and carry two clocks: expires bounds freshness, keep bounds the
+// stale window that still answers from the last good copy while the refresh runs behind the
+// request. a refresh that fails never drops that copy, it only widens the retry gap, and a load
+// that fails is remembered for negTtl (0 keeps the old forget-on-error behaviour) so one blip
+// cannot turn into a request storm against the source.
+const CACHE_MAX = 100
+const CACHE_RETRY_MS = 60_000
+
+const cachePut = (entries, key, entry) => {
+    entries.delete(key)
+    if (entries.size >= CACHE_MAX) {
+        const now = Date.now()
+        for (const [entryKey, stored] of entries) if (stored.keep <= now) entries.delete(entryKey)
+        while (entries.size >= CACHE_MAX) entries.delete(entries.keys().next().value)
+    }
+    entries.set(key, entry)
+}
+
+const cacheAccept = (accept, value) => {
+    try { return Boolean(accept(value)) } catch { return false }
+}
+
+export const cached = (fetchImpl, key, ttl, load, negTtl = 0, accept = value => value !== null && value !== undefined, staleMs = 0) => {
+    let state = providerCache.get(fetchImpl)
+    if (!state) { state = { entries: new Map(), refreshing: new Set() }; providerCache.set(fetchImpl, state) }
+    const { entries, refreshing } = state
+    const now = Date.now()
+    const hit = entries.get(key)
+
+    if (hit) {
+        // fresh, pending or negatively cached: the stored promise is the single answer everyone
+        // waiting on this key shares
+        if (hit.expires > now) {
+            entries.delete(key)
+            entries.set(key, hit)
+            return hit.value
+        }
+        if (hit.ok && hit.keep > now) {
+            entries.delete(key)
+            entries.set(key, hit)
+            if (!refreshing.has(key)) {
+                refreshing.add(key)
+                load().then(value => {
+                    if (cacheAccept(accept, value)) {
+                        cachePut(entries, key, { value: Promise.resolve(value), expires: Date.now() + ttl, keep: Date.now() + ttl + staleMs, ok: true })
+                    } else {
+                        hit.expires = Date.now() + (negTtl || CACHE_RETRY_MS)
+                    }
+                }).catch(() => { hit.expires = Date.now() + (negTtl || CACHE_RETRY_MS) }).finally(() => refreshing.delete(key))
+            }
+            return hit.value
+        }
+    }
+
+    const entry = { value: null, expires: now + ttl, keep: now + ttl + staleMs, ok: false }
+    const promise = Promise.resolve().then(load)
+    entry.value = promise
+    cachePut(entries, key, entry)
+    promise.then(value => {
+        const ok = cacheAccept(accept, value)
+        entry.ok = ok
+        const at = Date.now()
+        const lifetime = ok ? ttl : negTtl
+        entry.expires = at + lifetime
+        entry.keep = at + lifetime + (ok ? staleMs : 0)
+        if (lifetime > 0) { entries.delete(key); entries.set(key, entry) } else entries.delete(key)
+    }, () => {
+        if (negTtl > 0) {
+            entry.expires = Date.now() + negTtl
+            entry.keep = entry.expires
+            entries.delete(key)
+            entries.set(key, entry)
+        } else entries.delete(key)
+    })
+    // a rejected load may sit in the map until negTtl passes, and nothing may be awaiting it
+    promise.catch(() => {})
+    return promise
+}
+
+// per source budgets sit below the shared 12s fetch cap: a slow source loses its turn instead of
+// holding the reader. the abort is translated, because a source timeout is an upstream failure
+// and not a request the reader cancelled
+const ANILIST_BUDGET = 9_000
+const HIANIME_BUDGET = 9_000
+// a healthy slipgate anidb call answers in 0.3-0.6s, but a challenged or maintenance-served one
+// rides the shared 12s cap and parks the reader in front of the fallback for that whole time
+const SLIPGATE_BUDGET = 8_000
+
+const budgetSignal = (parent, ms) => parent ? AbortSignal.any([parent, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
+
+const upstreamError = (error, parent) => {
+    if (parent?.aborted) return error
+    if (error?.name !== 'AbortError' && error?.name !== 'TimeoutError') return error
+    return Object.assign(new Error('Anime source timed out'), { code: 'provider_unavailable', cause: error })
+}
+
+// AniList rate limits by IP and the same page is asked for by the anime routes, the video
+// discover route and the miruro provider, so every page query goes through one cache entry per
+// page instead of one AniList round trip per reader. a search page is worth caching even when it
+// is empty (that is a real answer), the trending feed is not.
+const ANILIST_SEARCH_TTL = 6 * 60 * 60_000
+const ANILIST_FEED_TTL = 6 * 60 * 60_000
+const ANILIST_STALE_MS = 12 * 60 * 60_000
+const ANILIST_NEG_MS = 60_000
+
+// pageArgs hands back null for "no format", and AniList answers an explicit null format with an
+// empty page, so the variable has to be absent rather than null when the reader did not ask for
+// one.
+const anilistPage = (fetchImpl, { page, limit, search, format }) => {
+    const wanted = format || undefined
+    // the format-declaring search query only when a format is asked for, so a plain search is
+    // never sent a format variable at all
+    const query = search ? (wanted ? PAGE_FORMAT_QUERY : PAGE_QUERY) : FEED_QUERY
+    const variables = search ? { page, perPage: limit, search, format: wanted } : { page, perPage: limit, format: wanted }
+    return cached(fetchImpl,
+        `anilist:page:${search ? `s:${search.toLowerCase()}` : 'feed'}:${wanted ?? ''}:${page}:${limit}`,
+        search ? ANILIST_SEARCH_TTL : ANILIST_FEED_TTL,
+        () => anilist(fetchImpl, query, variables),
+        ANILIST_NEG_MS,
+        data => Array.isArray(data?.data?.Page?.media) && (search || wanted ? true : data.data.Page.media.length > 0),
+        ANILIST_STALE_MS)
+}
+
+const pageResults = data => (data?.data?.Page?.media || []).map(anime).filter(Boolean)
+
+const pageMore = data => Boolean(data?.data?.Page?.pageInfo?.hasNextPage)
 
 const slipgateBase = env => {
     const raw = env.VELLUM_SLIPGATE_URL
@@ -111,15 +229,17 @@ const slipgateBase = env => {
     return base
 }
 
-async function slipgateJson(env, fetchImpl, path, payload, request) {
-    return fetchJson(fetchImpl, new URL(path, slipgateBase(env)), {
-        method: 'POST',
-        headers: {
-            'content-type': 'application/json',
-            ...(env.VELLUM_SLIPGATE_KEY ? { 'x-slipgate-key': env.VELLUM_SLIPGATE_KEY } : {}),
-        },
-        body: JSON.stringify(payload),
-    }, request.signal)
+async function slipgateJson(env, fetchImpl, path, payload) {
+    try {
+        return await fetchJson(fetchImpl, new URL(path, slipgateBase(env)), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                ...(env.VELLUM_SLIPGATE_KEY ? { 'x-slipgate-key': env.VELLUM_SLIPGATE_KEY } : {}),
+            },
+            body: JSON.stringify(payload),
+        }, budgetSignal(null, SLIPGATE_BUDGET))
+    } catch (error) { throw upstreamError(error) }
 }
 
 const normalizeTitle = value => String(value || '').normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '')
@@ -130,46 +250,63 @@ const fromBase64url = value => {
     try { return atob(value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')) } catch { return '' }
 }
 
-async function animeDbFetch(env, fetchImpl, target, request) {
-    const data = await slipgateJson(env, fetchImpl, 'anidb/fetch', { url: target }, request)
+async function animeDbFetch(env, fetchImpl, target) {
+    const data = await slipgateJson(env, fetchImpl, 'anidb/fetch', { url: target })
     if (!data?.ok || data.status !== 200 || typeof data.body !== 'string') throw new Error(data?.error || 'AniDB transport failed')
+    // AniDB App serves a static maintenance page with a 200 through Cloudflare, treat it as an
+    // outage so the backend chain cools AniDB down and the fallback answers instead
+    if (data.body.includes('Under Maintenance')) throw new Error('AniDB App is under maintenance')
     return data.body
 }
 
-async function animeDbSeries(env, fetchImpl, row, request) {
+// exact normalized match wins, otherwise the closest prefix match (one title is the other plus
+// a suffix, e.g. year or season markers). Plain containment is too loose, it maps "THE ONE
+// PIECE" (the 2026 remake) onto "One Piece".
+const titleMatch = (candidates, titles) => {
+    const names = [...new Set(titles.map(normalizeTitle).filter(Boolean))]
+    let best = null
+    for (const candidate of candidates) {
+        const norm = normalizeTitle(candidate.title)
+        if (!norm) continue
+        if (names.includes(norm)) return candidate
+        for (const name of names) {
+            const min = Math.min(norm.length, name.length)
+            if (min < 8) continue // too short to prefix match safely
+            if (norm.slice(0, min) !== name.slice(0, min)) continue
+            const gap = Math.abs(norm.length - name.length)
+            if (!best || gap < best.gap) best = { ...candidate, gap }
+        }
+    }
+    return best
+}
+
+// slipgate answers a maintenance window or a Cloudflare miss with a fast error, and the app used
+// to re-probe it on every request until the ten minute backend cooldown expired. a failure is
+// remembered briefly, a positive mapping for six hours with a day of stale service behind it.
+const ANIDB_STALE_MS = 24 * 60 * 60_000
+const ANIDB_NEG_MS = 5 * 60_000
+// slipgate mints the pewe media capability with a twenty minute life, so a resolved source may
+// only be reused inside a fraction of that
+const SOURCES_TTL = 5 * 60_000
+
+async function animeDbSeries(env, fetchImpl, row) {
     return cached(fetchImpl, `anidb:series:${row.key}`, 6 * 60 * 60_000, async () => {
         const url = new URL('/browse', ANIDB)
         url.searchParams.set('q', row.title)
-        const body = await animeDbFetch(env, fetchImpl, url.href, request)
-        const names = [...new Set([row.title, ...row.alternateTitles].map(normalizeTitle).filter(Boolean))]
-        // exact normalized match wins; otherwise the closest prefix match (one title is the other
-        // plus a suffix — e.g. year or season markers). Plain containment is too loose: it would
-        // map "THE ONE PIECE" (the 2026 remake) onto "One Piece".
-        let best = null
+        const body = await animeDbFetch(env, fetchImpl, url.href)
+        const candidates = []
         for (const match of body.matchAll(/<a\b[^>]*>/gi)) {
             const title = htmlAttr(match[0], 'title')
-            const href = htmlAttr(match[0], 'href')
-            const norm = normalizeTitle(title)
-            if (!norm) continue
-            if (names.includes(norm)) {
-                best = { title, href }
-                break
-            }
-            for (const name of names) {
-                const min = Math.min(norm.length, name.length)
-                if (min < 8) continue // too short to prefix-match safely
-                if (norm.slice(0, min) !== name.slice(0, min)) continue
-                const gap = Math.abs(norm.length - name.length)
-                if (!best || gap < best.gap) best = { title, href, gap }
-            }
+            if (title) candidates.push({ title, href: htmlAttr(match[0], 'href') })
         }
+        const best = titleMatch(candidates, [row.title, ...row.alternateTitles])
         if (!best) throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' })
         let target
         try { target = new URL(best.href, ANIDB) } catch { throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' }) }
         const id = target.origin === ANIDB ? target.pathname.match(/^\/anime\/[a-z0-9-]+-(\d+)$/i)?.[1] : null
         if (!id) throw Object.assign(new Error('AniDB could not map this Miruro title'), { code: 'not_found' })
         return { id, title: best.title }
-    })
+    }, ANIDB_NEG_MS, series => Boolean(series?.id), ANIDB_STALE_MS)
 }
 
 const animeDbEpisode = (seriesId, value) => {
@@ -185,34 +322,38 @@ const animeDbEpisode = (seriesId, value) => {
     }
 }
 
-async function animeDbEpisodes(env, fetchImpl, row, request) {
-    return cached(fetchImpl, `anidb:episodes:${row.key}`, 30 * 60_000, async () => {
-        const series = await animeDbSeries(env, fetchImpl, row, request)
-        const body = await animeDbFetch(env, fetchImpl, `${ANIDB}/api/frontend/anime/${series.id}/episodes`, request)
+async function animeDbEpisodes(env, fetchImpl, row) {
+    return cached(fetchImpl, `anidb:episodes:${row.key}`, 2 * 60 * 60_000, async () => {
+        const series = await animeDbSeries(env, fetchImpl, row)
+        const body = await animeDbFetch(env, fetchImpl, `${ANIDB}/api/frontend/anime/${series.id}/episodes`)
         const data = JSON.parse(body)
         const episodes = (Array.isArray(data?.episodes) ? data.episodes : []).map(value => animeDbEpisode(series.id, value)).filter(Boolean)
         if (!episodes.length) throw Object.assign(new Error('AniDB returned no episodes'), { code: 'not_found' })
         return { series, episodes }
-    })
+    }, ANIDB_NEG_MS, value => Boolean(value?.episodes?.length), ANIDB_STALE_MS)
 }
 
 const animeDbEpisodeId = value => fromBase64url(value).match(ANIDB_EPISODE)
 
-async function animeDbSources(env, fetchImpl, row, language, episodeId, request) {
+async function animeDbSources(env, fetchImpl, row, language, episodeId) {
     const match = animeDbEpisodeId(episodeId)
     if (!match) throw Object.assign(new Error('Invalid Miruro pewe episode'), { code: 'not_found' })
-    const { series } = await animeDbEpisodes(env, fetchImpl, row, request)
+    const { series } = await animeDbEpisodes(env, fetchImpl, row)
     if (match[1] !== series.id) throw Object.assign(new Error('Episode does not belong to this series'), { code: 'not_found' })
-    const data = await slipgateJson(env, fetchImpl, 'anidb/source', {
-        series_id: Number(series.id), episode_id: Number(match[2]), language,
-    }, request)
-    if (!data?.ok || data.provider !== 'pewe' || data.category !== language || data.source_id !== episodeId) {
-        throw new Error(data?.error || 'Miruro pewe source identity changed')
-    }
-    if (typeof data.media_path !== 'string' || !data.media_path.startsWith('/anidb/media/')) throw new Error('AniDB returned no proxied media')
-    const media = data.media_path.slice('/anidb/media/'.length)
-    if (!ANIDB_MEDIA.test(media)) throw new Error('AniDB returned an invalid media capability')
-    return [{ kind: 'direct', url: `/read/api/video/media/${media}`, type: 'application/x-mpegURL' }]
+    // the episode id already names its series and episode, and the minted media path lives twenty
+    // minutes, so one entry per episode and language serves the immediate replay
+    return cached(fetchImpl, `anidb:sources:${episodeId}:${language}`, SOURCES_TTL, async () => {
+        const data = await slipgateJson(env, fetchImpl, 'anidb/source', {
+            series_id: Number(series.id), episode_id: Number(match[2]), language,
+        })
+        if (!data?.ok || data.provider !== 'pewe' || data.category !== language || data.source_id !== episodeId) {
+            throw new Error(data?.error || 'Miruro pewe source identity changed')
+        }
+        if (typeof data.media_path !== 'string' || !data.media_path.startsWith('/anidb/media/')) throw new Error('AniDB returned no proxied media')
+        const media = data.media_path.slice('/anidb/media/'.length)
+        if (!ANIDB_MEDIA.test(media)) throw new Error('AniDB returned an invalid media capability')
+        return [{ kind: 'direct', url: `/read/api/video/media/${media}`, type: 'application/x-mpegURL' }]
+    }, 60_000, sources => Array.isArray(sources) && sources.length > 0)
 }
 
 async function animeDbMedia(env, fetchImpl, media, request) {
@@ -242,6 +383,155 @@ async function animeDbMedia(env, fetchImpl, media, request) {
         headers.set('access-control-expose-headers', 'Content-Length, Content-Range, Accept-Ranges')
         return new Response(request.method === 'HEAD' ? null : response.body, { status: response.status, headers })
     } finally { scoped.close() }
+}
+
+// HiAnime backend, the fallback for when the AniDB App path is unavailable. Search, episode
+// lists and serve links are plain pages a datacenter IP can still reach, and playback stays an
+// embed so the provider player runs inside the reader browser instead of through this proxy
+
+const HIANIME = 'https://hianime.at'
+const HIANIME_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+const HIANIME_TOKEN = /^hianime-(\d+)-(\d+)$/
+// server order matters, the client plays the first embed source. ZokoAnime is preferred, it is
+// the one confirmed to stream a live HLS chain (master playlist plus 720p and 1080p segments)
+// end to end in the reader. The megaplay mirrors answer but their playability is unverified, so
+// they stay as fallbacks for episodes ZokoAnime does not mirror.
+const HIANIME_SERVERS = ['ZokoAnime', 'HD-1', 'Vidstream-2']
+const HIANIME_EMBEDS = ['megaplay.buzz', 'zokoanime.video']
+
+const hianimePage = async (fetchImpl, path, accept = 'text/html') => {
+    const scoped = timeout(null, HIANIME_BUDGET)
+    try {
+        const response = await fetchImpl(`${HIANIME}${path}`, {
+            headers: { 'user-agent': HIANIME_UA, accept, referer: `${HIANIME}/`, 'x-requested-with': 'XMLHttpRequest' },
+            signal: scoped.signal,
+        })
+        if (!response.ok) throw new Error(`HiAnime http ${response.status}`)
+        return await response.text()
+    } catch (error) { throw upstreamError(error) } finally { scoped.close() }
+}
+
+const hianimeJson = async (fetchImpl, path) => {
+    const body = await hianimePage(fetchImpl, path, 'application/json')
+    try { return JSON.parse(body) } catch { throw new Error('HiAnime returned an unexpected payload') }
+}
+
+// the site mapping for a title and its episode list are the expensive part of the fallback, and
+// both were re-scraped on every reader for a source that is itself only the second choice: two
+// hours of freshness with a day of stale service behind it, and a missed scrape is remembered
+// briefly so a flaky fallback cannot be hammered.
+const HIANIME_STALE_MS = 24 * 60 * 60_000
+const HIANIME_NEG_MS = 60_000
+
+async function hianimeSeries(fetchImpl, row) {
+    return cached(fetchImpl, `hianime:series:${row.key}`, 6 * 60 * 60_000, async () => {
+        const body = await hianimePage(fetchImpl, `/search?keyword=${encodeURIComponent(row.title)}`)
+        const candidates = []
+        for (const block of body.matchAll(/<h3\b[^>]*class="[^"]*film-name[^"]*"[^>]*>[\s\S]*?<\/h3>/gi)) {
+            const href = htmlAttr(block[0], 'href')
+            const id = href.match(/-(\d+)\/?$/)?.[1]
+            const title = htmlAttr(block[0], 'title') || htmlEntities(block[0].replace(/<[^>]*>/g, ' ')).trim()
+            if (id && title) candidates.push({ id, title, href })
+        }
+        const best = titleMatch(candidates, [row.title, ...row.alternateTitles])
+        if (!best) throw Object.assign(new Error('HiAnime could not map this Miruro title'), { code: 'not_found' })
+        return { id: best.id, title: best.title }
+    }, HIANIME_NEG_MS, series => Boolean(series?.id), HIANIME_STALE_MS)
+}
+
+async function hianimeEpisodes(fetchImpl, row) {
+    return cached(fetchImpl, `hianime:episodes:${row.key}`, 2 * 60 * 60_000, async () => {
+        const series = await hianimeSeries(fetchImpl, row)
+        const data = await hianimeJson(fetchImpl, `/api/theme/episode/list/${series.id}`)
+        const html = typeof data?.html === 'string' ? data.html : ''
+        const episodes = []
+        for (const match of html.matchAll(/<a\b[^>]*class="[^"]*ep-item[^"]*"[^>]*>/gi)) {
+            const upstream = htmlAttr(match[0], 'data-id')
+            const number = num(htmlAttr(match[0], 'data-number'))
+            if (!/^\d+$/.test(upstream) || number == null) continue
+            episodes.push({
+                id: `hianime-${series.id}-${upstream}`, number,
+                title: htmlAttr(match[0], 'title') || `Episode ${number}`,
+                description: null, image: null, airDate: null,
+            })
+        }
+        if (!episodes.length) throw Object.assign(new Error('HiAnime returned no episodes'), { code: 'not_found' })
+        return episodes
+    }, HIANIME_NEG_MS, episodes => episodes.length > 0, HIANIME_STALE_MS)
+}
+
+const hianimeEmbed = hash => {
+    let value
+    try { value = atob(hash) } catch { return null }
+    try {
+        const url = new URL(value)
+        if (url.protocol !== 'https:') return null
+        if (!HIANIME_EMBEDS.some(base => url.hostname === base || url.hostname.endsWith(`.${base}`))) return null
+        return url.href
+    } catch { return null }
+}
+
+async function hianimeSources(fetchImpl, seriesId, episodeId, language) {
+    const match = String(episodeId || '').match(HIANIME_TOKEN)
+    if (!match) throw Object.assign(new Error('Invalid HiAnime episode'), { code: 'not_found' })
+    if (String(seriesId) !== match[1]) throw Object.assign(new Error('Episode does not belong to this series'), { code: 'not_found' })
+    // the embed link is derived from the episode's server hash and is stable for as long as the
+    // mirror exists, so a short entry absorbs the replay and the reader's retries
+    return cached(fetchImpl, `hianime:sources:${episodeId}:${language}`, 10 * 60_000, async () => {
+        const data = await hianimeJson(fetchImpl, `/api/theme/episode/servers?episodeId=${match[2]}`)
+        const html = typeof data?.html === 'string' ? data.html : ''
+        const servers = []
+        for (const tag of html.matchAll(/<div\b[^>]*class="[^"]*server-item[^"]*"[^>]*>/gi)) {
+            const type = htmlAttr(tag[0], 'data-type')
+            if (type !== 'sub' && type !== 'dub') continue
+            servers.push({ name: htmlAttr(tag[0], 'data-server-name'), type, hash: htmlAttr(tag[0], 'data-hash') })
+        }
+        const inLanguage = servers.filter(server => server.type === language)
+        const pool = inLanguage.length ? inLanguage : servers
+        // one episode is mirrored on several hosts, the first allowlisted host with a usable link wins
+        for (const name of HIANIME_SERVERS) {
+            const embed = hianimeEmbed(pool.find(server => server.name === name)?.hash || '')
+            if (embed) return [{ kind: 'embed', url: embed }]
+        }
+        throw Object.assign(new Error('HiAnime returned no playable stream'), { code: 'stream_unavailable' })
+    }, 60_000, sources => Array.isArray(sources) && sources.length > 0, HIANIME_STALE_MS)
+}
+
+// backends answer in order, a transport failure cools one down so later requests go straight to
+// the next, a semantic miss (no such title) only loses that one request. the cooldown is what
+// stops a challenged upstream from costing every reader the probe budget, so it outlasts a
+// maintenance window rather than the ten minutes it took to notice
+const BACKEND_COOLDOWN = 20 * 60_000
+const backendDown = new WeakMap()
+
+const backendOutage = error => !error?.code || error.code === 'provider_unavailable'
+
+const backendDownNow = (fetchImpl, key) => {
+    let map = backendDown.get(fetchImpl)
+    if (!map) { map = new Map(); backendDown.set(fetchImpl, map) }
+    map.set(key, Date.now() + BACKEND_COOLDOWN)
+}
+
+async function firstBackend(fetchImpl, backends) {
+    const failures = []
+    for (const backend of backends) {
+        if ((backendDown.get(fetchImpl)?.get(backend.key) ?? 0) > Date.now()) continue
+        try {
+            const value = await backend.load()
+            backendDown.get(fetchImpl)?.delete(backend.key)
+            return { key: backend.key, value }
+        } catch (error) {
+            if (backendOutage(error)) backendDownNow(fetchImpl, backend.key)
+            failures.push(error)
+        }
+    }
+    // a config error explains the most, a transport error outranks a miss, only a clean sweep of
+    // misses reads as a missing title
+    const failure = failures.find(error => error?.code === 'provider_unconfigured')
+        ?? failures.find(backendOutage)
+    if (failure) throw failure
+    if (failures.length) throw Object.assign(new Error('No anime backend has this title'), { code: 'not_found' })
+    return { key: backends[0].key, value: await backends[0].load() }
 }
 
 async function playback(env, fetchImpl, path, request) {
@@ -277,13 +567,18 @@ const appHost = request => {
     try { return new URL(source).hostname } catch { return null }
 }
 
-async function animeForKey(key, request, fetchImpl) {
+async function animeForKey(key, fetchImpl) {
     const id = idFromKey(key)
     if (!id) throw Object.assign(new Error('Invalid anime key'), { code: 'invalid_request' })
-    const data = await anilist(fetchImpl, SERIES_QUERY, { id: Number(id) }, request.signal)
-    const row = anime(data?.data?.Media)
-    if (!row) throw Object.assign(new Error('Anime not found'), { code: 'not_found' })
-    return row
+    // the series route asks for the row twice per request (metadata plus the backend chain) and
+    // AniList rate limits by IP, so one lookup per key per two hours, with a day of stale service
+    // behind it and a short memory of a key AniList does not know
+    return cached(fetchImpl, `anilist:series:${id}`, 2 * 60 * 60_000, async () => {
+        const data = await anilist(fetchImpl, SERIES_QUERY, { id: Number(id) })
+        const row = anime(data?.data?.Media)
+        if (!row) throw Object.assign(new Error('Anime not found'), { code: 'not_found' })
+        return row
+    }, ANILIST_NEG_MS, row => Boolean(row?.key), ANILIST_STALE_MS)
 }
 
 // embeds from the owned playback service are allowlisted and must not point back at the app
@@ -313,19 +608,21 @@ const ownedSubtitles = data => (Array.isArray(data?.subtitles) ? data.subtitles 
 
 const ctxFor = (env, fetchImpl, request) => ({ env, fetchImpl, request, cached })
 
+// a provider hands back a bare episode array, unless it also reports which backend the list came from
+const episodeList = value => Array.isArray(value) ? { episodes: value } : value
+
 const miruro = {
     key: 'miruro',
     label: 'Miruro',
     kinds: ['anime'],
     source: 'Miruro · pewe (AniDB App)',
     async discover(ctx, { page, limit, format, search }) {
-        const data = await anilist(ctx.fetchImpl, search ? PAGE_QUERY : FEED_QUERY, search ? { page, perPage: limit, search } : { page, perPage: limit }, ctx.request.signal)
-        let results = (data?.data?.Page?.media || []).map(anime).filter(Boolean).map(item => ({ ...item, poster: item.cover }))
-        if (format) results = results.filter(item => item.format === format.toLowerCase())
-        return { rows: results, hasMore: Boolean(data?.data?.Page?.pageInfo?.hasNextPage), partial: false, error: null }
+        const data = await anilistPage(ctx.fetchImpl, { page, limit, search, format })
+        const results = pageResults(data).map(item => ({ ...item, poster: item.cover }))
+        return { rows: results, hasMore: pageMore(data), partial: false, error: null }
     },
     async series(ctx, key) {
-        return animeForKey(key, ctx.request, ctx.fetchImpl)
+        return animeForKey(key, ctx.fetchImpl)
     },
     async episodes(ctx, key, language) {
         const { env, fetchImpl, request } = ctx
@@ -333,9 +630,12 @@ const miruro = {
             const data = await playback(env, fetchImpl, `episodes?anilistId=${encodeURIComponent(idFromKey(key))}&language=${language}`, request)
             return (Array.isArray(data) ? data : data?.episodes || []).map(episode).filter(Boolean)
         }
-        if (!env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
-        const row = await animeForKey(key, request, fetchImpl)
-        return (await animeDbEpisodes(env, fetchImpl, row, request)).episodes
+        const row = await animeForKey(key, fetchImpl)
+        const backends = []
+        if (env.VELLUM_SLIPGATE_URL) backends.push({ key: 'anidb', load: async () => (await animeDbEpisodes(env, fetchImpl, row)).episodes })
+        backends.push({ key: 'hianime', load: () => hianimeEpisodes(fetchImpl, row) })
+        const result = await firstBackend(fetchImpl, backends)
+        return { episodes: result.value, source: result.key === 'hianime' ? HIANIME_LABEL : ANIDB_LABEL }
     },
     async playback(ctx, key, language, episodeId) {
         const { env, fetchImpl, request } = ctx
@@ -344,12 +644,17 @@ const miruro = {
             const data = await playback(env, fetchImpl, `sources?episodeId=${encodeURIComponent(episodeId)}&provider=${encodeURIComponent(provider)}&category=${language}`, request)
             return { sources: ownedSources(data, request), subtitles: ownedSubtitles(data), providerLabel: env.VELLUM_ANIME_PROVIDER_LABEL || 'Miruro' }
         }
-        if (!env.VELLUM_SLIPGATE_URL) throw Object.assign(new Error('Anime playback service is not configured'), { code: 'provider_unconfigured' })
-        const row = await animeForKey(key, request, fetchImpl)
+        // a HiAnime episode id names its own backend and series, both are checked before it plays
+        if (HIANIME_TOKEN.test(episodeId)) {
+            const row = await animeForKey(key, fetchImpl)
+            const series = await hianimeSeries(fetchImpl, row)
+            return { sources: await hianimeSources(fetchImpl, series.id, episodeId, language), subtitles: [], providerLabel: HIANIME_LABEL }
+        }
+        const row = await animeForKey(key, fetchImpl)
         return {
-            sources: await animeDbSources(env, fetchImpl, row, language, episodeId, request),
+            sources: await animeDbSources(env, fetchImpl, row, language, episodeId),
             subtitles: [],
-            providerLabel: 'Miruro · pewe (AniDB App)',
+            providerLabel: ANIDB_LABEL,
         }
     },
 }
@@ -381,10 +686,8 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
             const search = route === 'search' ? url.searchParams.get('q')?.trim() : null
             if (route === 'search' && !search) return failure(400, 'invalid_request', 'Search query is required')
             if (format && !FORMATS.has(format)) return failure(400, 'invalid_request', 'Invalid anime format')
-            const data = await anilist(fetchImpl, search ? PAGE_QUERY : FEED_QUERY, search ? { page, perPage: limit, search } : { page, perPage: limit }, request.signal)
-            let results = (data?.data?.Page?.media || []).map(anime).filter(Boolean)
-            if (format) results = results.filter(item => item.format === format.toLowerCase())
-            return json({ page, results, hasMore: Boolean(data?.data?.Page?.pageInfo?.hasNextPage) })
+            const data = await anilistPage(fetchImpl, { page, limit, search, format })
+            return json({ page, results: pageResults(data), hasMore: pageMore(data) })
         }
 
         if (route.startsWith('series/')) {
@@ -405,7 +708,7 @@ export async function handleAnimeRequest(request, env = {}, fetchImpl = fetch) {
             if (!['sub', 'dub'].includes(language)) return failure(400, 'invalid_request', 'Invalid episode request')
             activeProvider = entry.key
             if (entry.unavailable || !entry.episodes) return unconfigured(entry)
-            const episodes = await entry.episodes(ctxFor(env, fetchImpl, request), key, language)
+            const episodes = episodeList(await entry.episodes(ctxFor(env, fetchImpl, request), key, language)).episodes
             return json({ key, language, episodes })
         }
 
@@ -442,16 +745,18 @@ export async function handleAnimeVideoRequest(request, env = {}, fetchImpl = fet
     const root = '/read/api/video/'
     if (!url.pathname.startsWith(root)) return failure(404, 'not_found', 'Video route not found')
     const route = url.pathname.slice(root.length)
-    if (route.startsWith('media/')) {
+    const media = route.startsWith('media/')
+    if (media) {
         if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: {
             'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET, HEAD, OPTIONS', 'access-control-allow-headers': 'Range',
         } })
         if (!['GET', 'HEAD'].includes(request.method)) return failure(405, 'invalid_request', 'Invalid anime media method')
-        return animeDbMedia(env, fetchImpl, route.slice(6), request)
-    }
-    if (request.method !== 'GET') return failure(404, 'not_found', 'Video route not found')
+    } else if (request.method !== 'GET') return failure(404, 'not_found', 'Video route not found')
     let activeProvider = 'miruro'
     try {
+        // the media route runs through the same error mapping as the rest: a slipgate that is
+        // unconfigured or unreachable is a 503 or a 502, never an unhandled 500
+        if (media) return await animeDbMedia(env, fetchImpl, route.slice(6), request)
         if (route === 'discover') {
             const kind = url.searchParams.get('kind') || 'all'
             if (!['all', 'anime', 'drama'].includes(kind)) return failure(400, 'invalid_request', 'Invalid video kind')
@@ -480,9 +785,10 @@ export async function handleAnimeVideoRequest(request, env = {}, fetchImpl = fet
             if (entry.unavailable || !entry.series || !entry.episodes) return unconfigured(entry)
             const ctx = ctxFor(env, fetchImpl, request)
             const row = await entry.series(ctx, key)
-            const episodes = await entry.episodes(ctx, key, 'sub')
+            const listed = episodeList(await entry.episodes(ctx, key, 'sub'))
+            const episodes = listed.episodes
             if (!episodes.length) return failure(404, 'not_found', 'No subtitled episodes found')
-            return json({ ...row, poster: row.poster ?? row.cover, source: entry.source ?? row.source, episodes, partial: false, errors: [] })
+            return json({ ...row, poster: row.poster ?? row.cover, source: listed.source ?? entry.source ?? row.source, episodes, partial: false, errors: [] })
         }
 
         if (route === 'playback') {
