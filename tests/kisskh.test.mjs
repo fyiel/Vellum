@@ -77,9 +77,18 @@ test('drops subtitle tracks without a usable source or language', async () => {
     assert.deepEqual(result.subtitles, [{ url: 'https://sub.test/a.srt', label: 'English', lang: 'en' }])
 })
 
-test('fails closed on Type-2 third-party embeds', async () => {
-    const fetchImpl = async () => response({ Video: 'https://awish.pro/e/fzypihecnc1t', Type: 2, ThirdParty: 'https://awish.pro/e/fzypihecnc1t' })
-    await assert.rejects(kisskh.playback(ctx(fetchImpl), 'kiss:7302', 'sub', '129348'), error => error?.code === 'stream_unavailable')
+test('fails closed on third-party embeds, whatever Type the API labels them', async () => {
+    // live shape 2026-09-18 (drama 9777 ep 167319): the wish.pro anti-bot embed now rides on Type 0
+    // and the payload also carries a signed mp4 Video — still not a stream this server may hand out
+    const live = async () => response({
+        Video: 'https://hls03.videocdndelivery05.site/9777/The-Heart-Killers.2024.Ep1.mp4?ip=203.0.113.7&verify=redacted',
+        Video_tmp: '', ThirdParty: 'https://dwish.pro/e/0bxxebfbzq5x?caption_1=https://sub.embasic.pro&sub_1=English',
+        Type: 0, id: null, dataSaver: null, a: null, b: null, dType: null,
+    })
+    await assert.rejects(kisskh.playback(ctx(live), 'kiss:7302', 'sub', '129348'), error => error?.code === 'stream_unavailable')
+    // the sweep's capture — the same embed under Type 2 — must stay closed as well
+    const sweep = async () => response({ Video: 'https://awish.pro/e/fzypihecnc1t', Type: 2, ThirdParty: 'https://awish.pro/e/fzypihecnc1t' })
+    await assert.rejects(kisskh.playback(ctx(sweep), 'kiss:7302', 'sub', '129348'), error => error?.code === 'stream_unavailable')
 })
 
 test('rejects non-numeric KissKH keys and episode ids', async () => {
