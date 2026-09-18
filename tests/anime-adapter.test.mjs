@@ -4,6 +4,21 @@ import { handleAnimeRequest, handleAnimeVideoRequest } from '../adapter/anime-ad
 
 const request = path => new Request(`https://vellum.test${path}`)
 const response = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } })
+// the DramaCooli provider resolves the live DramaCool host before its first query and probes the
+// entry with a manual-redirect request; dramacoolt.top answers 200 with the theme's own markup, so
+// the dc fixtures answer that one lookup the same way and pass every other request through
+const DC_ORIGIN = 'https://dramacoolt.top'
+const DC_CATALOGUE = '<!doctype html><html><head><title>DramaCool</title></head><body><div class="bsx"><a href="https://dramacoolt.top/">Latest</a></div></body></html>'
+const htmlPage = value => new Response(value, { headers: { 'content-type': 'text/html' } })
+const dcLive = handler => async (url, init) => {
+    if (init?.redirect !== 'manual') return handler(url, init)
+    assert.equal(url, DC_ORIGIN)
+    return htmlPage(DC_CATALOGUE)
+}
+// a dc key is the category slug the catalogue hands out, so the fixture answers the slug lookup the
+// provider makes before it can ask for that category's posts
+const DC_CATEGORY = 'https://dramacoolt.top/wp-json/wp/v2/categories?slug=doctor-slump&per_page=1&_fields=id,slug,name,description,count'
+const DC_POSTS = 'https://dramacoolt.top/wp-json/wp/v2/posts?categories=7&per_page=100&page=1&_fields=id,slug,link,title,excerpt,yoast_head_json'
 
 test('normalizes AniList metadata without requiring playback configuration', async () => {
     let body
@@ -329,19 +344,30 @@ test('live AniList contract returns normalized anime metadata', { skip: process.
 })
 
 test('routes dc and cineby keys through the provider registry', async () => {
-    const fetchImpl = async url => {
+    const fetchImpl = dcLive(async url => {
         const endpoint = String(url)
-        if (endpoint === 'https://dramacooli.ws/wp-json/wp/v2/categories/7') return response({ id: 7, name: 'Doctor Slump' })
-        if (endpoint.includes('wp/v2/posts?categories=7')) return response([{
+        // a dc key is the category slug: the provider resolves it to the numeric category id, then
+        // asks that category for its episodes
+        if (endpoint === DC_CATEGORY) return response([{ id: 7, count: 41, description: '', name: 'Doctor Slump', slug: 'doctor-slump' }])
+        if (endpoint === DC_POSTS) return response([{
+            id: 2748,
             slug: 'doctor-slump-episode-1',
+            link: 'https://dramacoolt.top/doctor-slump-episode-1/',
             title: { rendered: 'Doctor Slump Ep 1' },
             excerpt: { rendered: 'Surgeons.' },
-            _embedded: { 'wp:featuredmedia': [{ source_url: 'https://img.test/ds.jpg' }] },
+            // the poster only ever comes from the seo block on the first page, the shape the live
+            // theme ships
+            yoast_head_json: { og_image: [{ width: 900, height: 1343, url: 'https://img.test/ds.jpg', type: 'image/jpeg' }] },
         }])
-        if (endpoint.includes('wp/v2/posts?slug=doctor-slump-episode-1')) return response([{
-            slug: 'doctor-slump-episode-1',
-            content: { rendered: '<iframe src="https://player.test/embed/abc"></iframe>' },
-        }])
+        // the playback seam reads the rendered episode page (the REST content field is empty for
+        // this theme), so a page that guess resolves is what serves the player; the REST lookup is
+        // the fallback for a sibling domain that permalinks differently
+        if (endpoint === 'https://dramacoolt.top/doctor-slump-episode-1/') {
+            return htmlPage(`<!doctype html><html><head><title>Doctor Slump Ep 1</title></head><body><iframe src="https://player.test/embed/abc"></iframe><a href="${DC_ORIGIN}/">DramaCool</a></body></html>`)
+        }
+        if (endpoint === 'https://dramacoolt.top/wp-json/wp/v2/posts?slug=doctor-slump-episode-1&_fields=id,slug,link') {
+            return response([{ id: 2748, slug: 'doctor-slump-episode-1', link: 'https://dramacoolt.top/doctor-slump-episode-1/' }])
+        }
         // cineby.su is gone (it 301s to a flixer SEO shell with no __NEXT_DATA__); listing, detail
         // and season payloads now come from the open TMDB passthrough, which 404s an id that is not
         // in the requested namespace before the tv lookup answers
@@ -362,12 +388,12 @@ test('routes dc and cineby keys through the provider registry', async () => {
             })
         }
         throw new Error(`unexpected ${endpoint}`)
-    }
+    })
 
-    const drama = await handleAnimeVideoRequest(request('/read/api/video/series/dc%3A7'), {}, fetchImpl)
+    const drama = await handleAnimeVideoRequest(request('/read/api/video/series/dc%3Adoctor-slump'), {}, fetchImpl)
     assert.equal(drama.status, 200)
     const dramaBody = await drama.json()
-    assert.equal(dramaBody.key, 'dc:7')
+    assert.equal(dramaBody.key, 'dc:doctor-slump')
     assert.equal(dramaBody.kind, 'drama')
     assert.equal(dramaBody.title, 'Doctor Slump')
     assert.equal(dramaBody.source, 'DramaCooli')
@@ -384,22 +410,27 @@ test('routes dc and cineby keys through the provider registry', async () => {
     assert.equal(animeBody.title, 'Solo Leveling')
     assert.deepEqual(animeBody.episodes.map(item => item.id), ['s1e1'])
 
-    const legacy = await handleAnimeRequest(request('/read/api/anime/episodes?key=dc%3A7&language=sub'), {}, fetchImpl)
+    const legacy = await handleAnimeRequest(request('/read/api/anime/episodes?key=dc%3Adoctor-slump&language=sub'), {}, fetchImpl)
     assert.equal(legacy.status, 200)
     assert.deepEqual((await legacy.json()).episodes.map(item => item.id), ['doctor-slump-episode-1'])
 })
 
 test('kind=drama discovery aggregates DramaCooli rows without partial state', async () => {
-    const fetchImpl = async url => {
+    const fetchImpl = dcLive(async url => {
         const target = String(url)
         if (target.startsWith('https://kisskh.co/api/')) return response([]) // kiss leg: empty feed
-        assert.equal(target, 'https://dramacooli.ws/wp-json/wp/v2/categories?orderby=count&per_page=100&page=1&hide_empty=true')
-        return response([{ id: 7, name: 'Doctor Slump' }, { id: 12, name: 'Moving' }])
-    }
+        // the live catalogue is slug-keyed and asks only for the fields the provider reads, so the
+        // dc key is the slug rather than the numeric category id
+        assert.equal(target, 'https://dramacoolt.top/wp-json/wp/v2/categories?orderby=count&order=desc&hide_empty=true&per_page=24&page=1&_fields=id,slug,name,description,count')
+        return response([
+            { id: 7, count: 41, description: '', name: 'Doctor Slump', slug: 'doctor-slump' },
+            { id: 12, count: 33, description: '', name: 'Moving', slug: 'moving' },
+        ])
+    })
     const result = await handleAnimeVideoRequest(request('/read/api/video/discover?kind=drama'), {}, fetchImpl)
     assert.equal(result.status, 200)
     const body = await result.json()
-    assert.deepEqual(body.results.map(row => row.key), ['dc:7', 'dc:12'])
+    assert.deepEqual(body.results.map(row => row.key), ['dc:doctor-slump', 'dc:moving'])
     assert.deepEqual(body.results.map(row => row.kind), ['drama', 'drama'])
     assert.equal(body.results[0].source, 'DramaCooli')
     assert.equal(body.results[0].poster, null)
