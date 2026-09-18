@@ -60,8 +60,13 @@ test('keeps opaque episode ids exact across the owned playback seam', async () =
     assert.match(calls[1], new RegExp(`episodeId=${encodeURIComponent(opaqueId).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
 })
 
-test('returns an explicit unavailable state when playback is not configured', async () => {
-    const result = await handleAnimeRequest(request('/read/api/anime/episodes?key=miruro%3A21&language=dub'), {}, () => { throw new Error('must not fetch') })
+test('keeps an unconfigured AniDB watch path an explicit provider_unconfigured', async () => {
+    const episodeId = 'YW5pZGJhcHA6Mzg4MDozNTEy'
+    const fetchImpl = async input => {
+        assert.equal(String(input), 'https://graphql.anilist.co')
+        return response({ data: { Media: { id: 21, title: { english: 'One Piece' }, seasonYear: 1999, studios: { nodes: [] }, coverImage: {} } } })
+    }
+    const result = await handleAnimeRequest(request(`/read/api/anime/watch?key=miruro%3A21&language=sub&id=${episodeId}`), {}, fetchImpl)
     assert.equal(result.status, 503)
     assert.deepEqual(await result.json(), { error: { provider: 'miruro', code: 'provider_unconfigured', message: 'Anime playback service is not configured', retryable: false } })
 })
@@ -191,18 +196,18 @@ test('keeps unmappable Miruro titles as an explicit not_found', async () => {
                 : { data: { Media: media } })
         }
         const endpoint = String(input)
-        const payload = JSON.parse(init.body)
         if (endpoint.endsWith('/anidb/fetch')) {
-            const target = new URL(payload.url)
+            const target = new URL(JSON.parse(init.body).url)
             if (target.pathname === '/browse') return response({ ok: true, status: 200, body: '<a href="https://anidb.app/anime/one-piece-3880" title="One Piece">One Piece</a>' })
-            throw new Error(`unexpected ${payload.url}`)
+            throw new Error(`unexpected ${target.href}`)
         }
+        if (endpoint.startsWith('https://hianime.at/search?keyword=')) return new Response('<h3 class="film-name"><a href="https://hianime.at/some-other-show-77" title="Some Other Show">Some Other Show</a></h3>', { headers: { 'content-type': 'text/html' } })
         throw new Error(`unexpected endpoint ${endpoint}`)
     }
     const env = { VELLUM_SLIPGATE_URL: 'http://127.0.0.1:8189/', VELLUM_SLIPGATE_KEY: 'local-test' }
     const detail = await handleAnimeVideoRequest(request('/read/api/video/series/miruro%3A99999'), env, fetchImpl)
     assert.equal(detail.status, 404)
-    assert.deepEqual((await detail.json()).error, { provider: 'miruro', code: 'not_found', message: 'AniDB could not map this Miruro title', retryable: false })
+    assert.deepEqual((await detail.json()).error, { provider: 'miruro', code: 'not_found', message: 'No anime backend has this title', retryable: false })
 })
 
 test('rejects a changed Miruro pewe identity at the Watch boundary', async () => {
@@ -220,6 +225,75 @@ test('rejects a changed Miruro pewe identity at the Watch boundary', async () =>
     const result = await handleAnimeVideoRequest(request(`/read/api/video/playback?key=miruro%3A21&id=${episodeId}`), { VELLUM_SLIPGATE_URL: 'http://localhost:8189' }, fetchImpl)
     assert.equal(result.status, 502)
     assert.equal((await result.json()).error.code, 'provider_unavailable')
+})
+
+test('falls back to HiAnime embeds while AniDB App is under maintenance', async () => {
+    const search = '<div class="film-detail"><h3 class="film-name"><a href="https://hianime.at/one-piece-1" title="One Piece">One Piece</a></h3></div>'
+    const listing = { status: true, html: '<a title="Episode 1" class="ssl-item ep-item" data-number="1" data-id="1" href="https://hianime.at/watch/one-piece-1?ep=1"></a>' }
+    const serves = { status: true, html: `<div class="item server-item" data-type="sub" data-server-name="HD-1" data-hash="${btoa('https://megaplay.buzz/stream/s-2/2142/sub?s=tcdn')}"></div><div class="item server-item" data-type="sub" data-server-name="ZokoAnime" data-hash="${btoa('https://zokoanime.video/stream/mal/21/1/sub')}"></div>` }
+    const calls = []
+    const fetchImpl = async (input, init) => {
+        if (String(input) === 'https://graphql.anilist.co') return response({ data: { Media: {
+            id: JSON.parse(init.body).variables.id, title: { english: 'One Piece' }, seasonYear: 1999, studios: { nodes: [] }, coverImage: {},
+        } } })
+        calls.push(String(input))
+        if (String(input).endsWith('/anidb/fetch')) return response({ ok: true, status: 200, body: '<html><title>Under Maintenance</title><p>We are updating the site right now.</p></html>' })
+        if (String(input).includes('/search?keyword=')) return new Response(search, { headers: { 'content-type': 'text/html' } })
+        if (String(input).includes('/episode/list/')) return response(listing)
+        if (String(input).includes('/episode/servers?')) return response(serves)
+        throw new Error(`unexpected ${input}`)
+    }
+    const env = { VELLUM_SLIPGATE_URL: 'http://127.0.0.1:8189', VELLUM_SLIPGATE_KEY: 'local-test' }
+
+    const detail = await handleAnimeVideoRequest(request('/read/api/video/series/miruro%3A21'), env, fetchImpl)
+    assert.equal(detail.status, 200)
+    const body = await detail.json()
+    assert.equal(body.source, 'HiAnime')
+    assert.deepEqual(body.episodes, [{ id: 'hianime-1-1', number: 1, title: 'Episode 1', description: null, image: null, airDate: null }])
+
+    // the client plays only the first embed source, so the preferred host must come first
+    const playback = await handleAnimeVideoRequest(request('/read/api/video/playback?key=miruro%3A21&id=hianime-1-1'), env, fetchImpl)
+    assert.equal(playback.status, 200)
+    assert.deepEqual(await playback.json(), {
+        key: 'miruro:21', episodeId: 'hianime-1-1', providerLabel: 'HiAnime',
+        sources: [{ kind: 'embed', url: 'https://zokoanime.video/stream/mal/21/1/sub' }], subtitles: [],
+    })
+
+    // the maintenance page cools AniDB down, a later title goes straight to the fallback
+    const later = await handleAnimeVideoRequest(request('/read/api/video/series/miruro%3A22'), env, fetchImpl)
+    assert.equal(later.status, 200)
+    assert.equal((await later.json()).source, 'HiAnime')
+    assert.equal(calls.filter(call => call.endsWith('/anidb/fetch')).length, 1)
+})
+
+test('fails closed when a HiAnime serve link leaves the embed allowlist', async () => {
+    const fetchImpl = async (input, init) => {
+        if (String(input) === 'https://graphql.anilist.co') return response({ data: { Media: {
+            id: 21, title: { english: 'One Piece' }, seasonYear: 1999, studios: { nodes: [] }, coverImage: {},
+        } } })
+        if (String(input).includes('/search?keyword=')) return new Response('<h3 class="film-name"><a href="https://hianime.at/one-piece-1" title="One Piece">One Piece</a></h3>', { headers: { 'content-type': 'text/html' } })
+        return response({ status: true, html: `<div class="item server-item" data-type="sub" data-server-name="ZokoAnime" data-hash="${btoa('https://evil.test/stream/mal/21/1/sub')}"></div>` })
+    }
+    const playback = await handleAnimeVideoRequest(request('/read/api/video/playback?key=miruro%3A21&id=hianime-1-1'), {}, fetchImpl)
+    assert.equal(playback.status, 502)
+    assert.equal((await playback.json()).error.code, 'stream_unavailable')
+})
+
+test('refuses a HiAnime episode id minted for another series', async () => {
+    const calls = []
+    const fetchImpl = async (input, init) => {
+        calls.push(String(input))
+        if (String(input) === 'https://graphql.anilist.co') return response({ data: { Media: {
+            id: 16498, title: { english: 'Attack on Titan' }, seasonYear: 2013, studios: { nodes: [] }, coverImage: {},
+        } } })
+        if (String(input).includes('/search?keyword=')) return new Response('<h3 class="film-name"><a href="https://hianime.at/attack-on-titan-240" title="Attack on Titan">Attack on Titan</a></h3>', { headers: { 'content-type': 'text/html' } })
+        throw new Error(`unexpected fetch ${input}`)
+    }
+    // series 1 is One Piece on HiAnime, this key maps to series 240
+    const playback = await handleAnimeVideoRequest(request('/read/api/video/playback?key=miruro%3A16498&id=hianime-1-1'), {}, fetchImpl)
+    assert.equal(playback.status, 404)
+    assert.deepEqual((await playback.json()).error, { provider: 'miruro', code: 'not_found', message: 'Episode does not belong to this series', retryable: false })
+    assert.equal(calls.some(call => call.includes('/episode/servers')), false)
 })
 
 test('proxies bounded AniDB media responses with Range and CORS', async () => {
@@ -268,10 +342,24 @@ test('routes dc and cineby keys through the provider registry', async () => {
             slug: 'doctor-slump-episode-1',
             content: { rendered: '<iframe src="https://player.test/embed/abc"></iframe>' },
         }])
-        if (endpoint === 'https://cineby.su/movie/123') {
-            return new Response(`<html><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
-                props: { pageProps: { media: { tmdb_id: 123, title: 'Solo Leveling', seasons: [{ season_number: 1, episodes: [{ episode_number: 1 }] }] } } },
-            })}</script></html>`, { headers: { 'content-type': 'text/html' } })
+        // cineby.su is gone (it 301s to a flixer SEO shell with no __NEXT_DATA__); listing, detail
+        // and season payloads now come from the open TMDB passthrough, which 404s an id that is not
+        // in the requested namespace before the tv lookup answers
+        if (endpoint === 'https://plsdontscrapemelove.flixer.su/api/tmdb/movie/123' || endpoint === 'https://plsdontscrapemelove.flixer.gd/api/tmdb/movie/123') {
+            return new Response(JSON.stringify({ status_code: 34, status_message: 'The resource you requested could not be found.', success: false }), { status: 404, headers: { 'content-type': 'application/json' } })
+        }
+        if (endpoint === 'https://plsdontscrapemelove.flixer.su/api/tmdb/tv/123' || endpoint === 'https://plsdontscrapemelove.flixer.gd/api/tmdb/tv/123') {
+            return response({
+                id: 123, name: 'Solo Leveling', title: null, release_date: null, first_air_date: '2024-01-07',
+                overview: 'The world’s weakest hunter.', poster_path: '/poster.jpg',
+                seasons: [{ season_number: 1, episode_count: 1, name: 'Solo Leveling', air_date: '2024-01-05' }],
+            })
+        }
+        if (endpoint === 'https://plsdontscrapemelove.flixer.su/api/tmdb/tv/123/season/1' || endpoint === 'https://plsdontscrapemelove.flixer.gd/api/tmdb/tv/123/season/1') {
+            return response({
+                id: 1, name: 'Solo Leveling', season_number: 1, air_date: '2024-01-05', poster_path: '/poster.jpg',
+                episodes: [{ air_date: '2024-01-07', episode_number: 1, name: 'I’m Used to It', still_path: '/still.jpg', overview: 'Jinwoo enters the gate.' }],
+            })
         }
         throw new Error(`unexpected ${endpoint}`)
     }
