@@ -21,6 +21,7 @@ body { background: #15161a; overflow: hidden; }
   content: ''; position: fixed; inset: 0 0 auto; height: var(--safe-t);
   z-index: 116; background: #15161a; pointer-events: none;
 }
+.reader::before, .mreader::before { background: #000; }
 .den.s-ink { --bg: #08090b; --panel: #0d0f12; --row: #101317; --rowh: #15191e; --sel: #181d24; --text: #9aa3ad; --hi: #eef3f8; --dim: #586069; --line: #ffffff0b; --line2: #ffffff15; --ac: #6fb4ff; --track: #ffffff12; }
 .den.s-paper { --bg: #f1ece1; --panel: #e7e1d3; --row: #faf7ef; --rowh: #f1ebdf; --sel: #e6dece; --text: #4a463d; --hi: #211e18; --dim: #8c8475; --line: #2c24140f; --line2: #2c241424; --ac: #1f7a6b; --track: #2c241414; }
 .den.s-phosphor { --bg: #06120c; --panel: #0a1810; --row: #0c1d13; --rowh: #102619; --sel: #133121; --text: #7fcf9f; --hi: #d6ffe6; --dim: #4f7d63; --line: #52ff9412; --line2: #52ff9420; --ac: #33e06b; --track: #52ff9418; }
