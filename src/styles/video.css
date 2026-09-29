@@ -76,11 +76,11 @@
 .den .video-state { grid-column: 1 / -1; width: 100%; }
 .den .video-state button { padding: 0 20px; }
 
-.vplayer { position: fixed; z-index: 300; inset: 0; display: none; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; background: #07080a; color: #c9cbd0; font: 400 13px/1.45 'Archivo', system-ui, sans-serif; }
+.vplayer { position: fixed; z-index: 300; inset: 0; display: none; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; padding: 0 var(--safe-r) 0 var(--safe-l); background: #07080a; color: #c9cbd0; font: 400 13px/1.45 'Archivo', system-ui, sans-serif; }
 .vplayer.active { display: grid; }
 .video-playing { overflow: hidden; background: #07080a !important; }
 .video-playing .den { display: none; }
-.vplayer-top { min-height: 60px; display: flex; align-items: center; gap: 11px; padding: calc(env(safe-area-inset-top, 0px) + 8px) 14px 8px; border-bottom: 1px solid #ffffff14; background: #0b0c0f; }
+.vplayer-top { min-height: 60px; display: flex; align-items: center; gap: 11px; padding: calc(var(--safe-t) + 8px) 14px 8px; border-bottom: 1px solid #ffffff14; background: #0b0c0f; }
 .vplayer-icon { width: 44px; height: 44px; flex: none; appearance: none; border: 1px solid #ffffff1d; background: transparent; color: #eee; font-size: 26px; cursor: pointer; }
 .vplayer-heading { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .vplayer-title, .vplayer-episode { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -55,7 +55,7 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 .mreader { display: none; min-height: 100vh; min-height: 100dvh; background: #070707; color: #ddd; }
 .mreader.active { display: block; }
 .mreader [hidden] { display: none; }
-.mreader-pages { width: min(100%, 980px); min-height: 100vh; min-height: 100dvh; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 64px) 0 28px; }
+.mreader-pages { width: min(100%, 980px); min-height: 100vh; min-height: 100dvh; margin: 0 auto; padding: calc(var(--safe-t) + 64px) var(--safe-r) 28px var(--safe-l); }
 .manga-page { position: relative; min-height: 0; margin: 0; overflow: hidden; background: #0b0b0b; content-visibility: auto; contain-intrinsic-size: auto min(72vh, 980px); }
 .manga-page:not([style]) { min-height: min(72vh, 980px); }
 .manga-page img { display: block; width: 100%; height: auto; min-height: 1px; image-rendering: auto; }
@@ -76,13 +76,13 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 .mreader-step > a:last-child { text-align: right; }
 .mreader-step a span { display: block; margin-bottom: 5px; color: #777; font: 500 9px 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .6px; }
 .mreader-chrome { position: fixed; left: 0; right: 0; z-index: 110; display: flex; align-items: center; gap: 8px; background: #090909ec; backdrop-filter: blur(12px); transition: transform .2s ease, opacity .2s ease; }
-.mreader-top { top: 0; padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px; border-bottom: 1px solid #ffffff12; }
+.mreader-top { top: 0; padding: calc(var(--safe-t) + 8px) max(12px, var(--safe-r)) 8px max(12px, var(--safe-l)); border-bottom: 1px solid #ffffff12; }
 .mreader-bottom { bottom: 0; justify-content: center; padding: 11px 16px calc(env(safe-area-inset-bottom, 0px) + 11px); border-top: 1px solid #ffffff12; color: #888; font: 500 11px 'IBM Plex Mono', monospace; }
 .mreader-title { min-width: 0; flex: 1; overflow: hidden; color: #ddd; font: 500 13px 'Archivo'; text-overflow: ellipsis; white-space: nowrap; }
 .mreader .riconbtn { color: #ddd; }
 .mreader .riconbtn { width: 44px; height: 44px; }
 .mreader :focus-visible, #mdrawer :focus-visible { outline: 2px solid #d8a24a; outline-offset: 2px; }
-.mreader-progress { position: fixed; inset: 0 auto auto 0; z-index: 115; width: 0; height: 3px; background: #d8a24a; transition: width .12s linear; }
+.mreader-progress { position: fixed; inset: var(--safe-t) auto auto 0; z-index: 115; width: 0; height: 3px; background: #d8a24a; transition: width .12s linear; }
 .mreader.hide-chrome .mreader-chrome { opacity: 0; pointer-events: none; }
 .mreader.hide-chrome .mreader-top { transform: translateY(-105%); }
 .mreader.hide-chrome .mreader-bottom { transform: translateY(105%); }
@@ -90,8 +90,8 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 @media (max-width: 640px) {
   .den .tb { height: 34px; }
   .den .body { display: block; }
-  .den .main { height: calc(100vh - 34px); height: calc(100dvh - 34px); padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
-  .den .side { position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; width: auto; height: calc(58px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); border: 0; border-top: 1px solid var(--line2); }
+  .den .main { height: calc(100vh - 34px - var(--safe-t)); height: calc(100dvh - 34px - var(--safe-t)); padding-bottom: calc(58px + var(--safe-b)); }
+  .den .side { position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; width: auto; height: calc(58px + var(--safe-b)); padding: 0 var(--safe-r) var(--safe-b) var(--safe-l); border: 0; border-top: 1px solid var(--line2); }
   .den .side .nl, .den .side .grow { display: none; }
   .den .side nav { width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); }
   .den .ni { min-width: 0; justify-content: center; flex-direction: column; gap: 2px; padding: 8px 2px 6px; font-size: 10px; }
@@ -126,10 +126,10 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 /* collapsible top bar (touch devices): hides on scroll-down, returns on scroll-up or near the top.
    The bar is lifted out of flow; the main column takes the full dynamic viewport when collapsed. */
 @media (max-width: 640px) and (pointer: coarse) {
-  .den .tb { position: absolute; top: 0; left: 0; right: 0; z-index: 100; transform: translateY(0); transition: transform .18s ease; }
-  .den .main { height: 100vh; height: 100dvh; padding-top: 34px; }
+  .den .tb { position: absolute; top: var(--safe-t); left: var(--safe-l); right: var(--safe-r); z-index: 100; transform: translateY(0); transition: transform .18s ease; }
+  .den .main { height: calc(100vh - var(--safe-t)); height: calc(100dvh - var(--safe-t)); padding-top: 34px; }
   .den.bar-collapsed .tb { transform: translateY(-100%); }
-  .den.bar-collapsed .main { height: 100vh; height: 100dvh; padding-top: 0; }
+  .den.bar-collapsed .main { padding-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {
