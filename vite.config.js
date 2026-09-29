@@ -10,7 +10,7 @@ const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.ur
 // one is dropped on activate. navigations are network-first (fresh deploys win) with
 // the cached index.html as the offline fallback; hashed assets are cache-first.
 const SW_SOURCE = readFileSync(new URL('./src/service-worker.js', import.meta.url), 'utf8')
-const PUBLIC_SHELL = ['manifest.webmanifest', 'icon-256.png', 'icon-512.png']
+const PUBLIC_SHELL = ['manifest.webmanifest', 'icon.svg', 'apple-touch-icon.png', 'icon-256.png', 'icon-512.png']
 
 const offlineShell = () => ({
   name: 'vellum-offline-shell',

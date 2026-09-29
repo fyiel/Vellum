@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Vellum</title>
+  <rect width="512" height="512" fill="#15161a"/>
+  <path d="M120 140h80l88 232h-80z" fill="#f1f2f5"/>
+  <path d="M208 372h80l-40-106z" fill="#b6bac2"/>
+  <path d="M312 140h80L288 372h-80z" fill="#d8a24a"/>
+</svg>
