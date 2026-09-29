@@ -25,6 +25,8 @@ import { showMangaSeries } from './screens/manga-series.js'
 import { showVideo } from './screens/video.js'
 import { showVideoSeries } from './screens/video-series.js'
 import { installCoverFallback } from './lib/cover.js'
+import { isStandalone, preserveOfflineStorage } from './lib/persistence.js'
+import { dlEntries } from './lib/downloads.js'
 
 // Immersive reading and playback code stays out of the browsing shell until first use.
 let readerMod = null
@@ -48,6 +50,8 @@ const view = name => document.querySelectorAll('.den .view').forEach(v => { v.hi
 await setupNative()
 installCoverFallback()
 warmNuClearance()
+// Home Screen apps and existing offline libraries should retain their storage across visits.
+if (isStandalone() || dlEntries().length) void preserveOfflineStorage()
 
 // the web build precaches its shell so the site boots fully offline; desktop is local already
 if (import.meta.env.PROD && !window.__TAURI_INTERNALS__ && 'serviceWorker' in navigator) {

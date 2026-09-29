@@ -1,4 +1,4 @@
-import { searchNovels, getSeries, discover, discoverTaxonomy } from '../lib/api.js'
+import { searchNovels, discover, discoverTaxonomy } from '../lib/api.js'
 import { srcIds, srcLabel } from '../lib/source.js'
 import { coverImg } from '../lib/cover.js'
 import { $, $$, esc } from '../lib/dom.js'
@@ -30,14 +30,16 @@ let items = []
 let page = 0
 let loadingGen = 0
 let done = false
-let enrichedFirst = false
 let feedError = false
 let moreFailed = false
+let searchPending = false
+let searchRefreshTimer
+let searchController
+let searchDeadline = 0
 // filters as applied to the current feed, staged chip changes must not leak into pagination
 let appliedFiltersState = null
 
 const LIMIT = 30
-const ENRICH_MAX = 10
 const dsort = { key: 'relevance', dir: 'desc' }
 const tokens = new Set()
 
@@ -92,7 +94,7 @@ function filterPage(list) {
     return out
 }
 
-const metaInit = r => [srcLabel(srcIds(r)[0]) || r.sourceName, r.year].filter(Boolean).join(' · ')
+const metaInit = r => [r.sources?.length > 1 ? `${r.sources.length} sources` : r.sourceName || srcLabel(srcIds(r)[0]), r.author || r.year].filter(Boolean).join(' · ')
 const stars = r => r.rating ? `<span class="st">★</span>${Number(r.rating).toFixed(1)}` : ''
 
 function rowHtml(r, i) {
@@ -104,22 +106,6 @@ function rowHtml(r, i) {
     </a>`
 }
 
-function enrich(list) {
-    const rows = new Map([...$$('#dlist .dcard')].map(el => [el.dataset.key, el]))
-    list.slice(0, ENRICH_MAX).forEach(r => {
-        getSeries(r.key).then(s => {
-            if (!s) return
-            const el = rows.get(r.key)
-            if (!el) return
-            const meta = [s.author, s.genres?.[0]].filter(Boolean).join(' · ')
-            const metaEl = el.querySelector('.dcard-meta > span:first-child')
-            if (meta && metaEl) metaEl.textContent = meta
-            const rt = el.querySelector('.dcard-meta .rt')
-            if (rt && s.rating) rt.innerHTML = `<span class="st">★</span>${s.rating.toFixed(1)}`
-        }).catch(() => {})
-    })
-}
-
 function setLabel() {
     $('#dlab').innerHTML = active
         ? (query ? `Results <span class="ct">&middot; ${esc(query)}</span>` : `Results <span class="ct">&middot; ${customSort() && !hasFilters(appliedFilters()) ? 'sorted' : 'filtered'}</span>`)
@@ -128,8 +114,8 @@ function setLabel() {
 
 function setCount() {
     $('#rescount').textContent = items.length
-        ? `${items.length}${done ? '' : '+'} result${items.length === 1 ? '' : 's'}`
-        : ''
+        ? `${items.length}${done ? '' : '+'} result${items.length === 1 ? '' : 's'}${searchPending ? ' · updating…' : ''}`
+        : searchPending ? 'searching…' : ''
 }
 
 function voidMsg() {
@@ -140,7 +126,7 @@ function voidMsg() {
 }
 
 function feedFetch(p) {
-    if (query) return p === 1 ? searchNovels(query) : Promise.resolve({ results: [] })
+    if (query) return p === 1 ? searchNovels(query, { signal: searchController?.signal }) : Promise.resolve({ results: [] })
     if (active) return discover(buildDiscoverParams(p))
     return discover({ sort: 'trending', page: p, limit: LIMIT })
 }
@@ -152,13 +138,17 @@ let seenKeys = new Set()
 
 async function startFeed(commitFilters = false) {
     const gen = ++feedGen
+    clearTimeout(searchRefreshTimer)
+    searchController?.abort()
+    searchController = new AbortController()
+    searchDeadline = Date.now() + 60_000
+    searchPending = !!query
     if (commitFilters || !appliedFiltersState) appliedFiltersState = currentFilters()
     active = !!(query || hasFilters(appliedFilters()) || customSort())
     page = 0
     items = []
     done = false
     loadingGen = 0
-    enrichedFirst = false
     feedError = false
     moreFailed = false
     seenKeys = new Set()
@@ -183,6 +173,7 @@ async function loadMore(fresh = false, gen = feedGen) {
         if (loadingGen === gen) loadingGen = 0
         if (gen !== feedGen) return
         if (fresh) {
+            searchPending = false
             feedError = true
             $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
             $('#rescount').textContent = ''
@@ -196,6 +187,12 @@ async function loadMore(fresh = false, gen = feedGen) {
     }
     if (gen !== feedGen) {
         // a stale fetch must not release the lock held by the newer feed
+        if (loadingGen === gen) loadingGen = 0
+        return
+    }
+
+    if (query) {
+        paintSearch(data, gen, fresh)
         if (loadingGen === gen) loadingGen = 0
         return
     }
@@ -225,10 +222,32 @@ async function loadMore(fresh = false, gen = feedGen) {
     }
 
     setCount()
-    if (!enrichedFirst && items.length) { enrichedFirst = true; enrich(items) }
 
     if (loadingGen === gen) loadingGen = 0
     fillViewport()
+}
+
+function paintSearch(data, gen, fresh = false) {
+    if (gen !== feedGen) return
+    const next = filterPage(data.results || [])
+    const changed = JSON.stringify(items) !== JSON.stringify(next)
+    items = next
+    page = 1
+    done = true
+    searchPending = !!data.pending && Date.now() < searchDeadline
+    if (fresh || changed) {
+        $('#dlist').innerHTML = items.length ? items.map(rowHtml).join('')
+            : `<div class="void">${searchPending ? 'searching…' : voidMsg()}</div>`
+    } else if (!items.length && !searchPending) {
+        $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
+    }
+    setCount()
+    clearTimeout(searchRefreshTimer)
+    if (searchPending) searchRefreshTimer = setTimeout(async () => {
+        if (gen !== feedGen || $('#view-discover').hidden) return
+        try { paintSearch(await searchNovels(query, { signal: searchController.signal }), gen) }
+        catch { if (gen === feedGen) { searchPending = false; setCount() } }
+    }, Math.max(250, Math.min(2_000, Number(data.retryAfterMs) || 500)))
 }
 
 function fillViewport() {
@@ -324,8 +343,12 @@ function wire() {
 
     $('#dsearch').addEventListener('input', e => {
         clearTimeout(searchTimer)
+        clearTimeout(searchRefreshTimer)
+        searchController?.abort()
+        feedGen++
+        loadingGen = 0
         const v = e.target.value.trim()
-        searchTimer = setTimeout(() => { query = v; runSearch() }, 280)
+        searchTimer = setTimeout(() => { query = v; runSearch() }, 180)
     })
 
     const btn = $('#ftoggle'), panel = $('#fpanel')
@@ -415,4 +438,8 @@ export function showDiscover() {
     }
 
     if (!inited) { inited = true; startFeed(true) }
+    else if (query && searchPending) {
+        searchDeadline = Date.now() + 60_000
+        paintSearch({ results: items, pending: true }, feedGen)
+    }
 }

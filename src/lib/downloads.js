@@ -5,6 +5,8 @@
 // registry of what is downloaded lives in localStorage so the UI can list it
 // without touching the filesystem.
 
+import { preserveOfflineStorage } from './persistence.js'
+
 const isTauri = () => !!window.__TAURI_INTERNALS__
 const safe = value => encodeURIComponent(String(value))
 
@@ -52,6 +54,7 @@ async function opfsDir(parts, create) {
 // ---- uniform interface ----------------------------------------------------
 
 export async function dlWrite(path, data) {
+    void preserveOfflineStorage()
     if (isTauri()) {
         const { fs, baseDir } = await tauri()
         const parent = path.split('/').slice(0, -1).join('/')
@@ -70,6 +73,7 @@ export async function dlWrite(path, data) {
 
 // incremental writer for large payloads (video): write(chunk) then close(); abort() drops the file
 export async function dlWriter(path) {
+    void preserveOfflineStorage()
     if (isTauri()) {
         const { fs, baseDir } = await tauri()
         const parent = path.split('/').slice(0, -1).join('/')

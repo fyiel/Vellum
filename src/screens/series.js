@@ -40,12 +40,14 @@ function synopsisHtml(s) {
 }
 
 function sourceRowHtml(s) {
-    const sources = Array.isArray(s.sources) ? s.sources : []
+    const sources = Array.isArray(s.sources) ? s.sources.filter(source => source?.key && source?.nfSlug) : []
     const name = s.sourceName || (sources[0] && srcName(sources[0])) || 'Unknown'
-    // the source list is informational only, switching is not implemented so do not imply it
-    const others = sources.map(srcName).filter(n => n && n !== name)
-    const tail = others.length ? ` <span class="smeta">also on ${esc(others.join(' · '))}</span>` : ''
-    return `<div class="drow"><span class="k">Source</span><span class="srcwrap" id="srcwrap"><span class="srcname copyable" id="srcname" title="Click to copy">${esc(name)}</span>${tail}</span></div>`
+    const picker = sources.length > 1
+        ? `<select id="novel-source" aria-label="Reading source">${sources.map(source => `<option value="${esc(source.key)}"${source.nfSlug === s.nfSlug ? ' selected' : ''}>${esc(srcName(source))}${source.chapters ? ` · ${esc(source.chapters)} listed` : ''}</option>`).join('')}</select>`
+        : `<span class="srcname copyable" title="Click to copy">${esc(name)}</span>`
+    const metadata = s.metadataSource === 'novelupdates'
+        ? `<div class="drow"><span class="k">Metadata</span><span class="v">NovelUpdates</span></div>` : ''
+    return `<div class="drow"><span class="k">Read from</span><span class="srcwrap">${picker}</span></div>${metadata}`
 }
 
 function statsHtml(s, slug, count) {
@@ -106,6 +108,7 @@ const batchCandidates = count => {
 
 async function runBatch(count) {
     if (batch || !cur) return
+    const { slug, series } = cur
     const ns = batchCandidates(count).map(c => c.n)
     if (!ns.length) {
         const next = $('#dl-next')
@@ -115,9 +118,9 @@ async function runBatch(count) {
     if (count == null && !confirm(`Download all ${ns.length} chapters of ${cur.series.title}?`)) return
     batch = { done: 0, total: ns.length }
     batchPaint()
-    await dlBatch(ns, n => downloadNovelChapter(cur.slug, n, cur.series.title), {
+    await dlBatch(ns, n => downloadNovelChapter(slug, n, series.title), {
         onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (n, error) => { dlFailed.set(n, error?.message || 'Download failed'); paintDl() },
+        onError: (n, error) => { if (cur?.slug === slug) { dlFailed.set(n, error?.message || 'Download failed'); paintDl() } },
     })
     batch = null
     batchPaint()
@@ -267,6 +270,10 @@ function wire() {
     if (wired) return
     wired = true
 
+    $('#sinfo').addEventListener('change', e => {
+        if (e.target.id === 'novel-source') go(`#/series/${encodeURIComponent(e.target.value)}`)
+    })
+
     $('#sinfo').addEventListener('click', e => {
         if (e.target.closest('#synmore')) return toggleSyn()
         if (e.target.closest('#tagall')) return toggleTags()
@@ -376,6 +383,7 @@ export async function showSeries(key, origin) {
     // fresh fetch lands; blanking first collapses the scroller and loses the user's place
     const same = !!cur && cur.key === key
     if (!same) {
+        dlFailed.clear()
         info.innerHTML = `<div class="void">loading&hellip;</div>`
         chaps.innerHTML = ''
     }
@@ -408,5 +416,10 @@ export async function showSeries(key, origin) {
     const next = posGet(slug)?.n
     if (next != null) prefetchChapter(slug, next)
 
+    if (series.readable === false) {
+        $('#contbtn').disabled = true
+        chaps.innerHTML = '<div class="void">No reading source is available for this title yet.</div>'
+        return
+    }
     loadChapters(slug, mine)
 }

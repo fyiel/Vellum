@@ -9,6 +9,7 @@ import { coverImg } from '../lib/cover.js'
 import { storeCover } from '../lib/cover-cache.js'
 import { $, $$, esc } from '../lib/dom.js'
 import { relTime } from '../lib/time.js'
+import { isStandalone, preserveOfflineStorage } from '../lib/persistence.js'
 
 const CONT_MAX = 4
 
@@ -107,6 +108,16 @@ function renderDownloads() {
     $('#dl-lab').hidden = !entries.length
     $('#dl-size').textContent = entries.length ? `· ${fmtSize(dlTotalSize())}` : ''
     $('#dltable').innerHTML = entries.map(dlRow).join('')
+    const note = $('#dl-storage')
+    note.hidden = !entries.length || !!window.__TAURI_INTERNALS__
+    if (!note.hidden) {
+        note.textContent = ''
+        void preserveOfflineStorage().then(protectedStorage => {
+            note.textContent = protectedStorage ? 'Persistent storage enabled. Downloads have no expiry.'
+                : !isStandalone() ? 'For more reliable offline storage on iPhone, add Vellum to your Home Screen, then download there.'
+                : 'Downloads have no expiry, but this browser has not granted persistent storage.'
+        })
+    }
 }
 
 function openDownload(el) {

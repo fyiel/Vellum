@@ -112,3 +112,5 @@
 .den.d-dense .chrow { padding: 4px 10px; }
 .den.d-dense .chd { display: none; }
 .den.d-dense .info { gap: 12px; }
+
+.den #novel-source { max-width: 230px; width: 100%; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); padding: 6px; font: 400 12px var(--mono); }

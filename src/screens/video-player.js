@@ -116,6 +116,18 @@ const appendTrack = (video, src, subtitle) => {
     track.label = subtitle.label || subtitle.lang.toUpperCase()
     track.kind = 'subtitles'
     track.default = Boolean(subtitle.default)
+    // Chromium leaves every subtitles track added after the first one "showing", so a KissKH
+    // episode with six languages stacks six captions at once. Settle the modes once the cues
+    // land: the track the provider marked default is the one that shows, anything else waits
+    // for the reader to pick it from the player's caption menu. With nothing marked, nothing
+    // shows, which is what a track without `default` means.
+    track.addEventListener('load', () => {
+        const preferred = [...video.querySelectorAll('track')].filter(element => element.default).map(element => element.track)
+        for (const candidate of video.textTracks) {
+            if (preferred.length) candidate.mode = preferred.includes(candidate) ? 'showing' : 'disabled'
+            else if (candidate === track.track) candidate.mode = 'disabled'
+        }
+    }, { once: true })
     video.append(track)
 }
 // encrypted tracks (KissKH) are fetched and decrypted client-side — the sub CDN blocks the API host

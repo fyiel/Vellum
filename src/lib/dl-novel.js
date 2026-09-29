@@ -46,21 +46,24 @@ async function downloadImages(key, n, html, signal) {
 export async function downloadNovelChapter(key, n, title, { force = false } = {}) {
     const id = String(n)
     const tag = `${key}:${id}`
-    if (active.has(tag) || (!force && dlEntry('novel', key, id))) return
+    const saved = dlEntry('novel', key, id)
+    if (active.has(tag) || (!force && saved)) return
     const ctrl = new AbortController()
     active.set(tag, { ctrl })
     notify()
     try {
         const chapter = await getChapter(key, n, { signal: ctrl.signal })
         if (ctrl.signal.aborted) throw new Error('download cancelled')
-        if (force) await dlRemove(dlPath.novelImages(key, n))
+        // Repairing a saved chapter must keep its existing images usable if the source fails.
         const images = await downloadImages(key, n, chapter.html, ctrl.signal)
         const text = JSON.stringify({ ...chapter, html: images.html })
         await dlWrite(dlPath.novelChapter(key, n), text)
         dlRegister({ kind: 'novel', key, id, title, label: `Ch. ${n}`, size: text.length + images.size })
     } catch (error) {
-        await dlRemove(dlPath.novelChapter(key, n))
-        await dlRemove(dlPath.novelImages(key, n))
+        if (!saved) {
+            await dlRemove(dlPath.novelChapter(key, n))
+            await dlRemove(dlPath.novelImages(key, n))
+        }
         throw error
     } finally {
         active.delete(tag)

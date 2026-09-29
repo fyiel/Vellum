@@ -8,6 +8,7 @@ import {
 } from "../lib/api.js";
 import { go, back, hashSlug } from "../lib/router.js";
 import { loadDownloadedNovelChapter } from "../lib/dl-novel.js";
+import { dlEntries } from "../lib/downloads.js";
 import {
   readSet,
   saveRead,
@@ -133,6 +134,16 @@ export async function showReader(slug, n) {
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   applySettings();
 
+  const useDownloads = () => {
+    const saved = dlEntries().filter(entry => entry.kind === "novel" && entry.key === slug && Number.isFinite(Number(entry.id)));
+    if (!saved.length) return false;
+    state.slug = slug;
+    state.chapters = saved.map(entry => ({ n: Number(entry.id), t: entry.label || `Chapter ${entry.id}` })).sort((a, b) => a.n - b.n);
+    state.series = { key: seriesKey(slug), nfSlug: slug, title: saved[0].title, totalChapters: state.chapters.length };
+    return true;
+  };
+  if (navigator.onLine === false) useDownloads();
+
   if (state.slug !== slug || !state.chapters.length) {
     prose.innerHTML = `<div class="spinner"></div>`;
     rfoot.innerHTML = "";
@@ -144,9 +155,11 @@ export async function showReader(slug, n) {
       state.chapters = chapters;
     } catch (e) {
       if (routeGen !== rd.gen) return; // a dead route must not render into the live view
-      prose.innerHTML = `<div class="empty">${esc(e.message)}<button class="btn" id="reader-list-retry">retry</button></div>`;
-      $("#reader-list-retry").onclick = () => showReader(slug, n);
-      return;
+      if (!useDownloads()) {
+        prose.innerHTML = `<div class="empty">${esc(e.message)}<button class="btn" id="reader-list-retry">retry</button></div>`;
+        $("#reader-list-retry").onclick = () => showReader(slug, n);
+        return;
+      }
     }
   }
   if (document.fonts?.ready) document.fonts.ready.then(rebuildOffsets);

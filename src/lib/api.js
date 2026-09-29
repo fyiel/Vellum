@@ -14,12 +14,14 @@ const requireValue = (promise, accept, message) => promise.then(value => {
     return value
 })
 
-export const searchNovels = q =>
-    cached(`search:${q.trim().toLowerCase()}`, 5 * MIN, () => apiGet(`/read/api/search?q=${enc(q)}`), { accept: hasResults })
+export const searchNovels = (q, { signal } = {}) =>
+    cached(`search:instant1:${q.trim().toLowerCase()}`, MIN,
+        () => apiGet(`/read/api/search?q=${enc(q)}&progressive=1`, { signal, timeoutMs: 8_000 }),
+        { signal, swr: false, accept: data => hasResults(data) && !data.pending })
 
 export const getSeries = (key, { signal } = {}) => {
     const accept = d => typeof d?.title === 'string' && d.title.trim().length > 0
-    return cached(`series:${key}`, 6 * HOUR, () => requireValue(apiGet(`/read/api/series/${enc(key)}`, { signal }), accept, 'series unavailable'), { accept, signal })
+    return cached(`series:nu6:${key}`, 6 * HOUR, () => requireValue(apiGet(`/read/api/series/${enc(key)}`, { signal, timeoutMs: 25_000 }), accept, 'series unavailable'), { accept, signal })
 }
 
 export const getChapters = (slug, { signal } = {}) => {
@@ -48,7 +50,7 @@ const discoverQuery = params => {
 
 export const discover = params => {
     const query = discoverQuery(params)
-    return cached(`discover:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: hasResults })
+    return cached(`discover:nu5:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: hasResults })
 }
 
 export const discoverTaxonomy = () =>

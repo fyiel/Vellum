@@ -47,8 +47,9 @@ a phone browser.
 Anime browse and search hit [AniList](https://anilist.co) directly from the
 client — their GraphQL API is CORS-open, so it needs no proxy. Everything that
 does need a server goes through the [pumg.fyi](https://pumg.fyi) adapter:
-episode lists and media (anidb.app is Cloudflare-gated), playback, and the
-K-drama catalogue. Miruro.tv uses the same AniList catalogue.
+episode lists and media (anidb.app is Cloudflare-gated, with a HiAnime embed
+fallback when it is down), playback, and the K-drama catalogue. Miruro.tv uses
+the same AniList catalogue.
 
 ## Build from source
 

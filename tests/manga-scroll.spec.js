@@ -49,6 +49,138 @@ test('endlessly scrolls the manga shelf with no load-more button', async ({ page
   await expect(page.locator('#mmore')).toBeHidden()
 })
 
+test('keeps the same page in view when old chapters are trimmed', async ({ page }) => {
+  const key = 'mf:trimmer'
+  const chapters = [1, 2, 3].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))
+  const pagesPerChapter = 60
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manhwa', title: 'Trimmer' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        key,
+        chapter: chapters.find(chapter => chapter.id === id),
+        pages: Array.from({ length: pagesPerChapter }, (_, index) => ({
+          url: `/read/api/manga/image?key=mf%3Atrimmer&id=${id}&page=${index}`,
+          width: 900,
+          height: 1200,
+        })),
+      }),
+    })
+  })
+  await page.route('**/read/api/manga/image?**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"><rect width="100%" height="100%" fill="#171717"/></svg>',
+  }))
+
+  const centeredPage = () => page.evaluate(() => {
+    const mid = window.innerHeight / 2
+    for (const figure of document.querySelectorAll('.manga-page')) {
+      const rect = figure.getBoundingClientRect()
+      if (rect.top <= mid && rect.bottom >= mid) return figure.dataset.page
+    }
+    return null
+  })
+  const stream = () => page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight)
+    window.dispatchEvent(new Event('scroll'))
+  })
+
+  await page.goto(`${app}#/manga/read/mf%3Atrimmer/chapter-1`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(pagesPerChapter)
+  // let the restore-scroll rAF pair settle before driving scrolls (same race as below)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+
+  await stream()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+  // bottom of chapter 2: its last page (global data-page 119) is centered when the
+  // chapter-3 stream lands and wipes chapter 1 from the DOM
+  await stream()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 3')
+  await expect(page.locator('.mr-chapter-divider')).toHaveCount(1)
+  await expect.poll(centeredPage).toBe('119')
+})
+
+test('does not wipe the chapter being read when a slow stream lands', async ({ page }) => {
+  const key = 'mf:guard'
+  const chapters = [1, 2, 3].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))
+  const pagesPerChapter = 60
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manhwa', title: 'Guard' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', async route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    // chapter 3 arrives slowly so the reader can scroll back into chapter 1 first
+    if (id === 'chapter-3') await new Promise(resolve => setTimeout(resolve, 400))
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        key,
+        chapter: chapters.find(chapter => chapter.id === id),
+        pages: Array.from({ length: pagesPerChapter }, (_, index) => ({
+          url: `/read/api/manga/image?key=mf%3Aguard&id=${id}&page=${index}`,
+          width: 900,
+          height: 1200,
+        })),
+      }),
+    })
+  })
+  await page.route('**/read/api/manga/image?**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"><rect width="100%" height="100%" fill="#171717"/></svg>',
+  }))
+
+  const centeredPage = () => page.evaluate(() => {
+    const mid = window.innerHeight / 2
+    for (const figure of document.querySelectorAll('.manga-page')) {
+      const rect = figure.getBoundingClientRect()
+      if (rect.top <= mid && rect.bottom >= mid) return figure.dataset.page
+    }
+    return null
+  })
+  const stream = () => page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight)
+    window.dispatchEvent(new Event('scroll'))
+  })
+
+  await page.goto(`${app}#/manga/read/mf%3Aguard/chapter-1`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+
+  await stream()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+  // bottom of chapter 2 starts the chapter-3 fetch; the reader goes back to the
+  // top of chapter 1 while it is in flight (scrolling away in the same task would
+  // skip the IntersectionObserver frame that starts the fetch)
+  const fetching3 = page.waitForRequest(request =>
+    request.url().includes('/read/api/manga/chapter?') && request.url().includes('id=chapter-3'))
+  await stream()
+  await fetching3
+  await page.evaluate(() => {
+    window.scrollTo(0, 0)
+    window.dispatchEvent(new Event('scroll'))
+  })
+  await expect(page.locator('#mr-title')).toContainText('Ch. 3')
+  // the trim must skip the chapter under the reader's eyes: both dividers stay
+  // and the viewport is still on chapter 1's first page
+  await expect(page.locator('.mr-chapter-divider')).toHaveCount(2)
+  await expect.poll(centeredPage).toBe('0')
+})
+
 test('streams across manga chapter boundaries without navigating', async ({ page }) => {
   const key = 'mf:streamer'
   const chapters = [1, 2, 3].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))

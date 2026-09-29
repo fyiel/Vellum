@@ -171,15 +171,17 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
         if (signal?.aborted || inflight.get(key) !== entry) return
         writers.set(key, entry)
     }
+    const onAbort = () => {
+        if (inflight.get(key) === entry) inflight.delete(key)
+        if (writers.get(key) === entry) writers.delete(key)
+    }
     const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept, () => writers.get(key) === entry, claimStore, onFresh).finally(() => {
+        signal?.removeEventListener('abort', onAbort)
         if (inflight.get(key) === entry) inflight.delete(key)
         if (writers.get(key) === entry) writers.delete(key)
     })
     entry.promise = p
     inflight.set(key, entry)
-    signal?.addEventListener('abort', () => {
-        if (inflight.get(key) === entry) inflight.delete(key)
-        if (writers.get(key) === entry) writers.delete(key)
-    }, { once: true })
+    signal?.addEventListener('abort', onAbort, { once: true })
     return p
 }

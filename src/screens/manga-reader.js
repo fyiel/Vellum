@@ -126,6 +126,8 @@ function trimChapters() {
     // drops wholesale, no virtualization library, just slice it off the front
     while (pages.querySelectorAll('.mr-chapter-divider').length > 1) {
         const cutoff = pages.querySelector('.mr-chapter-divider')
+        // never cut a chapter the reader is inside or within one viewport of (trimTop, reader.js:414)
+        if (cutoff.offsetTop + cutoff.offsetHeight > scrollY - innerHeight) break
         const height = document.documentElement.scrollHeight
         for (let node = cutoff.previousSibling; node;) {
             const prev = node.previousSibling
@@ -410,7 +412,12 @@ function wire() {
         figure?.classList.add('loaded')
         figure?.setAttribute('aria-busy', 'false')
         if (figure && !figure.style.aspectRatio && event.target.naturalWidth && event.target.naturalHeight) {
+            // unknown-dims figures grow from the estimate to the real ratio here; compensate
+            // above the viewport so the page under the reader doesn't drift (reader.js:86-98)
+            const before = figure.getBoundingClientRect()
             figure.style.aspectRatio = `${event.target.naturalWidth} / ${event.target.naturalHeight}`
+            const grown = figure.getBoundingClientRect().height - before.height
+            if (grown && before.top < 0) window.scrollBy(0, grown)
         }
         if (!state.firstImageMeasured) {
             state.firstImageMeasured = true

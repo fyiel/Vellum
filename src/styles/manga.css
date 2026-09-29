@@ -51,7 +51,7 @@
 
 html.manga-reading, body.manga-reading { height: auto; min-height: 100%; overflow: visible; }
 body.manga-reading .den { display: none; }
-body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-behavior-y: none; }
+body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-behavior-y: none; overflow-anchor: none; /* trimChapters compensates scroll manually (reader.css:39) */ }
 .mreader { display: none; min-height: 100vh; min-height: 100dvh; background: #070707; color: #ddd; }
 .mreader.active { display: block; }
 .mreader [hidden] { display: none; }

@@ -10,7 +10,7 @@ handlers. Each handler receives a context of `{ env, fetchImpl, request, cached 
 
 | key | label | kinds | data path |
 | --- | --- | --- | --- |
-| `miruro` | Miruro | anime | AniList metadata; owned playback service or Slipgate |
+| `miruro` | Miruro | anime | AniList metadata; owned playback service, Slipgate (AniDB App), or the HiAnime fallback |
 | `dc` | DramaCooli | drama | open WordPress REST API (`wp-json/wp/v2/*`) |
 | `gp` | GoPlay | drama | **unavailable** - goplay.su blocks automated access (Cloudflare Turnstile) |
 | `cineby` | Cineby | anime | SSR `__NEXT_DATA__` pages |
@@ -77,12 +77,38 @@ HTTPS-only, and embeds pointing at the app's own origin are always rejected:
   list fails closed with `stream_unavailable`.
 - owned playback service - embed sources resolving to the request origin are
   dropped; direct sources remain HTTPS-only.
+- `miruro` (HiAnime backend) - serve links are base64url page hashes that must
+  decode to HTTPS on `megaplay.buzz` or `zokoanime.video` (or a subdomain);
+  anything else fails closed with `stream_unavailable`.
+
+## Anime episode backends
+
+`miruro` keys keep their AniList identity, but episodes and streams come from a
+backend chain, in order:
+
+1. the owned playback service, when `VELLUM_ANIME_PLAYBACK_URL` is set;
+2. AniDB App through Slipgate, when `VELLUM_SLIPGATE_URL` is set;
+3. HiAnime (`hianime.at`), always available, no configuration.
+
+A transport failure (or the AniDB App maintenance page, which arrives with a 200)
+cools a backend down for ten minutes so later requests skip it, and a semantic
+miss (title not on that backend) only loses that one request. Episode ids encode
+which backend minted them (`anidbapp:<series>:<episode>` base64url for AniDB,
+`hianime-<series>-<episode>` for HiAnime), and playback dispatches on the id, so
+the series response reports the backend it actually used as `source` and playback
+reports it as `providerLabel`.
+
+The HiAnime backend searches by title, reads the episode list from
+`/api/theme/episode/list/<id>`, and resolves playback from
+`/api/theme/episode/servers?episodeId=<id>`, choosing the first of
+`ZokoAnime`, `HD-1`, `Vidstream-2` for the requested language. It returns an
+embed, so playback happens in the reader's browser and episodes have no
+downloadable stream.
 
 ## Server environment
 
-- `VELLUM_ANIME_PLAYBACK_URL` - optional HTTPS base URL. When absent, discovery
-  and series metadata keep working while episode requests return an explicit
-  `provider_unconfigured` response.
+- `VELLUM_ANIME_PLAYBACK_URL` - optional HTTPS base URL. When absent, episodes
+  fall through to the Slipgate and HiAnime backends.
 - `VELLUM_ANIME_PLAYBACK_KEY` - optional bearer token, held only by the server.
 - `VELLUM_ANIME_PROVIDER` - optional provider name sent to the owned service;
   defaults to `default`.

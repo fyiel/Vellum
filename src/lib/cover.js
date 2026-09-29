@@ -7,7 +7,7 @@ const enc = encodeURIComponent;
 const isNu = (u) => /novelupdates\.com/i.test(u || "");
 const isTauri = () => !!window.__TAURI_INTERNALS__;
 const placeholder = (u) => !u || /noimagemid/i.test(u);
-const resolver = (title) => apiUrl(`/read/api/cover?t=${enc(title)}`);
+const resolver = (title) => apiUrl(`/read/api/cover?t=${enc(title)}&v=nu1`);
 
 export function coverImg(url, title, options = {}) {
   const useResolver = typeof options === "boolean" ? options : options.useResolver !== false;

@@ -122,3 +122,4 @@ body { background: #15161a; overflow: hidden; }
   .den .trow { grid-template-columns: 42px minmax(0, 1fr) 54px; gap: 10px; padding: 9px 4px; }
   .den .trow .pcell, .den .trow .chp { display: none; }
 }
+.dl-storage{font-size:12px;line-height:1.6;color:var(--muted,#999);margin:12px 0 20px;max-width:65ch}

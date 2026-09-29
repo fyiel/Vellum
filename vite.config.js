@@ -9,55 +9,18 @@ const VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.ur
 // stamped from file names + contents, so a new deploy rotates the cache and the old
 // one is dropped on activate. navigations are network-first (fresh deploys win) with
 // the cached index.html as the offline fallback; hashed assets are cache-first.
-const SW_SOURCE = `
-const CACHE = 'vellum-' + __STAMP__
-const BASE = new URL(self.registration.scope).pathname
-const LOCAL = [BASE, ...__SHELL__.map(name => BASE + name)]
-
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(LOCAL)).then(() => self.skipWaiting()))
-})
-
-self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(key => key.startsWith('vellum-') && key !== CACHE).map(key => caches.delete(key))))
-    .then(() => self.clients.claim()))
-})
-
-self.addEventListener('fetch', event => {
-  const { request } = event
-  if (request.method !== 'GET') return
-  const url = new URL(request.url)
-  if (url.origin !== self.location.origin || !url.pathname.startsWith(BASE)) return
-  if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).then(response => {
-      if (response.ok) {
-        const copy = response.clone()
-        caches.open(CACHE).then(cache => cache.put(request, copy))
-      }
-      return response
-    }).catch(() => caches.match(BASE)))
-    return
-  }
-  event.respondWith(caches.match(request).then(hit => hit || fetch(request).then(response => {
-    if (response.ok) {
-      const copy = response.clone()
-      caches.open(CACHE).then(cache => cache.put(request, copy))
-    }
-    return response
-  })))
-})
-`
+const SW_SOURCE = readFileSync(new URL('./src/service-worker.js', import.meta.url), 'utf8')
+const PUBLIC_SHELL = ['manifest.webmanifest', 'icon-256.png', 'icon-512.png']
 
 const offlineShell = () => ({
   name: 'vellum-offline-shell',
   apply: 'build',
   generateBundle(_, bundle) {
-    const hash = createHash('sha256').update(VERSION)
-    const files = Object.keys(bundle).filter(name => name !== 'sw.js').sort()
+    const hash = createHash('sha256').update(VERSION).update(SW_SOURCE)
+    const files = [...Object.keys(bundle).filter(name => name !== 'sw.js'), ...PUBLIC_SHELL].sort()
     for (const name of files) {
       const item = bundle[name]
-      hash.update(name).update(item.type === 'asset' ? item.source : item.code)
+      hash.update(name).update(item ? (item.type === 'asset' ? item.source : item.code) : readFileSync(new URL('./public/' + name, import.meta.url)))
     }
     this.emitFile({
       type: 'asset',

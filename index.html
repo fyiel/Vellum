@@ -11,6 +11,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vellum">
+<link rel="manifest" href="%BASE_URL%manifest.webmanifest">
+<link rel="apple-touch-icon" href="%BASE_URL%icon-256.png">
 <link rel="preconnect" href="https://pumg.fyi" crossorigin>
 <style>.sheet{visibility:hidden}.sronly{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}</style>
 <title>Vellum</title>
@@ -59,6 +61,7 @@
           <div id="libtable"></div>
           <div class="lab" id="dl-lab" hidden>Downloads <span class="dl-size" id="dl-size"></span></div>
           <div id="dltable"></div>
+          <p class="dl-storage" id="dl-storage" role="status" hidden></p>
         </div>
       </div>
 
@@ -123,7 +126,7 @@
               <span class="on" data-v="any">Any</span><span data-v="short">Short</span><span data-v="medium">Medium</span><span data-v="long">Long</span><span data-v="epic">Epic</span>
             </div></div></div>
             <div class="fsec"><div class="fk">Source</div><div class="fv chips" id="dsource">
-              <span class="chip on" data-all>All</span><span class="chip" data-src="novelfire">Novelfire</span><span class="chip" data-src="mangabaka">MangaBaka</span><span class="chip" data-src="dreamy">Dreamy</span><span class="chip" data-src="dawn">Dawn</span>
+              <span class="chip on" data-all>All</span><span class="chip" data-src="novelfire">Novelfire</span><span class="chip" data-src="noveldex">NovelDex</span><span class="chip" data-src="jade">JadeScrolls</span><span class="chip" data-src="gen">Genesis</span><span class="chip" data-src="fen">Fenrir Realm</span><span class="chip" data-src="wtl">WeTriedTLS</span><span class="chip" data-src="nl">NovelLive</span><span class="chip" data-src="rb">Ranobes</span><span class="chip" data-src="az">Azure Chronicles</span><span class="chip" data-src="dreamy">Dreamy</span><span class="chip" data-src="dawn">Dawn</span>
             </div></div>
             <div class="ffoot"><span class="rescount" id="rescount"></span><span class="sp"></span><button class="freset" id="fapply">Apply filters</button><button class="freset" id="freset">Reset all</button></div>
           </div>

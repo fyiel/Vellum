@@ -160,7 +160,7 @@ async function more() {
 
 // poster hosts are cold on a first visit (~5MB per grid); preconnecting while the
 // skeletons show shaves the image waterfall without blocking the card paint
-const IMAGE_HOSTS = ['https://s4.anilist.co', 'https://dramacooli.buzz']
+const IMAGE_HOSTS = ['https://s4.anilist.co', 'https://dramacoolt.top']
 const hinted = new Set()
 function hintImageHosts() {
     for (const href of IMAGE_HOSTS) {
