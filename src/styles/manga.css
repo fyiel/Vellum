@@ -88,15 +88,6 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 .mreader.hide-chrome .mreader-bottom { transform: translateY(105%); }
 
 @media (max-width: 640px) {
-  .den .tb { height: 34px; }
-  .den .body { display: block; }
-  .den .main { height: calc(100vh - 34px - var(--safe-t)); height: calc(100dvh - 34px - var(--safe-t)); padding-bottom: calc(58px + var(--safe-b)); }
-  .den .side { position: fixed; z-index: 90; left: 0; right: 0; bottom: 0; width: auto; height: calc(58px + var(--safe-b)); padding: 0 var(--safe-r) var(--safe-b) var(--safe-l); border: 0; border-top: 1px solid var(--line2); }
-  .den .side .nl, .den .side .grow { display: none; }
-  .den .side nav { width: 100%; display: grid; grid-template-columns: repeat(5, 1fr); }
-  .den .ni { min-width: 0; justify-content: center; flex-direction: column; gap: 2px; padding: 8px 2px 6px; font-size: 10px; }
-  .den .ni .ix { width: auto; font-size: 10px; }
-  .den .ni .c { display: none; }
   .den .tool { padding: 8px 10px; }
   .den .manga-tool { align-items: stretch; flex-direction: column; }
   .den .manga-source button { flex: 1; text-align: center; padding: 8px 4px; }
@@ -121,15 +112,6 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .view.sdet .chd { display: none; }
   .den .mchrow { grid-template-columns: 76px minmax(0, 1fr) 32px 8px; padding: 11px 8px; }
   .mreader-pages, .mreader-step { width: 100%; }
-}
-
-/* collapsible top bar (touch devices): hides on scroll-down, returns on scroll-up or near the top.
-   The bar is lifted out of flow; the main column takes the full dynamic viewport when collapsed. */
-@media (max-width: 640px) and (pointer: coarse) {
-  .den .tb { position: absolute; top: var(--safe-t); left: var(--safe-l); right: var(--safe-r); z-index: 100; transform: translateY(0); transition: transform .18s ease; }
-  .den .main { height: calc(100vh - var(--safe-t)); height: calc(100dvh - var(--safe-t)); padding-top: 34px; }
-  .den.bar-collapsed .tb { transform: translateY(-100%); }
-  .den.bar-collapsed .main { padding-top: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -34,31 +34,25 @@
     <aside class="side">
       <div class="nl">Browse</div>
       <nav>
-        <a class="ni on" data-nav="library" href="#/"><span class="ix">1</span>Library<span class="c" id="count-library"></span></a>
-        <a class="ni" data-nav="discover" href="#/discover"><span class="ix">2</span>Read</a>
-        <a class="ni" data-nav="manga" href="#/manga"><span class="ix">3</span>Manga</a>
-        <a class="ni" data-nav="watch" href="#/watch"><span class="ix">4</span>Watch</a>
-        <a class="ni" data-nav="updates" href="#/updates"><span class="ix">5</span>Updates<span class="c" id="count-updates"></span></a>
+        <a class="ni on" data-nav="library" href="#/"><span class="ix">1</span><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4zM16 5l3-1 4 15-3 1z"/></svg>Library<span class="c" id="count-library"></span></a>
+        <a class="ni" data-nav="discover" href="#/discover"><span class="ix">2</span><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v15M12 5C9 3 5 3 2 4v15c3-1 7-1 10 1 3-2 7-2 10-1V4c-3-1-7-1-10 1Z"/></svg>Read</a>
+        <a class="ni" data-nav="manga" href="#/manga"><span class="ix">3</span><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 11h18M12 3v8M9 11v10"/></svg>Manga</a>
+        <a class="ni" data-nav="watch" href="#/watch"><span class="ix">4</span><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="m10 8 6 4-6 4Z"/></svg>Watch</a>
+        <a class="ni" data-nav="updates" href="#/updates"><span class="ix">5</span><svg class="nav-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9 21h6"/></svg>Updates<span class="c" id="count-updates"></span></a>
       </nav>
       <div class="grow"></div>
     </aside>
     <main class="main">
 
       <div class="view" id="view-library">
-        <div class="tool">
-          <div class="srch"><input id="filter" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Filter library&hellip;"></div>
-          <span class="sortlbl">Sort</span>
-          <div class="seg" id="seg">
-            <span data-sort="recent">Recent</span>
-            <span data-sort="title">Title</span>
-            <span data-sort="progress">Progress</span>
-            <span data-sort="unread">Unread</span>
-            <span class="dir" id="dir">&#9660;</span>
-          </div>
+        <div class="tool library-tool">
+          <div class="srch"><input id="filter" type="search" inputmode="search" autocomplete="off" autocapitalize="none" aria-label="Search your library" placeholder="Search library&hellip;"><button id="lib-clear" type="button" aria-label="Clear library search" hidden>✕</button></div>
         </div>
         <div class="scroll">
-          <div class="lab" id="cont-lab">Continue</div>
-          <div class="cont" id="continue"></div>
+          <h2 class="lab library-section" id="cont-lab">Continue <span id="cont-count"></span></h2>
+          <div class="cont" id="continue" aria-label="Continue reading and watching"></div>
+          <h2 class="lab library-section" id="lib-lab">Titles <span id="lib-count"></span></h2>
+          <div class="sronly" id="lib-status" role="status"></div>
           <div id="libtable"></div>
           <div class="lab" id="dl-lab" hidden>Downloads <span class="dl-size" id="dl-size"></span></div>
           <div id="dltable"></div>

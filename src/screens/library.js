@@ -1,19 +1,18 @@
-import { library, loadLibSort, saveLibSort } from '../lib/store.js'
+import { library } from '../lib/store.js'
 import { buildFeed, unreadTotal } from '../lib/updates.js'
 import { dlEntries, dlListen, dlTotalSize } from '../lib/downloads.js'
 import { deleteMangaDownload } from '../lib/dl-manga.js'
 import { deleteNovelDownload } from '../lib/dl-novel.js'
 import { deleteVideoDownload } from '../lib/dl-video.js'
-import { go, hashSlug } from '../lib/router.js'
+import { hashSlug } from '../lib/router.js'
 import { coverImg } from '../lib/cover.js'
 import { storeCover } from '../lib/cover-cache.js'
-import { $, $$, esc } from '../lib/dom.js'
+import { $, esc } from '../lib/dom.js'
 import { relTime } from '../lib/time.js'
 import { isStandalone, preserveOfflineStorage } from '../lib/persistence.js'
 
 const CONT_MAX = 4
 
-let ui = loadLibSort()
 let filterQ = ''
 let wired = false
 const newCounts = new Map()
@@ -39,21 +38,15 @@ const clock = seconds => `${Math.floor((Number(seconds) || 0) / 60)}:${String(Ma
 const lastRead = e => isManga(e)
     ? [e.lastLabel || 'Chapter', e.pageCount ? `page ${e.lastPage || 1} of ${e.pageCount}` : ''].filter(Boolean).join(' · ')
     : isVideo(e) ? [e.lastLabel || 'Episode', e.lastDuration ? `${clock(e.lastPosition)} / ${clock(e.lastDuration)}` : 'selected'].join(' · ')
-    : `${read(e)} / ${total(e)}`
+    : `Ch. ${resumeN(e)} · ${read(e)} / ${total(e)} read`
 
-function sortEntries(list) {
-    const sign = ui.sortDir === 'asc' ? 1 : -1
-    const val = e => {
-        if (ui.sortKey === 'title') return (e.title || '').toLowerCase()
-        if (ui.sortKey === 'progress') return total(e) ? read(e) / total(e) : 0
-        if (ui.sortKey === 'unread') return Math.max(0, total(e) - read(e))
-        return e.updatedAt || 0
-    }
-    return [...list].sort((a, b) => {
-        const va = val(a), vb = val(b)
-        return va < vb ? -sign : va > vb ? sign : 0
-    })
-}
+const seriesRoute = e => isManga(e) ? `#/manga/series/${encodeURIComponent(e.slug)}`
+    : isVideo(e) ? `#/watch/series/${encodeURIComponent(e.slug)}` : `#/series/${encodeURIComponent(e.slug)}`
+const resumeRoute = e => isManga(e) ? (e.lastId ? `#/manga/read/${encodeURIComponent(e.slug)}/${encodeURIComponent(e.lastId)}` : seriesRoute(e))
+    : isVideo(e) ? (e.lastId ? `#/watch/play/${encodeURIComponent(e.slug)}/${encodeURIComponent(e.lastId)}` : seriesRoute(e))
+        : `#/read/${hashSlug(e.slug)}/${resumeN(e)}`
+const matchesSearch = e => !filterQ || [e.title, e.author, e.format, e.source, e.key].some(value => String(value || '').toLowerCase().includes(filterQ.toLowerCase()))
+const progressBar = e => `<span class="bar" role="progressbar" aria-label="${esc(e.title)} progress" aria-valuenow="${pctOf(e)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pctOf(e)}%"></span>${epPct(e) ? `<span class="ep" style="width:${epPct(e)}%"></span>` : ''}</span>`
 
 // the library is what you see with no network: its tiles carry the lookup key for a stored copy,
 // and series you actually downloaded get one kept (see keepDownloadedCovers)
@@ -61,15 +54,15 @@ const cover = (e, ph) => coverImg(e.cover, e.title, { offline: true }) || (ph ? 
 
 const contTile = e => {
     const pct = pctOf(e)
-    const ep = epPct(e)
-    return `<div class="ctile" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" data-n="${esc(resumeN(e))}" ${e.lastId ? `data-id="${esc(e.lastId)}"` : ''}>
+    return `<a class="ctile" href="${resumeRoute(e)}" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" aria-label="${esc(`Resume ${e.title}, ${lastRead(e)}`)}">
       <div class="cv">${cover(e, 'COV')}</div>
       <div class="cbd">
         <div class="ti">${esc(e.title)}</div>
+        <div class="last-read">${esc(lastRead(e))}</div>
+        <div class="mt">${progressBar(e)}<span>${pct}%</span><span class="resume-hint">Resume →</span></div>
         ${(isManga(e) || isVideo(e)) ? `<div class="cm">${esc(entryMeta(e))}</div>` : ''}
-        <div class="mt"><span class="last-read">${esc(lastRead(e))}</span><span class="bar"><span style="width:${pct}%"></span>${ep ? `<span class="ep" style="width:${ep}%"></span>` : ''}</span>${pct}%</div>
       </div>
-    </div>`
+    </a>`
 }
 
 function updCell(e) {
@@ -81,15 +74,15 @@ function updCell(e) {
 
 const row = e => {
     const pct = pctOf(e)
-    const ep = epPct(e)
     const meta = entryMeta(e)
-    return `<div class="trow" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}" data-n="${esc(resumeN(e))}">
+    const position = done(e) ? 'Finished' : started(e) ? lastRead(e) : 'Not started'
+    return `<a class="trow${done(e) ? ' finished' : ''}" href="${seriesRoute(e)}" data-slug="${esc(e.slug)}" data-kind="${esc(e.kind || 'novel')}">
       <span class="cv">${cover(e, '')}</span>
-      <div class="tt"><div class="n">${esc(e.title)}</div><div class="au">${esc(meta)}</div>${(isManga(e) || isVideo(e)) && e.lastLabel ? `<div class="last">${isVideo(e) ? 'Last watched' : 'Last read'} ${esc(lastRead(e))}</div>` : ''}</div>
-      <div class="pcell"><span class="bar"><span style="width:${pct}%"></span>${ep ? `<span class="ep" style="width:${ep}%"></span>` : ''}</span><span class="pct">${pct}%</span></div>
+      <div class="tt"><div class="n">${esc(e.title)}</div>${meta ? `<div class="au">${esc(meta)}</div>` : ''}<div class="last">${esc(position)}</div></div>
+      <div class="pcell">${progressBar(e)}<span class="pct">${pct}%</span></div>
       <span class="chp">${esc(read(e))}/${esc(total(e))}</span>
       ${updCell(e)}
-    </div>`
+    </a>`
 }
 
 const fmtSize = bytes => {
@@ -97,14 +90,15 @@ const fmtSize = bytes => {
     return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`
 }
 const DL_KIND_LABEL = { manga: 'Manga', novel: 'Novel', video: 'Video' }
+const downloadRoute = e => e.kind === 'manga' ? `#/manga/read/${encodeURIComponent(e.key)}/${encodeURIComponent(e.id)}`
+    : e.kind === 'video' ? `#/watch/play/${encodeURIComponent(e.key)}/${encodeURIComponent(e.id)}` : `#/read/${hashSlug(e.key)}/${encodeURIComponent(e.id)}`
 const dlRow = e => `<div class="dlrow" data-kind="${esc(e.kind)}" data-key="${esc(e.key)}" data-id="${esc(e.id)}">
-  <div class="tt"><div class="n">${esc(e.title || e.key)}</div><div class="au">${esc(DL_KIND_LABEL[e.kind] || e.kind)} · ${esc(e.label || '')}</div></div>
-  <span class="dlsize">${esc(fmtSize(e.size))}</span>
-  <button type="button" class="dldel" title="Delete download" aria-label="Delete download">✕</button>
+  <a class="dl-open" href="${downloadRoute(e)}"><div class="tt"><div class="n">${esc(e.title || e.key)}</div><div class="au">${esc(DL_KIND_LABEL[e.kind] || e.kind)} · ${esc(e.label || '')}</div></div><span class="dlsize">${esc(fmtSize(e.size))}</span></a>
+  <button type="button" class="dldel" title="Delete download" aria-label="${esc(`Delete download of ${e.title || e.key}, ${e.label || e.id}`)}">✕</button>
 </div>`
 
 function renderDownloads() {
-    const entries = dlEntries()
+    const entries = dlEntries().filter(matchesSearch)
     $('#dl-lab').hidden = !entries.length
     $('#dl-size').textContent = entries.length ? `· ${fmtSize(dlTotalSize())}` : ''
     $('#dltable').innerHTML = entries.map(dlRow).join('')
@@ -120,14 +114,6 @@ function renderDownloads() {
     }
 }
 
-function openDownload(el) {
-    const { kind, key, id } = el.dataset
-    if (!key) return
-    if (kind === 'manga') go(`#/manga/read/${encodeURIComponent(key)}/${encodeURIComponent(id)}`)
-    else if (kind === 'video') go(`#/watch/play/${encodeURIComponent(key)}/${encodeURIComponent(id)}`)
-    else go(`#/read/${hashSlug(key)}/${id}`)
-}
-
 function deleteDownload(el) {
     const { kind, key, id } = el.dataset
     if (!confirm(`Delete this downloaded ${DL_KIND_LABEL[kind]?.toLowerCase() || 'item'}?`)) return
@@ -140,40 +126,27 @@ function render() {
     const all = library()
     $('#count-library').textContent = all.length ? String(all.length) : ''
 
-    const inProg = all.filter(e => started(e) && !done(e))
-    const continueItems = [...inProg].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, CONT_MAX)
-    const contSlugs = new Set(continueItems.map(e => e.slug))
-
-    let rows = all.filter(e => !contSlugs.has(e.slug))
-    if (filterQ) {
-        const f = filterQ.toLowerCase()
-        rows = rows.filter(e => [e.title, e.author, e.format, e.source].some(value => (value || '').toLowerCase().includes(f)))
-    }
-    rows = sortEntries(rows)
+    const rows = all.filter(matchesSearch).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    const inProg = rows.filter(e => started(e) && !done(e))
+    const continueItems = inProg.slice(0, CONT_MAX)
 
     const contLab = $('#cont-lab'), cont = $('#continue')
     const showCont = continueItems.length > 0
-    contLab.style.display = showCont ? '' : 'none'
-    cont.style.display = showCont ? '' : 'none'
+    const scrollLeft = cont.scrollLeft
+    contLab.hidden = !showCont
+    cont.hidden = !showCont
+    $('#cont-count').textContent = String(continueItems.length)
     cont.innerHTML = showCont ? continueItems.map(contTile).join('') : ''
+    cont.scrollLeft = scrollLeft
+    $('#lib-count').textContent = String(rows.length)
+    $('#lib-lab').hidden = !all.length
+    $('#lib-clear').hidden = !filterQ
+    $('#lib-status').textContent = `${rows.length} ${rows.length === 1 ? 'title' : 'titles'}${filterQ ? ` matching ${filterQ}` : ''}`
 
     const table = $('#libtable')
-    if (!all.length) table.innerHTML = `<div class="void">nothing in your library yet. follow something to read or watch and it shows up here</div>`
-    else if (!rows.length && filterQ) table.innerHTML = `<div class="void">no matches</div>`
+    if (!all.length) table.innerHTML = '<div class="library-empty"><h2>Your next story starts here</h2><p>Nothing in your library yet. Follow something to read or watch and it shows up here.</p><div class="library-empty-actions"><a href="#/discover">Find a novel</a><a href="#/manga">Browse manga</a><a href="#/watch">Find something to watch</a></div></div>'
+    else if (!rows.length) table.innerHTML = `<div class="library-empty"><h2>No matches</h2><p>No titles match “${esc(filterQ)}”. Try another title, author, or source.</p><button type="button" id="lib-reset">Clear search</button></div>`
     else table.innerHTML = rows.map(row).join('')
-}
-
-function paintSort() {
-    $$('#seg span[data-sort]').forEach(s => s.classList.toggle('on', s.dataset.sort === ui.sortKey))
-    $('#dir').textContent = ui.sortDir === 'asc' ? '▲' : '▼'
-}
-
-function setSort(key) {
-    if (key === ui.sortKey) ui.sortDir = ui.sortDir === 'asc' ? 'desc' : 'asc'
-    else { ui.sortKey = key; ui.sortDir = 'desc' }
-    saveLibSort(ui)
-    paintSort()
-    render()
 }
 
 async function checkUpdates() {
@@ -184,52 +157,35 @@ async function checkUpdates() {
     render()
 }
 
-function openEntry(el) {
-    const slug = el.dataset.slug
-    if (!slug) return
-    if (el.dataset.kind === 'manga') go(`#/manga/series/${encodeURIComponent(slug)}`)
-    else if (el.dataset.kind === 'anime' || el.dataset.kind === 'drama') go(`#/watch/series/${encodeURIComponent(slug)}`)
-    else go(`#/series/${encodeURIComponent(slug)}`)
-}
-
-function continueEntry(el) {
-    const slug = el.dataset.slug
-    const id = el.dataset.id
-    const n = el.dataset.n
-    if (slug && el.dataset.kind === 'manga' && id) go(`#/manga/read/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`)
-    else if (slug && (el.dataset.kind === 'anime' || el.dataset.kind === 'drama') && id) go(`#/watch/play/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`)
-    else if (slug && n) go(`#/read/${hashSlug(slug)}/${n}`)
-}
-
 function wire() {
     if (wired) return
     wired = true
-
-    $('#seg').addEventListener('click', e => {
-        const dir = e.target.closest('.dir')
-        if (dir) { ui.sortDir = ui.sortDir === 'asc' ? 'desc' : 'asc'; saveLibSort(ui); paintSort(); render(); return }
-        const s = e.target.closest('span[data-sort]')
-        if (s) setSort(s.dataset.sort)
-    })
 
     let t
     $('#filter').addEventListener('input', e => {
         clearTimeout(t)
         const v = e.target.value.trim()
-        t = setTimeout(() => { filterQ = v; render() }, 200)
+        t = setTimeout(() => { filterQ = v; $('#continue').scrollLeft = 0; render(); renderDownloads() }, 150)
     })
 
-    $('#continue').addEventListener('click', e => { const t = e.target.closest('.ctile'); if (t) continueEntry(t) })
-    $('#libtable').addEventListener('click', e => { const r = e.target.closest('.trow'); if (r) openEntry(r) })
+    const reset = () => {
+        clearTimeout(t)
+        filterQ = ''
+        $('#filter').value = ''
+        render()
+        renderDownloads()
+        $('#filter').focus()
+    }
+    $('#lib-clear').addEventListener('click', reset)
+    $('#libtable').addEventListener('click', e => {
+        if (!e.target.closest('#lib-reset')) return
+        reset()
+    })
     $('#dltable').addEventListener('click', e => {
         const del = e.target.closest('.dldel')
-        if (del) { deleteDownload(del.closest('.dlrow')); return }
-        const r = e.target.closest('.dlrow')
-        if (r) openDownload(r)
+        if (del) deleteDownload(del.closest('.dlrow'))
     })
     dlListen(renderDownloads)
-
-    paintSort()
 }
 
 // A series you downloaded is one you expect to open with no network, so keep its cover. This is

@@ -1,6 +1,12 @@
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; --app-height: 100vh; }
+@supports (height: 100dvh) { html { --app-height: 100dvh; } }
+/* iOS Home Screen dynamic units can exclude the status bar from the viewport */
+@media (display-mode: standalone) { html { --app-height: 100vh; } }
+html.standalone { --app-height: 100vh; }
 body { background: #15161a; overflow: hidden; }
+.sronly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 .den { user-select: none; -webkit-user-select: none; }
 .den input, .den textarea { user-select: text; -webkit-user-select: text; }
@@ -12,7 +18,7 @@ body { background: #15161a; overflow: hidden; }
   --bg: #15161a; --panel: #1a1c21; --row: #1d1f25; --rowh: #212329; --sel: #23262d;
   --text: #b6bac2; --hi: #f1f2f5; --dim: #6c7079; --line: #ffffff10; --line2: #ffffff1c;
   --ac: #d8a24a; --track: #ffffff14; --mono: 'IBM Plex Mono', monospace;
-  width: 100%; height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+  position: relative; width: 100%; height: var(--app-height); display: flex; flex-direction: column; overflow: hidden;
   padding: var(--safe-t) var(--safe-r) 0 var(--safe-l);
   background: var(--bg); color: var(--text); font: 400 13px/1.45 'Archivo', system-ui, sans-serif;
 }
@@ -42,45 +48,47 @@ body { background: #15161a; overflow: hidden; }
 .den .nl { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; padding: 14px 14px 7px; }
 .den .ni { display: flex; align-items: center; gap: 9px; padding: 7px 14px; color: var(--text); font: 500 13px 'Archivo'; cursor: pointer; }
 .den .ni .ix { color: var(--dim); font: 400 11px var(--mono); width: 13px; }
+.den .nav-icon { display: none; }
 .den .ni .c { margin-left: auto; color: var(--dim); font: 400 11px var(--mono); }
 .den .ni.on { background: var(--sel); color: var(--hi); }
 .den .ni.on .ix { color: var(--ac); }
 .den .ni.on .c { color: var(--ac); }
 .den .grow { flex: 1; }
 
-.den .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.den .main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .den .view { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .den .view[hidden] { display: none; }
 .den .tool { display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .den .srch { flex: 1; display: flex; align-items: center; gap: 9px; background: var(--row); border: 1px solid var(--line2); padding: 7px 11px; }
-.den .srch input { flex: 1; background: transparent; border: none; outline: none; color: var(--hi); font: 400 13px 'Archivo'; }
+.den .srch input { flex: 1; min-width: 0; background: transparent; border: none; outline: none; color: var(--hi); font: 400 13px 'Archivo'; }
 .den .srch input::placeholder { color: var(--dim); }
 .den .seg { display: flex; border: 1px solid var(--line2); }
 .den .seg span { padding: 6px 11px; font: 500 11px 'Archivo'; color: var(--dim); border-right: 1px solid var(--line2); cursor: pointer; }
 .den .seg span:last-child { border-right: none; }
 .den .seg span.on { background: var(--sel); color: var(--hi); }
-.den .sortlbl { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
-.den .seg .dir { display: flex; align-items: center; justify-content: center; padding: 0; width: 30px; color: var(--ac); font-family: var(--mono); font-size: 15px; cursor: pointer; }
 
-.den .scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
+.den .scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px; }
 .den .lab { font: 600 10px 'Archivo'; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin: 0 0 9px; }
-.den .cont { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-bottom: 20px; }
-.den .ctile { display: flex; gap: 11px; padding: 9px; background: var(--row); border: 1px solid var(--line); cursor: pointer; }
-.den .ctile .cv { flex: none; width: 40px; aspect-ratio: 3/4; background: var(--bg); border: 1px solid var(--line2); display: flex; align-items: flex-end; padding: 4px; overflow: hidden; }
+.den .cont { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 24px; }
+.den .cont[hidden] { display: none; }
+.den .ctile { display: flex; min-width: 0; gap: 12px; padding: 12px; background: var(--row); border: 1px solid var(--line2); border-radius: 10px; color: var(--text); text-decoration: none; }
+.den .ctile:hover { background: var(--rowh); border-color: var(--ac); }
+.den .ctile .cv { flex: none; width: 52px; height: 76px; background: var(--bg); border: 1px solid var(--line2); border-radius: 4px; display: flex; align-items: flex-end; overflow: hidden; }
 .den .ctile .cv span { font: 600 8px var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: .5px; line-height: 1.1; }
-.den .ctile .cbd { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
-.den .ctile .ti { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .ctile .cbd { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 7px; justify-content: center; }
+.den .ctile .ti { font: 600 14px/1.3 'Archivo'; color: var(--hi); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .den .ctile .cm { color: var(--dim); font: 500 9px var(--mono); text-transform: uppercase; letter-spacing: .45px; }
 .den .ctile .mt { font: 400 11px var(--mono); color: var(--dim); display: flex; gap: 9px; align-items: center; }
-.den .ctile .last-read { max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.den .ctile .last-read { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font: 400 11px 'Archivo'; }
+.den .ctile .resume-hint { color: var(--ac); font: 500 11px 'Archivo'; white-space: nowrap; }
 .den .ctile .bar { flex: 1; height: 4px; background: var(--track); }
 .den .ctile .bar > span { display: block; height: 100%; background: var(--ac); }
 
-.den .trow { display: grid; grid-template-columns: 48px minmax(0, 1fr) 150px 62px 70px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .trow { display: grid; grid-template-columns: 48px minmax(0, 1fr) 110px 62px 50px; align-items: center; gap: 14px; padding: 12px 8px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; }
 .den .trow:hover { background: var(--rowh); }
-.den .trow .cv { width: 42px; height: 56px; background: var(--bg); border: 1px solid var(--line2); overflow: hidden; }
+.den .trow .cv { width: 44px; height: 62px; background: var(--bg); border: 1px solid var(--line2); border-radius: 4px; overflow: hidden; }
 .den .tt { min-width: 0; }
-.den .tt .n { font: 600 14px 'Archivo'; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.den .tt .n { font: 600 14px/1.35 'Archivo'; color: var(--hi); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .den .tt .au { font: 400 11px 'Archivo'; color: var(--dim); }
 .den .tt .last { margin-top: 2px; overflow: hidden; color: var(--dim); font: 400 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .den .pcell { display: flex; align-items: center; gap: 9px; }
@@ -95,10 +103,12 @@ body { background: #15161a; overflow: hidden; }
 .den .done { color: var(--dim); }
 
 .den .dl-size { color: var(--dim); font: 400 10px var(--mono); }
-.den .dlrow { display: grid; grid-template-columns: minmax(0, 1fr) 70px 34px; align-items: center; gap: 14px; padding: 9px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.den .dlrow { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 14px; padding: 9px 8px; border-bottom: 1px solid var(--line); }
+.den .dl-open { min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 14px; color: var(--text); text-decoration: none; }
+.den .dl-open .tt { flex: 1; }
 .den .dlrow:hover { background: var(--rowh); }
 .den .dlsize { font: 400 11px var(--mono); color: var(--dim); text-align: right; }
-.den .dldel { appearance: none; min-height: 30px; border: 1px solid var(--line2); background: transparent; color: var(--dim); font: 500 11px 'Archivo'; cursor: pointer; }
+.den .dldel { appearance: none; min-height: 44px; border: 1px solid var(--line2); border-radius: 6px; background: transparent; color: var(--dim); font: 500 14px 'Archivo'; cursor: pointer; }
 .den .dldel:hover { border-color: var(--ac); color: var(--ac); }
 
 .den .cv img { display: block; width: 100%; height: 100%; object-fit: cover; }
@@ -117,16 +127,58 @@ body { background: #15161a; overflow: hidden; }
 .den.d-dense .ctile .cv { width: 34px; }
 .den.d-dense .lab { margin-bottom: 7px; }
 
-@media (max-width: 640px) {
-  .den #view-library .tool { align-items: stretch; flex-direction: column; }
-  .den #view-library .sortlbl { display: none; }
-  .den #view-library .seg { width: 100%; overflow-x: auto; }
-  .den #view-library .seg span:not(.dir) { flex: 1; min-width: max-content; text-align: center; }
-  .den #view-library .scroll { padding: 12px 10px 20px; }
-  .den .cont { grid-template-columns: 1fr; }
-  .den .ctile { min-width: 0; }
-  .den .ctile .last-read { max-width: 54%; }
-  .den .trow { grid-template-columns: 42px minmax(0, 1fr) 54px; gap: 10px; padding: 9px 4px; }
-  .den .trow .pcell, .den .trow .chp { display: none; }
+.den .library-tool { flex-direction: column; align-items: stretch; gap: 10px; }
+.den .library-tool .srch { min-width: 0; padding: 0 10px; border-radius: 7px; }
+.den .library-tool .srch:focus-within { border-color: var(--ac); }
+.den .library-tool input { min-height: 44px; }
+.den .library-tool input::-webkit-search-cancel-button { display: none; }
+.den .library-tool button, .den .library-empty button { appearance: none; min-height: 44px; border: 0; background: transparent; color: var(--text); font: 500 12px 'Archivo'; cursor: pointer; }
+.den .library-tool #lib-clear { min-width: 44px; }
+.den .library-section { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+.den .library-section span { font: 400 10px var(--mono); color: var(--text); letter-spacing: 0; }
+.den .library-section[hidden] { display: none; }
+.den .library-empty { max-width: 460px; margin: 24px auto; padding: 24px 12px; text-align: center; color: var(--text); }
+.den .library-empty h2 { color: var(--hi); font: 600 18px 'Archivo'; }
+.den .library-empty p { line-height: 1.7; }
+.den .library-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.den .library-empty a, .den .library-empty button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 7px; background: var(--row); color: var(--ac); text-decoration: none; }
+.den .ctile:focus-visible, .den .trow:focus-visible, .den .dl-open:focus-visible, .den .dldel:focus-visible,
+.den .library-tool button:focus-visible, .den .library-empty a:focus-visible, .den .library-empty button:focus-visible { outline: 2px solid var(--ac); outline-offset: -2px; }
+
+@media (min-width: 1200px) { .den .cont { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .den .tb { height: 40px; padding: 0 12px; }
+  .den .tb .sq { display: none; }
+  .den .body { flex-direction: column-reverse; }
+  .den .side { width: auto; border-right: 0; border-top: 1px solid var(--line2); padding-bottom: var(--safe-b); }
+  .den .side .nl, .den .side .grow { display: none; }
+  .den .side nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .den .side .ni { position: relative; flex-direction: column; justify-content: center; min-height: 56px; gap: 4px; padding: 7px 2px; font-size: 11px; }
+  .den .side .ni .ix, .den .side #count-library { display: none; }
+  .den .side .nav-icon { display: block; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .den .side .ni.on { color: var(--ac); background: var(--sel); }
+  .den .side .ni .c { position: absolute; top: 3px; right: 12%; margin: 0; color: var(--ac); font-size: 10px; }
+  .den #view-library .tool { padding: 10px; }
+  .den #view-library .scroll { padding: 14px 12px 20px; }
+  .den .library-tool input { font-size: 16px; }
+  .den .cont { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: min(86%, 330px); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 2px 0 8px; margin-bottom: 16px; }
+  .den .cont::-webkit-scrollbar { display: none; }
+  .den .ctile { scroll-snap-align: start; }
+  .den .trow { grid-template-columns: 44px minmax(0, 1fr) 38px; grid-template-rows: auto auto; gap: 5px 10px; padding: 12px 0; }
+  .den .trow .cv { grid-row: 1 / 3; align-self: start; }
+  .den .trow .tt { grid-column: 2; }
+  .den .trow .pcell { grid-column: 2; grid-row: 2; max-width: 180px; }
+  .den .trow .pct { font-size: 10px; }
+  .den .trow .chp { display: none; }
+  .den .trow .upd { grid-column: 3; grid-row: 1 / 3; font-size: 10px; }
 }
+
+@media (max-width: 640px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
+  .den .tb { position: absolute; top: var(--safe-t); left: var(--safe-l); right: var(--safe-r); z-index: 10; transition: transform .18s ease; }
+  .den .body { padding-top: 40px; }
+  .den.bar-collapsed .tb { transform: translateY(-100%); pointer-events: none; }
+  .den.bar-collapsed .body { padding-top: 0; }
+}
+
 .dl-storage{font-size:12px;line-height:1.6;color:var(--muted,#999);margin:12px 0 20px;max-width:65ch}

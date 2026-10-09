@@ -1,6 +1,7 @@
 import { go } from '../lib/router.js'
 import { loadFeel } from '../lib/store.js'
 import { $, $$ } from '../lib/dom.js'
+import { isStandalone } from '../lib/persistence.js'
 
 const SCHEME_CLASS = { Graphite: '', Ink: 's-ink', Paper: 's-paper', Phosphor: 's-phosphor', Ember: 's-ember' }
 const NAV_ROUTE = { library: '#/', discover: '#/discover', manga: '#/manga', watch: '#/watch', updates: '#/updates' }
@@ -60,13 +61,14 @@ async function winAction(action) {
 }
 
 export function mountShell() {
+    document.documentElement.classList.toggle('standalone', isStandalone())
     applyFeel()
     if (wired) return
     wired = true
 
     const den = $('#den')
     // mobile: collapse the top bar on scroll-down, reveal on scroll-up or near the top (CSS-gated to touch)
-    if (matchMedia('(max-width: 640px) and (pointer: coarse)').matches) {
+    if (matchMedia('(max-width: 640px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse)').matches) {
         let last = 0, hidden = false
         document.addEventListener('scroll', event => {
             const target = event.target
