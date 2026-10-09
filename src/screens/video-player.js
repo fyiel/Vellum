@@ -269,15 +269,18 @@ function renderUnsupported(playback) {
 
 async function renderMedia(playback) {
     const probe = document.createElement('video')
+    const hlsTypes = ['application/x-mpegURL', 'application/vnd.apple.mpegurl']
     const direct = playback.sources.find(item => item.kind === 'direct' && probe.canPlayType(item.type))
-    const hls = playback.sources.find(item => item.kind === 'direct' && ['application/x-mpegURL', 'application/vnd.apple.mpegurl'].includes(item.type))
+    const hls = playback.sources.find(item => item.kind === 'direct' && hlsTypes.includes(item.type))
     const embed = playback.sources.find(item => item.kind === 'embed')
-    if (direct) renderDirect(playback, direct)
+    // Safari can use native HLS; other browsers can advertise support but reject the stream.
+    if (direct && (!hlsTypes.includes(direct.type) || 'ManagedMediaSource' in window)) renderDirect(playback, direct)
     else if (hls) {
         const { key, id, gen } = state
         const { default: Hls } = await import('hls.js')
         if (!stillHere(key, id, gen)) return
         if (Hls.isSupported()) renderDirect(playback, hls, Hls)
+        else if (direct) renderDirect(playback, direct)
         else renderUnsupported(playback)
     }
     else if (embed) renderEmbed(playback, embed)
