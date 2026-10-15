@@ -21,20 +21,22 @@ export const searchNovels = (q, { signal } = {}) =>
 
 export const getSeries = (key, { signal } = {}) => {
     const accept = d => typeof d?.title === 'string' && d.title.trim().length > 0
-    return cached(`series:nu6:${key}`, 6 * HOUR, () => requireValue(apiGet(`/read/api/series/${enc(key)}`, { signal, timeoutMs: 25_000 }), accept, 'series unavailable'), { accept, signal })
+    return cached(`series:nu6:${key}`, 6 * HOUR, () => requireValue(apiGet(`/read/api/series/${enc(key)}`, { signal, timeoutMs: key.startsWith('rb:') ? 65_000 : 25_000 }), accept, 'series unavailable'), { accept, signal })
 }
 
 export const getChapters = (slug, { signal } = {}) => {
-    const accept = d => Array.isArray(d?.chapters)
+    const valid = d => Array.isArray(d?.chapters)
         && d.chapters.length > 0
         && d.chapters.every(c => Number.isFinite(c?.n))
         && (d.total == null || (Number.isInteger(d.total) && d.total === d.chapters.length))
-    return cached(`chapters:${slug}`, 30 * MIN, () => requireValue(apiGet(`/read/api/chapters?slug=${enc(slug)}`, { signal }), accept, 'chapter list unavailable'), { accept, signal })
+    const ranobes = slug.startsWith('rb:')
+    const accept = d => valid(d) && (d.expectedTotal == null || d.expectedTotal <= d.chapters.length)
+    return cached(`chapters:${ranobes ? 'rb2:' : ''}${slug}`, 30 * MIN, () => requireValue(apiGet(`/read/api/chapters?slug=${enc(slug)}`, { signal, ...(ranobes ? { timeoutMs: 25_000 } : {}) }), valid, 'chapter list unavailable'), { accept, signal })
 }
 
 export const getChapter = (slug, n, { signal } = {}) => {
     const accept = d => typeof d?.html === 'string' && d.html.trim().length > 0
-    return cached(`chapter:${slug}:${n}`, 24 * HOUR, () => requireValue(apiGet(`/read/api/chapter?slug=${enc(slug)}&n=${n}`, { signal }), accept, 'chapter unavailable'), { accept, signal })
+    return cached(`chapter:${slug}:${n}`, 24 * HOUR, () => requireValue(apiGet(`/read/api/chapter?slug=${enc(slug)}&n=${n}`, { signal, ...(slug.startsWith('rb:') ? { timeoutMs: 65_000 } : {}) }), accept, 'chapter unavailable'), { accept, signal })
 }
 
 export const prefetchChapter = (slug, n, opts) => { getChapter(slug, n, opts).catch(() => {}) }
