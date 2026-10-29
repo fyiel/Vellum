@@ -4,6 +4,7 @@ import { go, parseHash } from '../lib/router.js'
 import { library, loadMangaReaderSettings, posGet, posSet, readSet, saveMangaReaderSettings, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
 import { mangaImageBounds } from '../lib/manga-image.js'
+import { bindMangaImageZoom } from '../lib/manga-zoom.js'
 
 const reader = $('#mreader')
 const pages = $('#mr-pages')
@@ -13,6 +14,7 @@ const chrome = reader.querySelectorAll('.mreader-chrome')
 const otherSheets = ['#drawer', '#drawer-backdrop', '#sheet', '#sheet-backdrop'].map(selector => $(selector))
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const DRAWER_BATCH = 400
+let imageZoom = null
 
 const state = {
     active: false,
@@ -28,12 +30,13 @@ const state = {
     mode: 'scroll',
     direction: 'ltr',
     crop: true,
-    enterFromEnd: null,
+    enterAt: null,
     hidden: false,
     loadObserver: null,
     pageObserver: null,
     nextPrefetched: false,
     streaming: false,
+    streamJump: false,
     scrolled: false,
     pagePrimed: false,
     pageBase: 0,
@@ -57,7 +60,10 @@ const ordered = () => orderMangaChapters(state.chapters)
 function adjacentChapter(offset) {
     const chapters = ordered()
     const index = chapters.findIndex(chapter => chapter.id === state.id)
-    return chapters[index + offset]
+    if (index < 0) return
+    let next = index + offset
+    while (chapters[index].number != null && chapters[next]?.number === chapters[index].number) next += offset
+    return chapters[next]
 }
 
 function beginMeasure() {
@@ -115,6 +121,7 @@ function changeSettings() {
     state.direction = $('#mr-direction').value
     saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction, crop: state.crop })
     state.streaming = false
+    state.streamJump = false
     applySettings()
     renderPages(state.content)
 }
@@ -140,6 +147,7 @@ function fitCurrentPage() {
     image.style.left = `${-image.naturalWidth * crop.x * scale}px`
     image.style.top = `${-image.naturalHeight * crop.y * scale}px`
     figure.dataset.cropped = String(crop.width < 1 || crop.height < 1)
+    imageZoom?.refresh()
 }
 
 function updatePageLayout() {
@@ -236,12 +244,15 @@ function prefetchNextChapter() {
     }).catch(() => {})
 }
 
-async function maybeStreamNext() {
-    if (!state.active || state.mode !== 'scroll' || state.streaming) return
+async function maybeStreamNext(advance = false) {
+    if (!state.active || state.mode !== 'scroll' || imageZoom?.active) return
+    if (advance) state.streamJump = true
+    if (state.streaming) return
     const gen = state.gen
     const key = state.key
     const next = adjacentChapter(1)
-    if (!next) return
+    if (!next) { state.streamJump = false; return }
+    if (!advance && (!state.scrolled || pageElement(state.content.pages.length - 1)?.getBoundingClientRect().bottom > innerHeight * 1.5)) return
     state.streaming = true
     try {
         // the fetch hits the prefetchNextChapter cache, or starts it when saveData skipped that
@@ -268,16 +279,22 @@ async function maybeStreamNext() {
         renderSteps()
         observePages()
         setPage(0)
+        if (state.streamJump) pageElement(0)?.scrollIntoView({ block: 'start' })
         updateLibrary()
     } catch {} finally {
-        state.nextPrefetched = false
-        if (state.gen === gen) state.streaming = false
+        if (state.gen === gen) {
+            state.nextPrefetched = false
+            state.streaming = false
+            state.streamJump = false
+        }
     }
 }
 
 function setPage(index, fromScroll = false) {
     if (!state.content?.pages.length) return
+    if (fromScroll && imageZoom?.active) return
     const next = Math.min(state.content.pages.length - 1, Math.max(0, index))
+    if (next !== state.page && state.mode === 'paged') imageZoom?.reset()
     state.page = next
     $('#mr-pos').textContent = `Page ${next + 1} / ${state.content.pages.length}`
     $('#mr-progress').style.width = `${((next + 1) / state.content.pages.length * 100).toFixed(2)}%`
@@ -293,8 +310,6 @@ function setPage(index, fromScroll = false) {
     if (state.mode !== 'paged' || pageElement(next)?.classList.contains('loaded')) preloadPages()
     trimImages(next)
     fitCurrentPage()
-    // streaming needs real scroll-to-the-last-page evidence, an open (or restored)
-    // chapter must never auto-stream
     if (state.mode === 'scroll' && next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
     if (state.mode === 'paged') saveProgress()
 }
@@ -334,14 +349,14 @@ function jumpPage(offset) {
         if ((offset > 0 && state.page === last) || (offset < 0 && state.page === 0)) {
             const chapter = adjacentChapter(offset)
             if (chapter) {
-                state.enterFromEnd = offset < 0 ? chapter.id : null
+                state.enterAt = { id: chapter.id, last: offset < 0 }
                 go(route(state.key, chapter.id))
             }
         } else setPage(state.page + offset)
         return
     }
     if (offset > 0 && state.page >= last) {
-        maybeStreamNext()
+        maybeStreamNext(true)
         return
     }
     if (offset < 0 && state.page <= 0) return
@@ -400,6 +415,7 @@ const figureHtml = (page, pageIndex, total) => {
 }
 
 function renderPages(content, targetPage) {
+    imageZoom?.reset()
     const total = content.pages.length
     state.pageBase = 0
     state.pageSeq = total
@@ -496,12 +512,19 @@ function wire() {
     $('#mr-mode').onchange = changeSettings
     $('#mr-direction').onchange = changeSettings
     $('#mr-crop').onclick = () => {
+        imageZoom.reset()
         state.crop = !state.crop
         saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction, crop: state.crop })
         $('#mr-crop').setAttribute('aria-pressed', String(state.crop))
         fitCurrentPage()
     }
-    const layoutObserver = new ResizeObserver(updatePageLayout)
+    imageZoom = bindMangaImageZoom(pages, {
+        isPaged: () => state.mode === 'paged',
+        onSwipe: offset => jumpPage(offset * (state.direction === 'rtl' ? -1 : 1)),
+        onZoom: zoomed => { $('#mr-zoom-reset').hidden = !zoomed },
+    })
+    $('#mr-zoom-reset').onclick = () => imageZoom.reset()
+    const layoutObserver = new ResizeObserver(() => { updatePageLayout(); imageZoom.refresh() })
     for (const element of [pages, ...chrome, $('#mr-step')]) layoutObserver.observe(element)
     $('#mr-prev').onclick = () => jumpPage(-1)
     $('#mr-next').onclick = () => jumpPage(1)
@@ -574,34 +597,17 @@ function wire() {
         }
         setChrome(!state.hidden)
     })
-    let touch = null
-    pages.addEventListener('touchstart', event => {
-        touch = state.mode === 'paged' && event.touches.length === 1 && !event.target.closest('button, a')
-            ? event.touches[0] : null
-    }, { passive: true })
-    pages.addEventListener('touchcancel', () => { touch = null }, { passive: true })
-    pages.addEventListener('touchend', event => {
-        const start = touch
-        touch = null
-        if (!start || state.mode !== 'paged' || event.touches.length) return
-        const end = [...event.changedTouches].find(item => item.identifier === start.identifier)
-        if (!end) return
-        const dx = end.clientX - start.clientX
-        const dy = end.clientY - start.clientY
-        if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return
-        event.preventDefault()
-        jumpPage((dx < 0 ? 1 : -1) * (state.direction === 'rtl' ? -1 : 1))
-    }, { passive: false })
     window.addEventListener('scroll', () => {
-        if (!state.active || state.mode === 'paged') return
+        if (!state.active || state.mode === 'paged' || imageZoom.active) return
         state.scrolled = true
+        maybeStreamNext()
         if (!state.hidden && scrollY > 40 && !document.activeElement.closest('.mreader-chrome')) setChrome(true)
         clearTimeout(idleTimer)
         idleTimer = setTimeout(saveProgress, 200)
     }, { passive: true })
     window.addEventListener('keydown', event => {
         if (!state.active || trapDrawerFocus(event) || drawer.classList.contains('open') || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.target.closest('input, textarea, select')) return
-        if (event.key === 'Escape') { setChrome(false); return }
+        if (event.key === 'Escape') { imageZoom.reset(); setChrome(false); return }
         if (state.mode === 'paged') {
             if (event.key === 'Home' || event.key === 'End') {
                 event.preventDefault()
@@ -628,8 +634,9 @@ function wire() {
 
 export async function showMangaReader(key, id) {
     wire()
-    const fromEnd = state.key === key && state.enterFromEnd === id
-    state.enterFromEnd = null
+    const entry = state.key === key && state.enterAt?.id === id ? state.enterAt : null
+    state.enterAt = null
+    imageZoom.reset()
     saveProgress()
     for (const page of state.content?.pages || []) {
         if (typeof page?.url === 'string' && page.url.startsWith('blob:')) URL.revokeObjectURL(page.url)
@@ -641,7 +648,7 @@ export async function showMangaReader(key, id) {
     const gen = ++state.gen
     Object.assign(state, {
         active: true, key, id, ctrl, series: null, chapters: [], chapter: null, content: null,
-        page: 0, nextPrefetched: false, streaming: false, firstImageMeasured: false,
+        page: 0, nextPrefetched: false, streaming: false, streamJump: false, firstImageMeasured: false,
     })
     beginMeasure()
     reader.classList.add('active')
@@ -676,7 +683,7 @@ export async function showMangaReader(key, id) {
         Object.assign(state, loadMangaReaderSettings(key, series.format))
         applySettings()
         $('#mr-title').textContent = `${series.title} · ${chapterLabel(chapter)}`
-        renderPages(content, fromEnd ? content.pages.length - 1 : undefined)
+        renderPages(content, entry ? (entry.last ? content.pages.length - 1 : 0) : undefined)
         setReaderState('ready')
         measure('vellum:manga-reader:metadata')
         const read = readSet(key)
@@ -698,7 +705,7 @@ export async function showMangaReader(key, id) {
             Object.assign(state, loadMangaReaderSettings(key, state.series.format))
             applySettings()
             $('#mr-title').textContent = `${local.entry.title} · ${chapterLabel(local.content.chapter)}`
-            renderPages(local.content, fromEnd ? local.content.pages.length - 1 : undefined)
+            renderPages(local.content, entry ? (entry.last ? local.content.pages.length - 1 : 0) : undefined)
             setReaderState('ready')
             return
         }
@@ -708,6 +715,7 @@ export async function showMangaReader(key, id) {
 
 export function closeMangaReader() {
     if (!state.active) return
+    imageZoom.reset()
     saveProgress()
     // downloaded chapters hand out object URLs; hand them back
     for (const page of state.content?.pages || []) {
