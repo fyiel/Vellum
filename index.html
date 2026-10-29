@@ -190,12 +190,20 @@
   <div class="mreader-chrome mreader-top">
     <button class="riconbtn" id="mr-back" type="button" aria-label="Back to series">‹</button>
     <span class="mreader-title" id="mr-title" aria-live="polite"></span>
+    <select class="mreader-select" id="mr-mode" aria-label="Reading mode" disabled><option value="paged">Paged</option><option value="scroll">Scroll</option></select>
     <button class="riconbtn" id="mr-list" type="button" aria-label="Open chapter list" aria-expanded="false" aria-controls="mdrawer">☰</button>
     <button class="riconbtn" id="mr-fullscreen" type="button" aria-label="Fullscreen" hidden>&#x26F6;</button>
   </div>
   <main class="mreader-pages" id="mr-pages"></main>
-  <nav class="mreader-step" id="mr-step"></nav>
-  <div class="mreader-chrome mreader-bottom"><span id="mr-pos" aria-live="polite"></span></div>
+  <nav class="mreader-step" id="mr-step" aria-label="Chapter navigation"></nav>
+  <div class="mreader-chrome mreader-bottom">
+    <div class="mreader-pagination" id="mr-pagination">
+      <button class="riconbtn" id="mr-prev" type="button" aria-label="Previous page" hidden>‹</button>
+      <span id="mr-pos" aria-live="polite"></span>
+      <button class="riconbtn" id="mr-next" type="button" aria-label="Next page" hidden>›</button>
+    </div>
+    <select class="mreader-select" id="mr-direction" aria-label="Reading direction" hidden><option value="rtl">Right to left</option><option value="ltr">Left to right</option></select>
+  </div>
 </section>
 
 <div class="sheet-backdrop" id="mdrawer-backdrop" aria-hidden="true"></div>

@@ -90,6 +90,15 @@ export const loadSettings = () => {
 }
 export const saveSettings = s => lsSet(`${NS}:settings`, s)
 
+export const loadMangaReaderSettings = (key, format) => {
+    const saved = lsGet(`${NS}:manga-reader:${key}`, {})
+    return {
+        mode: ['paged', 'scroll'].includes(saved?.mode) ? saved.mode : format === 'manga' ? 'paged' : 'scroll',
+        direction: ['rtl', 'ltr'].includes(saved?.direction) ? saved.direction : format === 'manga' ? 'rtl' : 'ltr',
+    }
+}
+export const saveMangaReaderSettings = (key, settings) => lsSet(`${NS}:manga-reader:${key}`, settings)
+
 export const FEEL_DEFAULT = { scheme: 'Graphite', density: 'comfortable' }
 export const loadFeel = () => ({ ...FEEL_DEFAULT, ...lsGet(`${NS}:feel`, {}) })
 export const saveFeel = f => lsSet(`${NS}:feel`, f)

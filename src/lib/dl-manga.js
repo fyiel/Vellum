@@ -38,6 +38,7 @@ export async function downloadMangaChapter(key, id) {
         dlRegister({
             kind: 'manga', key, id,
             title: series.title,
+            format: series.format,
             label: chapterLabel(chapter),
             number: chapter.number,
             chapterTitle: chapter.title,

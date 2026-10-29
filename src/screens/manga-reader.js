@@ -1,7 +1,7 @@
 import { getMangaChapter, getMangaChapters, getMangaSeries, mangaErrorMessage, mangaPageUrl, orderMangaChapters, parseMangaKey } from '../lib/manga-api.js'
 import { loadDownloadedMangaChapter } from '../lib/dl-manga.js'
 import { go, parseHash } from '../lib/router.js'
-import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
+import { library, loadMangaReaderSettings, posGet, posSet, readSet, saveMangaReaderSettings, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
 
 const reader = $('#mreader')
@@ -24,6 +24,9 @@ const state = {
     chapter: null,
     content: null,
     page: 0,
+    mode: 'scroll',
+    direction: 'ltr',
+    enterFromEnd: null,
     hidden: false,
     loadObserver: null,
     pageObserver: null,
@@ -72,6 +75,7 @@ function setReaderState(value) {
     reader.dataset.state = value
     reader.setAttribute('aria-busy', String(value === 'loading'))
     pages.setAttribute('aria-busy', String(value === 'loading'))
+    $('#mr-mode').disabled = value !== 'ready'
 }
 
 function setChrome(hidden) {
@@ -81,6 +85,33 @@ function setChrome(hidden) {
         item.inert = hidden
         item.setAttribute('aria-hidden', String(hidden))
     })
+    $('#mr-step').inert = state.mode === 'paged' && hidden
+    $('#mr-step').setAttribute('aria-hidden', String(state.mode === 'paged' && hidden))
+}
+
+function applySettings() {
+    reader.dataset.mode = state.mode
+    reader.dataset.direction = state.direction
+    $('#mr-mode').value = state.mode
+    $('#mr-direction').value = state.direction
+    $('#mr-direction').hidden = state.mode !== 'paged'
+    $('#mr-prev').hidden = state.mode !== 'paged'
+    $('#mr-next').hidden = state.mode !== 'paged'
+    $('#mr-prev').textContent = state.direction === 'rtl' ? '›' : '‹'
+    $('#mr-next').textContent = state.direction === 'rtl' ? '‹' : '›'
+    setChrome(false)
+}
+
+function changeSettings() {
+    if (!state.content) return
+    saveProgress()
+    state.gen++
+    state.mode = $('#mr-mode').value
+    state.direction = $('#mr-direction').value
+    saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction })
+    state.streaming = false
+    applySettings()
+    renderPages(state.content)
 }
 
 function pageElement(index) {
@@ -154,7 +185,7 @@ function prefetchNextChapter() {
 }
 
 async function maybeStreamNext() {
-    if (!state.active || state.streaming) return
+    if (!state.active || state.mode !== 'scroll' || state.streaming) return
     const gen = state.gen
     const key = state.key
     const next = adjacentChapter(1)
@@ -163,7 +194,7 @@ async function maybeStreamNext() {
     try {
         // the fetch hits the prefetchNextChapter cache, or starts it when saveData skipped that
         const content = await getMangaChapter(key, next.id)
-        if (!state.active || state.gen !== gen || !content?.pages.length) return
+        if (!state.active || state.mode !== 'scroll' || state.gen !== gen || !content?.pages.length) return
         // the finished chapter is marked read and parked at its end (setCurrent pattern, reader.js:427-446)
         const done = state.id
         const read = readSet(key)
@@ -198,12 +229,18 @@ function setPage(index, fromScroll = false) {
     state.page = next
     $('#mr-pos').textContent = `Page ${next + 1} / ${state.content.pages.length}`
     $('#mr-progress').style.width = `${((next + 1) / state.content.pages.length * 100).toFixed(2)}%`
+    if (state.mode === 'paged') {
+        pages.querySelectorAll('.manga-page').forEach(figure => { figure.hidden = Number(figure.dataset.page) !== next })
+        $('#mr-prev').disabled = next === 0 && !adjacentChapter(-1)
+        $('#mr-next').disabled = next === state.content.pages.length - 1 && !adjacentChapter(1)
+    }
     for (let i = Math.max(0, next - 2); i <= Math.min(state.content.pages.length - 1, next + 3); i++) loadPage(i)
     trimImages(next)
     if (next >= state.content.pages.length - 2) prefetchNextChapter()
     // streaming needs real scroll-to-the-last-page evidence, an open (or restored)
     // chapter must never auto-stream
-    if (next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
+    if (state.mode === 'scroll' && next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
+    if (state.mode === 'paged') saveProgress()
 }
 
 function saveProgress() {
@@ -235,7 +272,18 @@ function updateLibrary() {
 }
 
 function jumpPage(offset) {
+    if (!state.content) return
     const last = (state.content?.pages.length || 1) - 1
+    if (state.mode === 'paged') {
+        if ((offset > 0 && state.page === last) || (offset < 0 && state.page === 0)) {
+            const chapter = adjacentChapter(offset)
+            if (chapter) {
+                state.enterFromEnd = offset < 0 ? chapter.id : null
+                go(route(state.key, chapter.id))
+            }
+        } else setPage(state.page + offset)
+        return
+    }
     if (offset > 0 && state.page >= last) {
         maybeStreamNext()
         return
@@ -260,6 +308,7 @@ function observePages() {
     state.pageObserver?.disconnect()
     state.scrolled = false
     state.pagePrimed = false
+    if (state.mode === 'paged') return
     // figures from streamed chapters are observed too and stay loadable when scrolled
     // back into, but only the current chapter may drive pagination
     const inChapter = index => index >= 0 && index < (state.content?.pages.length || 0)
@@ -294,7 +343,7 @@ const figureHtml = (page, pageIndex, total) => {
     </figure>`
 }
 
-function renderPages(content) {
+function renderPages(content, targetPage) {
     const total = content.pages.length
     state.pageBase = 0
     state.pageSeq = total
@@ -303,13 +352,18 @@ function renderPages(content) {
     observePages()
 
     const saved = posGet(state.key)
-    const target = saved?.id === state.id ? Math.min(total - 1, Math.max(0, Number(saved.page) || 0)) : 0
+    const target = targetPage ?? (saved?.id === state.id ? Math.min(total - 1, Math.max(0, Number(saved.page) || 0)) : 0)
     loadPage(target)
     loadPage(Math.min(total - 1, target + 1))
     setPage(target)
+    const gen = state.gen
     requestAnimationFrame(() => requestAnimationFrame(() => {
-        if (!state.active) return
-        if (!scrollY) window.scrollTo(0, target ? pageElement(target)?.offsetTop || 0 : 0)
+        if (!state.active || state.gen !== gen) return
+        if (state.mode === 'paged') window.scrollTo(0, 0)
+        else {
+            const figure = pageElement(target)
+            window.scrollTo(0, target && figure ? figure.offsetTop - Math.max(0, (innerHeight - figure.offsetHeight) / 2) : 0)
+        }
         reader.focus({ preventScroll: true })
     }))
 }
@@ -385,6 +439,10 @@ function wire() {
     wired = true
     $('#mr-back').onclick = () => go(seriesRoute(state.key))
     $('#mr-list').onclick = openDrawer
+    $('#mr-mode').onchange = changeSettings
+    $('#mr-direction').onchange = changeSettings
+    $('#mr-prev').onclick = () => jumpPage(-1)
+    $('#mr-next').onclick = () => jumpPage(1)
     const fullscreenBtn = $('#mr-fullscreen')
     if (fullscreenBtn && document.fullscreenEnabled) {
         fullscreenBtn.hidden = false
@@ -417,7 +475,7 @@ function wire() {
             const before = figure.getBoundingClientRect()
             figure.style.aspectRatio = `${event.target.naturalWidth} / ${event.target.naturalHeight}`
             const grown = figure.getBoundingClientRect().height - before.height
-            if (grown && before.top < 0) window.scrollBy(0, grown)
+            if (state.mode === 'scroll' && grown && before.top < 0) window.scrollBy(0, grown)
         }
         if (!state.firstImageMeasured) {
             state.firstImageMeasured = true
@@ -439,21 +497,60 @@ function wire() {
             loadPage(Number(retry.dataset.pageRetry), true)
             return
         }
-        if (!event.target.closest('button, a')) setChrome(!state.hidden)
+        if (event.target.closest('button, a')) return
+        if (state.mode === 'paged') {
+            const rect = pages.getBoundingClientRect()
+            const x = (event.clientX - rect.left) / rect.width
+            if (x < .3 || x > .7) {
+                jumpPage((x < .3 ? -1 : 1) * (state.direction === 'rtl' ? -1 : 1))
+                return
+            }
+        }
+        setChrome(!state.hidden)
     })
+    let touch = null
+    pages.addEventListener('touchstart', event => {
+        touch = state.mode === 'paged' && event.touches.length === 1 && !event.target.closest('button, a')
+            ? event.touches[0] : null
+    }, { passive: true })
+    pages.addEventListener('touchcancel', () => { touch = null }, { passive: true })
+    pages.addEventListener('touchend', event => {
+        const start = touch
+        touch = null
+        if (!start || state.mode !== 'paged' || event.touches.length) return
+        const end = [...event.changedTouches].find(item => item.identifier === start.identifier)
+        if (!end) return
+        const dx = end.clientX - start.clientX
+        const dy = end.clientY - start.clientY
+        if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+        event.preventDefault()
+        jumpPage((dx < 0 ? 1 : -1) * (state.direction === 'rtl' ? -1 : 1))
+    }, { passive: false })
     window.addEventListener('scroll', () => {
-        if (!state.active) return
+        if (!state.active || state.mode === 'paged') return
         state.scrolled = true
         if (!state.hidden && scrollY > 40 && !document.activeElement.closest('.mreader-chrome')) setChrome(true)
         clearTimeout(idleTimer)
         idleTimer = setTimeout(saveProgress, 200)
     }, { passive: true })
     window.addEventListener('keydown', event => {
-        if (!state.active || trapDrawerFocus(event) || event.target.closest('input, textarea, select')) return
+        if (!state.active || trapDrawerFocus(event) || drawer.classList.contains('open') || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.target.closest('input, textarea, select')) return
         if (event.key === 'Escape') { setChrome(false); return }
+        if (state.mode === 'paged') {
+            if (event.key === 'Home' || event.key === 'End') {
+                event.preventDefault()
+                setPage(event.key === 'Home' ? 0 : state.content?.pages.length - 1)
+                return
+            }
+            if (event.key === 'PageUp' || event.key === 'PageDown') {
+                event.preventDefault()
+                jumpPage(event.key === 'PageUp' ? -1 : 1)
+                return
+            }
+        }
         if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
         event.preventDefault()
-        const offset = event.key === 'ArrowLeft' ? -1 : 1
+        const offset = (event.key === 'ArrowLeft' ? -1 : 1) * (state.mode === 'paged' && state.direction === 'rtl' ? -1 : 1)
         if (event.shiftKey) {
             const chapter = adjacentChapter(offset)
             if (chapter) go(route(state.key, chapter.id))
@@ -465,6 +562,8 @@ function wire() {
 
 export async function showMangaReader(key, id) {
     wire()
+    const fromEnd = state.key === key && state.enterFromEnd === id
+    state.enterFromEnd = null
     saveProgress()
     for (const page of state.content?.pages || []) {
         if (typeof page?.url === 'string' && page.url.startsWith('blob:')) URL.revokeObjectURL(page.url)
@@ -480,6 +579,7 @@ export async function showMangaReader(key, id) {
     })
     beginMeasure()
     reader.classList.add('active')
+    delete reader.dataset.mode
     document.documentElement.classList.add('manga-reading')
     document.body.classList.add('manga-reading')
     document.body.style.background = '#070707'
@@ -507,8 +607,10 @@ export async function showMangaReader(key, id) {
         const chapter = chapterData.chapters.find(item => item.id === id)
         if (!chapter) throw new Error('Chapter is no longer available')
         Object.assign(state, { series, chapters: chapterData.chapters, chapter, content })
+        Object.assign(state, loadMangaReaderSettings(key, series.format))
+        applySettings()
         $('#mr-title').textContent = `${series.title} · ${chapterLabel(chapter)}`
-        renderPages(content)
+        renderPages(content, fromEnd ? content.pages.length - 1 : undefined)
         setReaderState('ready')
         measure('vellum:manga-reader:metadata')
         const read = readSet(key)
@@ -522,13 +624,15 @@ export async function showMangaReader(key, id) {
         local ??= await loadDownloadedMangaChapter(key, id).catch(() => null)
         if (local && stillHere(key, id, gen)) {
             Object.assign(state, {
-                series: { title: local.entry.title },
+                series: { title: local.entry.title, format: local.entry.format || library().find(entry => entry.slug === key)?.format },
                 chapters: [],
                 chapter: local.content.chapter,
                 content: local.content,
             })
+            Object.assign(state, loadMangaReaderSettings(key, state.series.format))
+            applySettings()
             $('#mr-title').textContent = `${local.entry.title} · ${chapterLabel(local.content.chapter)}`
-            renderPages(local.content)
+            renderPages(local.content, fromEnd ? local.content.pages.length - 1 : undefined)
             setReaderState('ready')
             return
         }
