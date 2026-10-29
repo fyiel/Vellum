@@ -120,7 +120,9 @@ function pageElement(index) {
 
 function loadFigure(figure, bust = false) {
     const image = figure?.querySelector('img')
-    if (!image || (image.hasAttribute('src') && !bust)) return
+    if (!image) return
+    image.fetchPriority = Number(figure.dataset.page) === state.pageBase + state.page ? 'high' : 'low'
+    if (image.hasAttribute('src') && !bust) return
     let src = image.dataset.src
     if (bust) {
         const url = new URL(src, location.href)
@@ -135,6 +137,12 @@ function loadFigure(figure, bust = false) {
 
 function loadPage(index, bust = false) {
     loadFigure(pageElement(index), bust)
+}
+
+function preloadPages() {
+    if (!state.content || navigator.connection?.saveData) return
+    for (let i = Math.max(0, state.page - 2); i <= Math.min(state.content.pages.length - 1, state.page + 3); i++) loadPage(i)
+    if (state.page >= state.content.pages.length - 2) prefetchNextChapter()
 }
 
 function trimImages(center) {
@@ -230,13 +238,16 @@ function setPage(index, fromScroll = false) {
     $('#mr-pos').textContent = `Page ${next + 1} / ${state.content.pages.length}`
     $('#mr-progress').style.width = `${((next + 1) / state.content.pages.length * 100).toFixed(2)}%`
     if (state.mode === 'paged') {
-        pages.querySelectorAll('.manga-page').forEach(figure => { figure.hidden = Number(figure.dataset.page) !== next })
+        pages.querySelectorAll('.manga-page').forEach(figure => {
+            figure.hidden = Number(figure.dataset.page) !== next
+            figure.querySelector('img').fetchPriority = figure.hidden ? 'low' : 'high'
+        })
         $('#mr-prev').disabled = next === 0 && !adjacentChapter(-1)
         $('#mr-next').disabled = next === state.content.pages.length - 1 && !adjacentChapter(1)
     }
-    for (let i = Math.max(0, next - 2); i <= Math.min(state.content.pages.length - 1, next + 3); i++) loadPage(i)
+    loadPage(next)
+    if (state.mode !== 'paged' || pageElement(next)?.classList.contains('loaded')) preloadPages()
     trimImages(next)
-    if (next >= state.content.pages.length - 2) prefetchNextChapter()
     // streaming needs real scroll-to-the-last-page evidence, an open (or restored)
     // chapter must never auto-stream
     if (state.mode === 'scroll' && next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
@@ -353,8 +364,6 @@ function renderPages(content, targetPage) {
 
     const saved = posGet(state.key)
     const target = targetPage ?? (saved?.id === state.id ? Math.min(total - 1, Math.max(0, Number(saved.page) || 0)) : 0)
-    loadPage(target)
-    loadPage(Math.min(total - 1, target + 1))
     setPage(target)
     const gen = state.gen
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -477,10 +486,11 @@ function wire() {
             const grown = figure.getBoundingClientRect().height - before.height
             if (state.mode === 'scroll' && grown && before.top < 0) window.scrollBy(0, grown)
         }
-        if (!state.firstImageMeasured) {
+        if (figure === pageElement(state.page) && !state.firstImageMeasured) {
             state.firstImageMeasured = true
             measure('vellum:manga-reader:first-image')
         }
+        if (figure === pageElement(state.page)) preloadPages()
     }, true)
     pages.addEventListener('error', event => {
         if (event.target.tagName !== 'IMG') return
