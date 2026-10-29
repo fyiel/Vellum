@@ -14,6 +14,7 @@ const chrome = reader.querySelectorAll('.mreader-chrome')
 const otherSheets = ['#drawer', '#drawer-backdrop', '#sheet', '#sheet-backdrop'].map(selector => $(selector))
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const DRAWER_BATCH = 400
+const chapterPreloads = new Map()
 let imageZoom = null
 
 const state = {
@@ -34,7 +35,6 @@ const state = {
     hidden: false,
     loadObserver: null,
     pageObserver: null,
-    nextPrefetched: false,
     streaming: false,
     streamJump: false,
     scrolled: false,
@@ -159,11 +159,25 @@ function updatePageLayout() {
 }
 
 function loadFigure(figure, bust = false) {
-    const image = figure?.querySelector('img')
+    let image = figure?.querySelector('img')
     if (!image) return
     image.fetchPriority = Number(figure.dataset.page) === state.pageBase + state.page ? 'high' : 'low'
     if (image.hasAttribute('src') && !bust) return
     let src = image.dataset.src
+    if (!bust) {
+        const preload = chapterPreloads.get(state.id)
+        const warmed = preload?.images.get(src)
+        if (warmed) {
+            preload.images.delete(src)
+            if (!warmed.complete || warmed.naturalWidth) {
+                warmed.alt = image.alt
+                warmed.dataset.src = src
+                warmed.fetchPriority = image.fetchPriority
+                image.replaceWith(warmed)
+                image = warmed
+            }
+        }
+    }
     if (bust) {
         const url = new URL(src, location.href)
         url.searchParams.set('_retry', Date.now())
@@ -172,7 +186,8 @@ function loadFigure(figure, bust = false) {
     figure.classList.remove('failed', 'loaded', 'dormant')
     figure.classList.add('loading')
     figure.setAttribute('aria-busy', 'true')
-    image.src = src
+    if (!image.hasAttribute('src') || bust) image.src = src
+    if (image.complete && image.naturalWidth) imageLoaded(image)
 }
 
 function loadPage(index, bust = false) {
@@ -188,8 +203,11 @@ function loadPage(index, bust = false) {
 
 function preloadPages() {
     if (!state.content || navigator.connection?.saveData) return
-    for (let i = Math.max(0, state.page - 2); i <= Math.min(state.content.pages.length - 1, state.page + 3); i++) loadPage(i)
-    if (state.page >= state.content.pages.length - 2) prefetchNextChapter()
+    for (let i = state.page + 1; i <= Math.min(state.content.pages.length - 1, state.page + 5); i++) loadPage(i)
+    for (let i = state.page - 1; i >= Math.max(0, state.page - 2); i--) loadPage(i)
+    const rect = state.mode === 'scroll' ? pageElement(state.page)?.getBoundingClientRect() : null
+    if (state.mode === 'paged' || (rect?.top < innerHeight * .52 && rect.bottom > innerHeight * .48)) prefetchChapter(1, state.page >= state.content.pages.length - 6)
+    if (state.mode === 'paged' && state.page < 3) prefetchChapter(-1, true)
 }
 
 function trimImages(center) {
@@ -230,18 +248,59 @@ function trimChapters() {
     }
 }
 
-function prefetchNextChapter() {
-    if (state.nextPrefetched || navigator.connection?.saveData) return
-    const next = adjacentChapter(1)
-    if (!next) return
-    state.nextPrefetched = true
+function clearChapterPreloads(keep = []) {
+    for (const [id, preload] of chapterPreloads) {
+        if (keep.includes(id)) continue
+        preload.ctrl.abort()
+        for (const image of preload.images.values()) image.removeAttribute('src')
+        chapterPreloads.delete(id)
+    }
+}
+
+function prefetchChapter(offset, warmImages) {
+    if (navigator.connection?.saveData) return
+    const chapter = adjacentChapter(offset)
+    if (!chapter) return
+    clearChapterPreloads([state.id, adjacentChapter(-1)?.id, adjacentChapter(1)?.id])
     const key = state.key
-    getMangaChapter(key, next.id).then(content => {
-        if (!state.active || state.key !== key || !content.pages[0]) return
-        const image = new Image()
-        image.decoding = 'async'
-        image.src = mangaPageUrl(content.pages[0])
+    let preload = chapterPreloads.get(chapter.id)
+    if (state.streaming && offset > 0 && !preload) return
+    if (!preload) {
+        const ctrl = new AbortController()
+        preload = { ctrl, images: new Map(), warming: 0, content: getMangaChapter(key, chapter.id, { signal: ctrl.signal }) }
+        chapterPreloads.set(chapter.id, preload)
+        preload.content.catch(() => {
+            if (chapterPreloads.get(chapter.id) === preload) chapterPreloads.delete(chapter.id)
+        })
+    }
+    if (!warmImages || preload.warming === offset) return
+    preload.warming = offset
+    for (const image of preload.images.values()) image.removeAttribute('src')
+    preload.images.clear()
+    preload.content.then(content => {
+        if (!state.active || state.key !== key || chapterPreloads.get(chapter.id) !== preload || preload.warming !== offset || state.id === chapter.id) return
+        const warmPages = offset > 0 ? content.pages.slice(0, 3) : content.pages.slice(-3)
+        for (const page of warmPages) {
+            const src = mangaPageUrl(page)
+            const image = new Image()
+            image.crossOrigin = 'anonymous'
+            image.decoding = 'auto'
+            image.fetchPriority = 'low'
+            if (page.width) image.width = page.width
+            if (page.height) image.height = page.height
+            preload.images.set(src, image)
+            image.src = src
+        }
     }).catch(() => {})
+}
+
+async function readerChapter(key, id, signal) {
+    const preload = chapterPreloads.get(id)
+    if (preload) {
+        try { return await preload.content }
+        catch (error) { if (signal?.aborted) throw error }
+    }
+    return getMangaChapter(key, id, { signal })
 }
 
 async function maybeStreamNext(advance = false) {
@@ -255,8 +314,7 @@ async function maybeStreamNext(advance = false) {
     if (!advance && (!state.scrolled || pageElement(state.content.pages.length - 1)?.getBoundingClientRect().bottom > innerHeight * 1.5)) return
     state.streaming = true
     try {
-        // the fetch hits the prefetchNextChapter cache, or starts it when saveData skipped that
-        const content = await getMangaChapter(key, next.id)
+        const content = await readerChapter(key, next.id, state.ctrl.signal)
         if (!state.active || state.mode !== 'scroll' || state.gen !== gen || !content?.pages.length) return
         // the finished chapter is marked read and parked at its end (setCurrent pattern, reader.js:427-446)
         const done = state.id
@@ -283,7 +341,6 @@ async function maybeStreamNext(advance = false) {
         updateLibrary()
     } catch {} finally {
         if (state.gen === gen) {
-            state.nextPrefetched = false
             state.streaming = false
             state.streamJump = false
         }
@@ -312,6 +369,27 @@ function setPage(index, fromScroll = false) {
     fitCurrentPage()
     if (state.mode === 'scroll' && next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
     if (state.mode === 'paged') saveProgress()
+}
+
+function imageLoaded(image) {
+    const figure = image.closest('.manga-page')
+    figure?.classList.remove('loading', 'failed', 'dormant')
+    figure?.classList.add('loaded')
+    figure?.setAttribute('aria-busy', 'false')
+    if (figure && !figure.style.aspectRatio && image.naturalWidth && image.naturalHeight) {
+        const before = figure.getBoundingClientRect()
+        figure.style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`
+        const grown = figure.getBoundingClientRect().height - before.height
+        if (state.mode === 'scroll' && grown && before.top < 0) window.scrollBy(0, grown)
+    }
+    if (figure === pageElement(state.page) && !state.firstImageMeasured) {
+        state.firstImageMeasured = true
+        measure('vellum:manga-reader:first-image')
+    }
+    if (figure === pageElement(state.page)) {
+        fitCurrentPage()
+        preloadPages()
+    }
 }
 
 function saveProgress() {
@@ -549,27 +627,7 @@ function wire() {
     })
     $('#mdw-q').addEventListener('input', () => { state.drawerLimit = DRAWER_BATCH; renderDrawer() })
     pages.addEventListener('load', event => {
-        if (event.target.tagName !== 'IMG') return
-        const figure = event.target.closest('.manga-page')
-        figure?.classList.remove('loading', 'failed', 'dormant')
-        figure?.classList.add('loaded')
-        figure?.setAttribute('aria-busy', 'false')
-        if (figure && !figure.style.aspectRatio && event.target.naturalWidth && event.target.naturalHeight) {
-            // unknown-dims figures grow from the estimate to the real ratio here; compensate
-            // above the viewport so the page under the reader doesn't drift (reader.js:86-98)
-            const before = figure.getBoundingClientRect()
-            figure.style.aspectRatio = `${event.target.naturalWidth} / ${event.target.naturalHeight}`
-            const grown = figure.getBoundingClientRect().height - before.height
-            if (state.mode === 'scroll' && grown && before.top < 0) window.scrollBy(0, grown)
-        }
-        if (figure === pageElement(state.page) && !state.firstImageMeasured) {
-            state.firstImageMeasured = true
-            measure('vellum:manga-reader:first-image')
-        }
-        if (figure === pageElement(state.page)) {
-            fitCurrentPage()
-            preloadPages()
-        }
+        if (event.target.tagName === 'IMG') imageLoaded(event.target)
     }, true)
     pages.addEventListener('error', event => {
         if (event.target.tagName !== 'IMG') return
@@ -634,6 +692,7 @@ function wire() {
 
 export async function showMangaReader(key, id) {
     wire()
+    clearChapterPreloads(state.key === key ? [id] : [])
     const entry = state.key === key && state.enterAt?.id === id ? state.enterAt : null
     state.enterAt = null
     imageZoom.reset()
@@ -648,7 +707,7 @@ export async function showMangaReader(key, id) {
     const gen = ++state.gen
     Object.assign(state, {
         active: true, key, id, ctrl, series: null, chapters: [], chapter: null, content: null,
-        page: 0, nextPrefetched: false, streaming: false, streamJump: false, firstImageMeasured: false,
+        page: 0, streaming: false, streamJump: false, firstImageMeasured: false,
     })
     beginMeasure()
     reader.classList.add('active')
@@ -674,7 +733,7 @@ export async function showMangaReader(key, id) {
         const [series, chapterData, content] = await Promise.all([
             getMangaSeries(key, { signal: ctrl.signal }),
             getMangaChapters(key, { signal: ctrl.signal }),
-            local ? Promise.resolve(local.content) : getMangaChapter(key, id, { signal: ctrl.signal }),
+            local ? Promise.resolve(local.content) : readerChapter(key, id, ctrl.signal),
         ])
         if (!stillHere(key, id, gen)) return
         const chapter = chapterData.chapters.find(item => item.id === id)
@@ -715,6 +774,7 @@ export async function showMangaReader(key, id) {
 
 export function closeMangaReader() {
     if (!state.active) return
+    clearChapterPreloads()
     imageZoom.reset()
     saveProgress()
     // downloaded chapters hand out object URLs; hand them back
