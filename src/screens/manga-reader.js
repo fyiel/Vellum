@@ -3,6 +3,7 @@ import { loadDownloadedMangaChapter } from '../lib/dl-manga.js'
 import { go, parseHash } from '../lib/router.js'
 import { library, loadMangaReaderSettings, posGet, posSet, readSet, saveMangaReaderSettings, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
+import { mangaImageBounds } from '../lib/manga-image.js'
 
 const reader = $('#mreader')
 const pages = $('#mr-pages')
@@ -26,6 +27,7 @@ const state = {
     page: 0,
     mode: 'scroll',
     direction: 'ltr',
+    crop: true,
     enterFromEnd: null,
     hidden: false,
     loadObserver: null,
@@ -76,6 +78,7 @@ function setReaderState(value) {
     reader.setAttribute('aria-busy', String(value === 'loading'))
     pages.setAttribute('aria-busy', String(value === 'loading'))
     $('#mr-mode').disabled = value !== 'ready'
+    $('#mr-crop').disabled = value !== 'ready'
 }
 
 function setChrome(hidden) {
@@ -95,6 +98,8 @@ function applySettings() {
     $('#mr-mode').value = state.mode
     $('#mr-direction').value = state.direction
     $('#mr-direction').hidden = state.mode !== 'paged'
+    $('#mr-crop').hidden = state.mode !== 'paged'
+    $('#mr-crop').setAttribute('aria-pressed', String(state.crop))
     $('#mr-prev').hidden = state.mode !== 'paged'
     $('#mr-next').hidden = state.mode !== 'paged'
     $('#mr-prev').textContent = state.direction === 'rtl' ? '›' : '‹'
@@ -108,7 +113,7 @@ function changeSettings() {
     state.gen++
     state.mode = $('#mr-mode').value
     state.direction = $('#mr-direction').value
-    saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction })
+    saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction, crop: state.crop })
     state.streaming = false
     applySettings()
     renderPages(state.content)
@@ -116,6 +121,33 @@ function changeSettings() {
 
 function pageElement(index) {
     return pages.querySelector(`[data-page="${state.pageBase + index}"]`)
+}
+
+function fitCurrentPage() {
+    if (!state.active || state.mode !== 'paged') return
+    const figure = pageElement(state.page)
+    const image = figure?.querySelector('img')
+    if (!image?.naturalWidth || !figure.clientWidth || !figure.clientHeight) return
+    const crop = state.crop ? mangaImageBounds(image) : { x: 0, y: 0, width: 1, height: 1 }
+    const width = image.naturalWidth * crop.width
+    const height = image.naturalHeight * crop.height
+    const scale = Math.min(figure.clientWidth / width, figure.clientHeight / height)
+    const frame = image.parentElement
+    frame.style.width = `${width * scale}px`
+    frame.style.height = `${height * scale}px`
+    image.style.width = `${image.naturalWidth * scale}px`
+    image.style.height = `${image.naturalHeight * scale}px`
+    image.style.left = `${-image.naturalWidth * crop.x * scale}px`
+    image.style.top = `${-image.naturalHeight * crop.y * scale}px`
+    figure.dataset.cropped = String(crop.width < 1 || crop.height < 1)
+}
+
+function updatePageLayout() {
+    if (!state.active || state.mode !== 'paged') return
+    reader.style.setProperty('--mr-top-height', `${reader.querySelector('.mreader-top').offsetHeight}px`)
+    reader.style.setProperty('--mr-bottom-height', `${reader.querySelector('.mreader-bottom').offsetHeight}px`)
+    reader.style.setProperty('--mr-step-height', `${$('#mr-step').offsetHeight}px`)
+    fitCurrentPage()
 }
 
 function loadFigure(figure, bust = false) {
@@ -136,7 +168,14 @@ function loadFigure(figure, bust = false) {
 }
 
 function loadPage(index, bust = false) {
-    loadFigure(pageElement(index), bust)
+    let figure = pageElement(index)
+    const page = state.content?.pages[index]
+    if (!figure && state.mode === 'paged' && page) {
+        pages.insertAdjacentHTML('beforeend', figureHtml(page, index, state.content.pages.length))
+        figure = pageElement(index)
+        figure.hidden = index !== state.page
+    }
+    loadFigure(figure, bust)
 }
 
 function preloadPages() {
@@ -151,6 +190,11 @@ function trimImages(center) {
     pages.querySelectorAll('.manga-page').forEach(figure => {
         if (Math.abs(Number(figure.dataset.page) - anchor) <= 7) return
         const image = figure.querySelector('img')
+        if (state.mode === 'paged') {
+            image?.removeAttribute('src')
+            figure.remove()
+            return
+        }
         if (!image?.complete || !image.naturalWidth) return
         image.removeAttribute('src')
         figure.classList.remove('loaded', 'loading')
@@ -248,6 +292,7 @@ function setPage(index, fromScroll = false) {
     loadPage(next)
     if (state.mode !== 'paged' || pageElement(next)?.classList.contains('loaded')) preloadPages()
     trimImages(next)
+    fitCurrentPage()
     // streaming needs real scroll-to-the-last-page evidence, an open (or restored)
     // chapter must never auto-stream
     if (state.mode === 'scroll' && next >= state.content.pages.length - 1 && (fromScroll || state.scrolled)) maybeStreamNext()
@@ -348,7 +393,7 @@ const figureHtml = (page, pageIndex, total) => {
     const ratio = page.width && page.height ? ` style="aspect-ratio:${esc(page.width)} / ${esc(page.height)}"` : ''
     const size = `${page.width ? ` width="${esc(page.width)}"` : ''}${page.height ? ` height="${esc(page.height)}"` : ''}`
     return `<figure class="manga-page" data-page="${pageIndex}" aria-busy="true"${ratio}>
-      <img data-src="${esc(mangaPageUrl(page))}"${size} decoding="async" alt="Page ${local + 1} of ${total}">
+      <div class="manga-page-image"><img data-src="${esc(mangaPageUrl(page))}"${size} crossorigin="anonymous" decoding="auto" alt="Page ${local + 1} of ${total}"></div>
       <figcaption><span>Page ${local + 1} couldn’t load</span><button type="button" data-page-retry="${local}">Retry page ${local + 1}</button></figcaption>
       <div class="manga-page-loading" aria-hidden="true"><span>Loading page ${local + 1}</span></div>
     </figure>`
@@ -358,7 +403,7 @@ function renderPages(content, targetPage) {
     const total = content.pages.length
     state.pageBase = 0
     state.pageSeq = total
-    pages.innerHTML = content.pages.map((page, index) => figureHtml(page, index, total)).join('')
+    pages.innerHTML = state.mode === 'paged' ? '' : content.pages.map((page, index) => figureHtml(page, index, total)).join('')
     renderSteps()
     observePages()
 
@@ -450,6 +495,14 @@ function wire() {
     $('#mr-list').onclick = openDrawer
     $('#mr-mode').onchange = changeSettings
     $('#mr-direction').onchange = changeSettings
+    $('#mr-crop').onclick = () => {
+        state.crop = !state.crop
+        saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction, crop: state.crop })
+        $('#mr-crop').setAttribute('aria-pressed', String(state.crop))
+        fitCurrentPage()
+    }
+    const layoutObserver = new ResizeObserver(updatePageLayout)
+    for (const element of [pages, ...chrome, $('#mr-step')]) layoutObserver.observe(element)
     $('#mr-prev').onclick = () => jumpPage(-1)
     $('#mr-next').onclick = () => jumpPage(1)
     const fullscreenBtn = $('#mr-fullscreen')
@@ -490,7 +543,10 @@ function wire() {
             state.firstImageMeasured = true
             measure('vellum:manga-reader:first-image')
         }
-        if (figure === pageElement(state.page)) preloadPages()
+        if (figure === pageElement(state.page)) {
+            fitCurrentPage()
+            preloadPages()
+        }
     }, true)
     pages.addEventListener('error', event => {
         if (event.target.tagName !== 'IMG') return

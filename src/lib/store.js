@@ -95,6 +95,7 @@ export const loadMangaReaderSettings = (key, format) => {
     return {
         mode: ['paged', 'scroll'].includes(saved?.mode) ? saved.mode : format === 'manga' ? 'paged' : 'scroll',
         direction: ['rtl', 'ltr'].includes(saved?.direction) ? saved.direction : format === 'manga' ? 'rtl' : 'ltr',
+        crop: typeof saved?.crop === 'boolean' ? saved.crop : true,
     }
 }
 export const saveMangaReaderSettings = (key, settings) => lsSet(`${NS}:manga-reader:${key}`, settings)
