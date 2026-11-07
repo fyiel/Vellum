@@ -727,13 +727,18 @@ export async function showMangaReader(key, id) {
     pages.innerHTML = '<div class="mreader-loading" role="status"><div class="spinner" aria-hidden="true"></div><span>Loading chapter…</span></div>'
 
     let local = null
+    // Metadata requests can overlap the offline filesystem reads. When a copy
+    // exists, it still takes precedence over the online chapter payload.
+    const localRequest = loadDownloadedMangaChapter(key, id, { signal: ctrl.signal }).catch(() => null)
+    const contentRequest = localRequest.then(copy => {
+        local = copy
+        return copy ? copy.content : readerChapter(key, id, ctrl.signal)
+    })
     try {
-        // a downloaded chapter reads from disk even online — it is the offline copy
-        local = await loadDownloadedMangaChapter(key, id).catch(() => null)
         const [series, chapterData, content] = await Promise.all([
             getMangaSeries(key, { signal: ctrl.signal }),
             getMangaChapters(key, { signal: ctrl.signal }),
-            local ? Promise.resolve(local.content) : readerChapter(key, id, ctrl.signal),
+            contentRequest,
         ])
         if (!stillHere(key, id, gen)) return
         const chapter = chapterData.chapters.find(item => item.id === id)
@@ -753,7 +758,7 @@ export async function showMangaReader(key, id) {
     } catch (error) {
         if (!stillHere(key, id, gen)) return
         // network or provider failure: fall back to the downloaded copy when one exists
-        local ??= await loadDownloadedMangaChapter(key, id).catch(() => null)
+        local ??= await localRequest
         if (local && stillHere(key, id, gen)) {
             Object.assign(state, {
                 series: { title: local.entry.title, format: local.entry.format || library().find(entry => entry.slug === key)?.format },
@@ -769,6 +774,13 @@ export async function showMangaReader(key, id) {
             return
         }
         showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))
+    } finally {
+        // Navigation can abandon a downloaded copy before it reaches state.
+        // Release its URLs even when metadata requests finish after closing.
+        const copy = local ?? await localRequest
+        if (copy && state.content !== copy.content) {
+            for (const page of copy.content.pages) URL.revokeObjectURL(page.url)
+        }
     }
 }
 

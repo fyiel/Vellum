@@ -71,14 +71,31 @@ export async function deleteMangaDownload(key, id) {
 }
 
 // offline reader payload: same shape as getMangaChapter, but pages point at object URLs
-export async function loadDownloadedMangaChapter(key, id) {
+export async function loadDownloadedMangaChapter(key, id, { signal } = {}) {
     const entry = dlEntry('manga', key, id)
-    if (!entry) return null
-    const pages = []
-    for (let index = 0; index < entry.pages; index++) {
-        const blob = await dlRead(dlPath.mangaPage(key, id, index))
-        if (!blob) return null // partial/corrupt copy — treat as not downloaded
-        pages.push({ url: URL.createObjectURL(blob) })
+    if (!entry || !Number.isSafeInteger(entry.pages) || entry.pages < 1 || signal?.aborted) return null
+    const pages = new Array(entry.pages)
+    let next = 0
+    let missing = false
+    // Bounded concurrency removes the per-page filesystem round trip from the
+    // critical path without opening hundreds of files at once on large chapters.
+    const worker = async () => {
+        while (next < entry.pages && !missing && !signal?.aborted) {
+            const index = next++
+            const blob = await dlRead(dlPath.mangaPage(key, id, index))
+            if (!blob) { missing = true; return }
+            if (missing || signal?.aborted) return
+            pages[index] = { url: URL.createObjectURL(blob) }
+        }
+    }
+    // Wait for every worker before cleanup; otherwise late reads can allocate
+    // object URLs after the partial/cancelled copy has already been abandoned.
+    const results = await Promise.allSettled(Array.from({ length: Math.min(6, entry.pages) }, worker))
+    const error = results.find(result => result.status === 'rejected')?.reason
+    if (missing || signal?.aborted || error) {
+        for (const page of pages) if (page?.url) URL.revokeObjectURL(page.url)
+        if (error) throw error
+        return null
     }
     return {
         entry,
