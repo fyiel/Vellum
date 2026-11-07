@@ -54,7 +54,7 @@ const discoverQuery = params => {
 
 export const discover = params => {
     const query = discoverQuery(params)
-    return cached(`discover:nu5:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: hasResults })
+    return cached(`discover:nu6:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: data => hasResults(data) && !data.partial })
 }
 
 export const discoverTaxonomy = () =>

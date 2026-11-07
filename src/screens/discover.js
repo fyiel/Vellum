@@ -181,7 +181,8 @@ async function loadMore(fresh = false, gen = feedGen) {
         if (fresh) {
             searchPending = false
             feedError = true
-            $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
+            const message = !query && e.code === 'source_requires_query' ? esc(e.message) : voidMsg()
+            $('#dlist').innerHTML = `<div class="void">${message}</div>`
             $('#rescount').textContent = ''
         } else {
             moreFailed = true
@@ -212,9 +213,10 @@ async function loadMore(fresh = false, gen = feedGen) {
         return true
     })
     const batch = filterPage(freshRows)
-    // the service may return fewer rows than requested while more pages exist; only empty or
-    // repeated pages are a reliable end marker
-    if (raw.length === 0 || freshRows.length === 0) done = true
+    // Filtered provider pages can be empty before a later match. Respect explicit
+    // pagination, but stop a broken provider repeating the same nonempty page.
+    done = (raw.length > 0 && freshRows.length === 0)
+        || (typeof data.hasMore === 'boolean' ? !data.hasMore : raw.length === 0)
 
     const wrap = $('#dlist')
     const startIdx = items.length

@@ -155,3 +155,67 @@ test('pending search refreshes retain applied sources and discard responses from
     await expect(page.locator('#dlist')).not.toContainText('Old selected result')
     expect(requests).toEqual(['noveldex', 'noveldex', 'az'])
 })
+
+test('discovery continues past empty filtered pages with hasMore and stops at the explicit end', async ({ page }) => {
+    await expect(page.locator('#dlist')).toContainText('nothing trending right now')
+    const pages = []
+    await page.route('**/read/api/discover?**', route => {
+        const p = Number(new URL(route.request().url()).searchParams.get('page'))
+        pages.push(p)
+        return reply(route, { results: p === 1 ? [] : [row('ndx:later', 'Later matching result')], hasMore: p === 1 })
+    })
+    await page.locator('#ftoggle').click()
+    await page.locator('#dsource [data-src="noveldex"]').click()
+    await page.locator('#fapply').click()
+    await expect(page.locator('#dlist')).toContainText('Later matching result')
+    await expect(page.locator('#rescount')).toHaveText('1 result')
+    expect(pages).toEqual([1, 2])
+})
+
+test('discovery stops repeated nonempty pages even if the provider claims more', async ({ page }) => {
+    await expect(page.locator('#dlist')).toContainText('nothing trending right now')
+    const pages = []
+    await page.route('**/read/api/discover?**', route => {
+        pages.push(Number(new URL(route.request().url()).searchParams.get('page')))
+        return reply(route, { results: [row('ndx:repeat', 'Repeated result')], hasMore: true })
+    })
+    await page.locator('#ftoggle').click()
+    await page.locator('#dsource [data-src="noveldex"]').click()
+    await page.locator('#fapply').click()
+    await expect(page.locator('#rescount')).toHaveText('1 result')
+    expect(pages).toEqual([1, 2])
+})
+
+test('discovery renders actionable source errors as text without retrying them', async ({ page }) => {
+    await expect(page.locator('#dlist')).toContainText('nothing trending right now')
+    let requests = 0
+    const message = 'Enter a title to search NovelLive <img src=x onerror=alert(1)>'
+    await page.route('**/read/api/discover?**', route => {
+        requests++
+        return route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({
+            error: { code: 'source_requires_query', message, retryable: false },
+        }) })
+    })
+    await page.locator('#ftoggle').click()
+    await page.locator('#dsource [data-src="nl"]').click()
+    await page.locator('#fapply').click()
+    await expect(page.locator('#dlist')).toHaveText(message)
+    await expect(page.locator('#dlist img')).toHaveCount(0)
+    expect(requests).toBe(1)
+})
+
+test('partial discovery results are not cached as a complete source selection', async ({ page }) => {
+    await expect(page.locator('#dlist')).toContainText('nothing trending right now')
+    let requests = 0
+    await page.route('**/read/api/discover?**', route => {
+        requests++
+        return reply(route, { results: [row('ndx:partial', 'Partial result')], partial: true, failedSources: ['az'] })
+    })
+    const results = await page.evaluate(async () => {
+        const { discover } = await import('/src/lib/api.js')
+        const params = { sources: ['az', 'noveldex'], page: 1 }
+        return [await discover(params), await discover(params)]
+    })
+    expect(results.every(result => result.partial)).toBe(true)
+    expect(requests).toBe(2)
+})
