@@ -14,10 +14,12 @@ const requireValue = (promise, accept, message) => promise.then(value => {
     return value
 })
 
-export const searchNovels = (q, { signal } = {}) =>
-    cached(`search:instant1:${q.trim().toLowerCase()}`, MIN,
-        () => apiGet(`/read/api/search?q=${enc(q)}&progressive=1`, { signal, timeoutMs: 8_000 }),
+export const searchNovels = (q, { signal, sources = [] } = {}) => {
+    const selected = [...new Set(sources)].sort().join(',')
+    return cached(`search:instant2:${JSON.stringify([q.trim().toLowerCase(), selected])}`, MIN,
+        () => apiGet(`/read/api/search?q=${enc(q)}&progressive=1${selected ? `&sources=${enc(selected)}` : ''}`, { signal, timeoutMs: 8_000 }),
         { signal, swr: false, accept: data => hasResults(data) && !data.pending })
+}
 
 export const getSeries = (key, { signal } = {}) => {
     const accept = d => typeof d?.title === 'string' && d.title.trim().length > 0

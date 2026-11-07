@@ -75,6 +75,7 @@ function buildDiscoverParams(p) {
     return {
         q: query || undefined,
         genres, tags,
+        sources: [...f.sources].sort(),
         status: f.status && f.status !== 'all' ? f.status : undefined,
         minRating: f.minRating && f.minRating !== 'any' ? f.minRating : undefined,
         length: f.length && f.length !== 'any' ? f.length : undefined,
@@ -125,8 +126,13 @@ function voidMsg() {
     return 'nothing trending right now'
 }
 
+const fetchSearch = () => searchNovels(query, {
+    signal: searchController?.signal,
+    sources: appliedFilters().sources,
+})
+
 function feedFetch(p) {
-    if (query) return p === 1 ? searchNovels(query, { signal: searchController?.signal }) : Promise.resolve({ results: [] })
+    if (query) return p === 1 ? fetchSearch() : Promise.resolve({ results: [] })
     if (active) return discover(buildDiscoverParams(p))
     return discover({ sort: 'trending', page: p, limit: LIMIT })
 }
@@ -245,7 +251,7 @@ function paintSearch(data, gen, fresh = false) {
     clearTimeout(searchRefreshTimer)
     if (searchPending) searchRefreshTimer = setTimeout(async () => {
         if (gen !== feedGen || $('#view-discover').hidden) return
-        try { paintSearch(await searchNovels(query, { signal: searchController.signal }), gen) }
+        try { paintSearch(await fetchSearch(), gen) }
         catch { if (gen === feedGen) { searchPending = false; setCount() } }
     }, Math.max(250, Math.min(2_000, Number(data.retryAfterMs) || 500)))
 }
