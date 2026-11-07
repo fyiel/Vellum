@@ -108,20 +108,42 @@ export async function deleteNovelDownload(key, n) {
 
 // offline reader payload: same shape as getChapter (parsed { html, title?, ... }),
 // with dlimg:N placeholders swapped for local blob urls
-export async function loadDownloadedNovelChapter(key, n) {
-    if (!dlEntry('novel', key, String(n))) return null
+export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
+    if (signal?.aborted || !dlEntry('novel', key, String(n))) return null
     const blob = await dlRead(dlPath.novelChapter(key, n))
-    if (!blob) return null
+    if (!blob || signal?.aborted) return null
+    const created = []
+    let complete = false
     try {
         const value = JSON.parse(await blob.text())
-        if (typeof value?.html !== 'string' || !value.html.trim()) return null
-        const swaps = [...value.html.matchAll(/src="dlimg:(\d+)"/g)]
-        for (const [, i] of swaps) {
-            const image = await dlRead(dlPath.novelImage(key, n, i))
-            if (image) value.html = value.html.replaceAll(`src="dlimg:${i}"`, `src="${URL.createObjectURL(image)}"`)
+        if (typeof value?.html !== 'string' || !value.html.trim() || signal?.aborted) return null
+        const slots = [...new Set([...value.html.matchAll(/src="dlimg:(\d+)"/g)].map(([, i]) => i))]
+        const images = new Array(slots.length)
+        let next = 0
+        const worker = async () => {
+            while (next < slots.length && !signal?.aborted) {
+                const index = next++
+                images[index] = await dlRead(dlPath.novelImage(key, n, slots[index]))
+            }
         }
+        // A few parallel file reads shorten cold opening of illustrated chapters
+        // while keeping large chapters from opening every image at once.
+        const reads = await Promise.allSettled(Array.from({ length: Math.min(4, slots.length) }, worker))
+        if (signal?.aborted || reads.some(result => result.status === 'rejected')) return null
+        const urls = new Map()
+        for (let i = 0; i < slots.length; i++) {
+            if (signal?.aborted) return null
+            if (!images[i]) continue // missing illustration: keep the saved text
+            const url = URL.createObjectURL(images[i])
+            created.push(url)
+            urls.set(slots[i], url)
+        }
+        if (signal?.aborted) return null
+        value.html = value.html.replace(/src="dlimg:(\d+)"/g, (match, i) => urls.has(i) ? `src="${urls.get(i)}"` : match)
+        complete = true
         return value
     } catch { return null }
+    finally { if (!complete) for (const url of created) URL.revokeObjectURL(url) }
 }
 
 // repair pass for chapters saved before in-chapter images were downloaded: any stored

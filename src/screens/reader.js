@@ -255,18 +255,18 @@ async function startAt(slug, idx, p = 0) {
 
 // a downloaded chapter reads from disk even online — it is the offline copy;
 // on network failure fall back to it as well
-const localChapter = async (slug, n) => {
-  const chapter = await loadDownloadedNovelChapter(slug, n).catch(() => null);
+const localChapter = async (slug, n, signal) => {
+  const chapter = await loadDownloadedNovelChapter(slug, n, { signal }).catch(() => null);
   if (chapter) chapter.objectUrls = [...new Set([...chapter.html.matchAll(/src="(blob:[^"]+)"/g)].map(match => match[1]))];
   return chapter;
 };
 const fetchChapter = async (n) => {
   const { slug, ctrl } = rd;
-  const local = await localChapter(slug, n);
+  const local = await localChapter(slug, n, ctrl?.signal);
   if (local) return local;
   try { return await getChapter(slug, n, { signal: ctrl?.signal }); }
   catch (error) {
-    const fallback = await localChapter(slug, n);
+    const fallback = await localChapter(slug, n, ctrl?.signal);
     if (fallback) return fallback;
     throw error;
   }
