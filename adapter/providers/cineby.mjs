@@ -83,8 +83,12 @@ const cachedFor = (fetchImpl, key, ttl, load, options = {}) => {
     }).catch(error => {
         if (cache.get(key) === active) {
             const seen = Date.now()
-            if (stale === undefined || entry.staleUntil <= seen) cache.set(key, { error, errorUntil: seen + negTtl })
-            else cache.set(key, { value: stale, expires: Math.min(entry.staleUntil, seen + negTtl), staleUntil: entry.staleUntil })
+            const pause = Math.max(negTtl, error?.retryAfterMs ?? 0)
+            if (error?.name === 'AbortError') {
+                if (stale === undefined) cache.delete(key)
+                else cache.set(key, { value: stale, expires: 0, staleUntil: entry.staleUntil })
+            } else if (stale === undefined || entry.staleUntil <= seen) cache.set(key, { error, errorUntil: seen + pause })
+            else cache.set(key, { value: stale, expires: Math.min(entry.staleUntil, seen + pause), staleUntil: entry.staleUntil })
         }
         throw error
     })
@@ -98,17 +102,72 @@ const cachedFor = (fetchImpl, key, ttl, load, options = {}) => {
     return pending
 }
 
-const retryable = error => error?.status === 429 || (num(error?.status) ?? 0) >= 500 || error?.transport === true
+const cancelled = () => Object.assign(new Error('Cineby request cancelled'), { name: 'AbortError' })
+const timedOut = () => Object.assign(new Error('Cineby timed out'), { code: 'provider_unavailable', transport: true })
+const waitFor = (promise, signal) => {
+    if (!signal) return promise
+    const work = Promise.resolve(promise)
+    if (signal.aborted) { work.catch(() => {}); return Promise.reject(cancelled()) }
+    return new Promise((resolve, reject) => {
+        const finish = (settle, value) => { signal.removeEventListener('abort', abort); settle(value) }
+        const abort = () => finish(reject, cancelled())
+        signal.addEventListener('abort', abort, { once: true })
+        work.then(value => finish(resolve, value), error => finish(reject, error))
+    })
+}
 
-// one host, one attempt: a request is only repeated (with backoff) for a failure that a retry can
-// actually fix, and the last attempt moves to the sibling host instead of hammering a dead one
+// Cache loads have their own bounded lifetime. A reader leaving only cancels its wait,
+// not the shared work or another reader's result, including stale refreshes.
+const cachedRequest = (ctx, key, ttl, load, options) => {
+    if (ctx.request?.signal?.aborted) return Promise.reject(cancelled())
+    const shared = { ...ctx, request: undefined }
+    return waitFor(cachedFor(ctx.fetchImpl, key, ttl, () => load(shared), options), ctx.request?.signal)
+}
+
+const retryAfterMs = headers => {
+    const raw = headers?.get?.('retry-after')?.trim()
+    if (!raw) return null
+    if (/^\d+$/.test(raw)) {
+        const delay = Number(raw) * 1_000
+        return Number.isSafeInteger(delay) && Number.isSafeInteger(Date.now() + delay) ? delay : null
+    }
+    // HTTP dates begin with a weekday; do not parse negative/fractional numbers as dates.
+    if (!/^[A-Za-z]/.test(raw)) return null
+    const date = Date.parse(raw)
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null
+}
+const apiCooldowns = new WeakMap()
+const checkApiCooldown = ctx => {
+    const cooldown = apiCooldowns.get(ctx.fetchImpl)
+    if (!cooldown) return
+    if (cooldown.until > Date.now()) throw Object.assign(new Error('Cineby is rate limited'), {
+        code: 'provider_unavailable', status: 429, retryAfterMs: cooldown.until - Date.now(),
+    })
+    apiCooldowns.delete(ctx.fetchImpl)
+}
+const rememberRateLimit = (ctx, error) => {
+    if (error?.status !== 429) return
+    const until = Math.max(apiCooldowns.get(ctx.fetchImpl)?.until ?? 0, Date.now() + (error.retryAfterMs ?? MINUTE))
+    apiCooldowns.set(ctx.fetchImpl, { until })
+}
+// Stop unread error streams immediately, without waiting for a transport's teardown.
+const discardBody = response => {
+    try { Promise.resolve(response.body?.cancel()).catch(() => {}) } catch {}
+}
+const retryable = error => (num(error?.status) ?? 0) >= 500 || error?.transport === true
+
+// Transient failures share one total deadline across retries. Rate limits stop the
+// entire API family until Retry-After expires; they never trigger a host switch.
 async function requestJson(ctx, url, budget) {
     const scoped = timeout(ctx.request?.signal, budget)
     try {
-        const response = await ctx.fetchImpl(url, { signal: scoped.signal, headers: { accept: 'application/json, text/plain', 'user-agent': BROWSER_UA } })
+        const response = await waitFor(ctx.fetchImpl(url, { signal: scoped.signal, headers: { accept: 'application/json, text/plain', 'user-agent': BROWSER_UA } }), scoped.signal)
         const type = response.headers?.get?.('content-type') || ''
-        if (!response.ok) throw Object.assign(new Error(`http ${response.status}`), { status: response.status, code: response.status === 404 ? 'not_found' : 'provider_unavailable' })
-        const body = await response.text()
+        if (!response.ok) {
+            discardBody(response)
+            throw Object.assign(new Error(`http ${response.status}`), { status: response.status, code: response.status === 404 ? 'not_found' : 'provider_unavailable', ...(response.status === 429 ? { retryAfterMs: retryAfterMs(response.headers) ?? MINUTE } : {}) })
+        }
+        const body = await waitFor(response.text(), scoped.signal)
         // a rotated or parked domain answers 200 with HTML or plain text here; that is never content
         if (!type.includes('json')) throw Object.assign(new Error(`Cineby answered ${type || 'no content type'} instead of JSON`), { code: 'provider_unavailable', transport: true })
         try { return JSON.parse(body) } catch { throw Object.assign(new Error('Cineby answered unparsable JSON'), { code: 'provider_unavailable', transport: true }) }
@@ -126,15 +185,22 @@ async function requestJson(ctx, url, budget) {
 const apiUrl = path => new URL(`/api/tmdb/${path}`, apiHost).href
 
 async function apiJson(ctx, path, budget = FETCH_BUDGET) {
+    const deadline = Date.now() + budget
     let failure = null
     for (let attempt = 0; attempt < 3; attempt += 1) {
+        checkApiCooldown(ctx)
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw failure ?? timedOut()
         if (attempt === 2) apiHost = API_HOSTS.find(host => host !== apiHost) || apiHost
         try {
-            return await requestJson(ctx, apiUrl(path), budget)
+            return await requestJson(ctx, apiUrl(path), remaining)
         } catch (error) {
             failure = error
+            rememberRateLimit(ctx, error)
             if (!retryable(error) || ctx.request?.signal?.aborted) throw error
-            if (attempt < 2) await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (attempt + 1)))
+            const delay = RETRY_DELAY * (attempt + 1)
+            if (attempt === 2 || Date.now() + delay >= deadline) throw error
+            await waitFor(new Promise(resolve => setTimeout(resolve, delay)), ctx.request?.signal)
         }
     }
     throw failure
@@ -142,20 +208,23 @@ async function apiJson(ctx, path, budget = FETCH_BUDGET) {
 
 // a key only carries the TMDB id, so the type is probed: cineby.su served every title from
 // /movie/<id>, so movie wins when an id happens to exist in both TMDB namespaces
-const mediaFor = (ctx, id) => cachedFor(ctx.fetchImpl, `cineby:media:${id}`, 2 * HOUR, async () => {
+const mediaFor = (ctx, id) => cachedRequest(ctx, `cineby:media:${id}`, 2 * HOUR, async shared => {
     const failures = []
     for (const type of ['movie', 'tv']) {
         try {
-            const media = await apiJson(ctx, `${type}/${id}`)
+            const media = await apiJson(shared, `${type}/${id}`)
             if (media && (str(media.title) || str(media.name))) return { type, media }
             failures.push(Object.assign(new Error('Cineby title not found'), { code: 'not_found' }))
-        } catch (error) { failures.push(error) }
+        } catch (error) {
+            if (error?.code !== 'not_found') throw error
+            failures.push(error)
+        }
     }
     throw failures.find(error => error?.code !== 'not_found') || Object.assign(new Error('Cineby title not found'), { code: 'not_found' })
 }, { negTtl: 60_000, accept: value => value?.media != null })
 
-const seasonFor = (ctx, id, season) => cachedFor(ctx.fetchImpl, `cineby:season:${id}:${season}`, 2 * HOUR,
-    () => apiJson(ctx, `tv/${id}/season/${season}`),
+const seasonFor = (ctx, id, season) => cachedRequest(ctx, `cineby:season:${id}:${season}`, 2 * HOUR,
+    shared => apiJson(shared, `tv/${id}/season/${season}`),
     { accept: value => Array.isArray(value?.episodes), negTtl: 60_000 })
 
 const movieEpisode = media => [{
@@ -214,8 +283,8 @@ export async function discover(ctx, options = {}) {
     const query = str(search)?.trim()
     const path = query ? `search/multi?query=${encodeURIComponent(query)}&page=${page}` : `${LISTING}?page=${page}`
     try {
-        const data = await cachedFor(ctx.fetchImpl, `cineby:listing:${path}`, query ? 30 * MINUTE : 6 * HOUR,
-            () => apiJson(ctx, path), { accept: value => Array.isArray(value?.results) })
+        const data = await cachedRequest(ctx, `cineby:listing:${path}`, query ? 30 * MINUTE : 6 * HOUR,
+            shared => apiJson(shared, path), { accept: value => Array.isArray(value?.results) })
         const found = rows(data)
         if (!found.length && !query) throw Object.assign(new Error('Cineby listing contained no titles'), { code: 'provider_unavailable' })
         const total = num(data?.total_pages)
@@ -289,15 +358,19 @@ const sourceOf = (url, request) => {
 // the source endpoint is the site's scraper front end. The browser build signs every call and
 // decrypts the answer with a WASM key, so a signed or empty answer is an outage here, never
 // content: only the plain shapes this backend also serves are read
-const sourcePayload = (ctx, path) => cachedFor(ctx.fetchImpl, `cineby:sources:${path}`, 10 * MINUTE, async () => {
-    const scoped = timeout(ctx.request?.signal, SOURCE_BUDGET)
+const sourcePayload = (ctx, path) => cachedRequest(ctx, `cineby:sources:${path}`, 10 * MINUTE, async shared => {
+    checkApiCooldown(shared)
+    const scoped = timeout(null, SOURCE_BUDGET)
     try {
-        const response = await ctx.fetchImpl(apiUrl(path), {
+        const response = await waitFor(shared.fetchImpl(apiUrl(path), {
             signal: scoped.signal,
             headers: { accept: 'application/json, text/plain', 'user-agent': BROWSER_UA, 'x-only-sources': '1' },
-        })
-        const body = await response.text()
-        if (!response.ok) throw Object.assign(new Error(`http ${response.status}${body ? ` ${clean(body).slice(0, 120)}` : ''}`), { status: response.status, code: 'stream_unavailable' })
+        }), scoped.signal)
+        if (!response.ok) {
+            discardBody(response)
+            throw Object.assign(new Error(`http ${response.status}`), { status: response.status, code: 'stream_unavailable', ...(response.status === 429 ? { retryAfterMs: retryAfterMs(response.headers) ?? MINUTE } : {}) })
+        }
+        const body = await waitFor(response.text(), scoped.signal)
         let data
         try { data = JSON.parse(body) } catch {
             throw Object.assign(new Error('Cineby sources are signed by the site and cannot be read'), { code: 'stream_unavailable' })
@@ -309,8 +382,8 @@ const sourcePayload = (ctx, path) => cachedFor(ctx.fetchImpl, `cineby:sources:${
         if (!urls.length) throw Object.assign(new Error('Cineby returned no playable stream'), { code: 'stream_unavailable' })
         return urls
     } catch (error) {
-        if (error?.name === 'AbortError' && !ctx.request?.signal?.aborted) throw Object.assign(new Error('Cineby timed out resolving sources'), { code: 'stream_unavailable' })
-        if (error?.name === 'AbortError') throw error
+        rememberRateLimit(shared, error)
+        if (error?.name === 'AbortError') throw Object.assign(new Error('Cineby timed out resolving sources'), { code: 'stream_unavailable' })
         if (error?.code === undefined && error?.status === undefined) throw Object.assign(error, { code: 'stream_unavailable' })
         throw error
     } finally { scoped.close() }
@@ -326,8 +399,8 @@ const subtitleUrl = (version, type, id, episodeId) => {
 const subtitlesFor = async (ctx, type, id, episodeId) => {
     const sets = await Promise.all(SUBTITLE_SOURCES.map(async version => {
         try {
-            return await cachedFor(ctx.fetchImpl, `cineby:subs:${version}:${type}:${id}:${episodeId}`, 12 * HOUR,
-                () => requestJson(ctx, subtitleUrl(version, type, id, episodeId), FETCH_BUDGET),
+            return await cachedRequest(ctx, `cineby:subs:${version}:${type}:${id}:${episodeId}`, 12 * HOUR,
+                shared => requestJson(shared, subtitleUrl(version, type, id, episodeId), FETCH_BUDGET),
                 { accept: value => Array.isArray(value), negTtl: 10 * MINUTE })
         } catch { return [] }
     }))

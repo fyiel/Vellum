@@ -536,7 +536,7 @@ async function firstBackend(fetchImpl, backends) {
         ?? failures.find(backendOutage)
     if (failure) throw failure
     if (failures.length) throw Object.assign(new Error('No anime backend has this title'), { code: 'not_found' })
-    return { key: backends[0].key, value: await backends[0].load() }
+    throw Object.assign(new Error('Anime backends are cooling down'), { code: 'provider_unavailable' })
 }
 
 async function playback(env, fetchImpl, path, request) {
