@@ -10,6 +10,10 @@ const player = $('#vplayer')
 const stage = $('#vp-stage')
 
 const state = { active: false, key: '', id: '', gen: 0, ctrl: null, series: null, episode: null, episodes: [], video: null, hls: null, embedTimer: 0, savedAt: 0 }
+const releaseSubtitleUrls = () => {
+    for (const url of state.subtitleUrls || []) URL.revokeObjectURL(url)
+    state.subtitleUrls = null
+}
 const seriesRoute = key => `#/watch/series/${encodeURIComponent(key)}`
 const playRoute = (key, id) => `#/watch/play/${encodeURIComponent(key)}/${encodeURIComponent(id)}`
 const ordered = episodes => [...episodes].sort((a, b) => (a.season || 1) - (b.season || 1)
@@ -132,9 +136,14 @@ const appendTrack = (video, src, subtitle) => {
     video.append(track)
 }
 // encrypted tracks (KissKH) are fetched and decrypted client-side — the sub CDN blocks the API host
-const addEncryptedTrack = async (video, subtitle) => {
-    const src = await encryptedTrackUrl(videoAssetUrl(subtitle.url)).catch(() => null)
-    if (!src || !video.isConnected) return
+const addEncryptedTrack = async (video, subtitle, urls, signal) => {
+    const src = await encryptedTrackUrl(videoAssetUrl(subtitle.url), undefined, signal).catch(() => null)
+    if (!src) return
+    if (signal.aborted || !video.isConnected || state.video !== video) {
+        URL.revokeObjectURL(src)
+        return
+    }
+    urls.add(src)
     appendTrack(video, src, subtitle)
 }
 
@@ -155,8 +164,10 @@ function renderDirect(playback, source, Hls = null) {
         hls.loadSource(videoAssetUrl(source.url))
         hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal && state.hls === hls) showMediaError() })
     } else video.src = videoAssetUrl(source.url)
+    const subtitleUrls = new Set()
+    state.subtitleUrls = subtitleUrls
     for (const subtitle of playback.subtitles || []) {
-        if (subtitle.encrypted) { void addEncryptedTrack(video, subtitle); continue }
+        if (subtitle.encrypted) { void addEncryptedTrack(video, subtitle, subtitleUrls, state.ctrl.signal); continue }
         appendTrack(video, videoAssetUrl(subtitle.url), subtitle)
     }
     const hint = document.createElement('div')
@@ -343,6 +354,7 @@ export async function showVideoPlayer(key, id) {
     state.video?.pause()
     state.hls?.destroy()
     state.ctrl?.abort()
+    releaseSubtitleUrls()
     const ctrl = new AbortController()
     const gen = ++state.gen
     clearTimeout(state.embedTimer)
@@ -412,6 +424,7 @@ export function closeVideoPlayer() {
     state.active = false
     state.ctrl?.abort()
     state.ctrl = null
+    releaseSubtitleUrls()
     state.gen++
     clearTimeout(state.embedTimer)
     state.embedTimer = 0

@@ -37,9 +37,11 @@ export async function kissSubToVtt(body, url, subtle = globalThis.crypto?.subtle
 }
 
 // fetch an encrypted track and mint a blob: URL usable as a <track> src; null on any failure
-export async function encryptedTrackUrl(url, fetchImpl = fetch) {
-    const response = await fetchImpl(url)
+export async function encryptedTrackUrl(url, fetchImpl = fetch, signal) {
+    if (signal?.aborted) return null
+    const response = await fetchImpl(url, { signal })
     if (!response.ok) return null
     const vtt = await kissSubToVtt(await response.text(), url)
+    if (signal?.aborted) return null
     return vtt.includes('-->') ? URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' })) : null
 }

@@ -4,6 +4,8 @@ const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 const key = 'mock:signal-season'
 const poster = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="600" height="900"%3E%3Crect width="100%25" height="100%25" fill="%231d1f25"/%3E%3C/svg%3E'
 const episode = number => ({ id: `episode-${number}`, season: 1, number, title: `Signal ${number}`, runtime: 24 })
+const encryptedSubtitleUrl = 'https://sub.cdnvideo11.shop/English-EP1-The-White-Olive-Tree.2025.srt.txt1'
+const encryptedSubtitle = '1\n00:01:40,039 --> 00:01:43,070\nHNiyEmkqtBWbIF4DbMxZ8TXkPcEb3U/WQ2o1d5Jav1o=\n'
 
 test.setTimeout(60_000)
 
@@ -67,6 +69,87 @@ async function mockVideo(page, state, playback) {
     ? route.fulfill({ contentType: 'text/vtt', body: 'WEBVTT\n' })
     : route.fulfill({ contentType: 'video/mp4', body: '' }))
 }
+
+async function watchEncryptedSubtitles(page) {
+  await page.addInitScript(() => {
+    const create = URL.createObjectURL.bind(URL)
+    const revoke = URL.revokeObjectURL.bind(URL)
+    const probe = { created: [], revoked: [] }
+    window.__subtitleProbe = probe
+    URL.createObjectURL = blob => {
+      const url = create(blob)
+      if (blob.type === 'text/vtt') probe.created.push(url)
+      return url
+    }
+    URL.revokeObjectURL = url => {
+      if (probe.created.includes(url)) probe.revoked.push(url)
+      revoke(url)
+    }
+  })
+  await page.reload()
+  const state = { episodes: [episode(1), episode(2)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Stream',
+    sources: [{ kind: 'direct', url: `/read/api/video/media/${id}.mp4`, type: 'video/mp4' }],
+    subtitles: id === 'episode-1' ? [{ url: encryptedSubtitleUrl, lang: 'en', label: 'English', default: true, encrypted: true }] : [],
+  }))
+}
+
+test('releases decrypted subtitle blobs when changing episodes', async ({ page }) => {
+  await watchEncryptedSubtitles(page)
+  await page.route(encryptedSubtitleUrl, route => route.fulfill({
+    headers: { 'access-control-allow-origin': '*', 'content-type': 'text/plain' }, body: encryptedSubtitle,
+  }))
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect(page.locator('#vplayer video track[src^="blob:"]')).toHaveCount(1)
+  await expect.poll(() => page.evaluate(() => window.__subtitleProbe.created.length)).toBe(1)
+
+  await page.locator('#vp-step a').last().click()
+  await expect(page.locator('#vp-episode')).toContainText('E2')
+  expect(await page.evaluate(() => window.__subtitleProbe.revoked)).toEqual(await page.evaluate(() => window.__subtitleProbe.created))
+})
+
+test('releases decrypted subtitle blobs when closing the video player', async ({ page }) => {
+  await watchEncryptedSubtitles(page)
+  await page.route(encryptedSubtitleUrl, route => route.fulfill({
+    headers: { 'access-control-allow-origin': '*', 'content-type': 'text/plain' }, body: encryptedSubtitle,
+  }))
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect(page.locator('#vplayer video track[src^="blob:"]')).toHaveCount(1)
+  await page.locator('#vp-back').click()
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'idle')
+  expect(await page.evaluate(() => window.__subtitleProbe.revoked)).toEqual(await page.evaluate(() => window.__subtitleProbe.created))
+})
+
+test('cancels encrypted subtitle work when navigation leaves a pending fetch', async ({ page }) => {
+  await watchEncryptedSubtitles(page)
+  await page.evaluate(({ url, body }) => {
+    const original = window.fetch.bind(window)
+    const probe = { started: false, aborted: false, release: null }
+    window.__pendingSubtitle = probe
+    window.fetch = (resource, options) => {
+      if (String(resource) !== url) return original(resource, options)
+      probe.started = true
+      return new Promise((resolve, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          probe.aborted = true
+          reject(new DOMException('Subtitle fetch cancelled', 'AbortError'))
+        }, { once: true })
+        probe.release = () => resolve(new Response(body, { status: 200 }))
+      })
+    }
+  }, { url: encryptedSubtitleUrl, body: encryptedSubtitle })
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect.poll(() => page.evaluate(() => window.__pendingSubtitle.started)).toBe(true)
+  await page.locator('#vp-back').click()
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'idle')
+  await page.evaluate(() => window.__pendingSubtitle.release())
+  await page.waitForTimeout(150) // let any stale decryption finish before examining minted URLs
+  const urls = await page.evaluate(() => window.__subtitleProbe)
+  expect(await page.evaluate(() => window.__pendingSubtitle.aborted)).toBe(true)
+  expect(urls.created).toEqual(urls.revoked)
+})
 
 test('validates tagged direct and HTTPS embed playback contracts', async ({ page }) => {
   const result = await page.evaluate(async () => {
