@@ -382,7 +382,7 @@ export async function showVideoPlayer(key, id) {
         }
         state.localUrl = localUrl
         const localPlayback = localUrl
-            ? { providerLabel: 'Downloaded copy', sources: [{ kind: 'direct', url: localUrl, type: 'video/mp4' }], subtitles: [] }
+            ? { providerLabel: 'Downloaded copy', sources: [{ kind: 'direct', url: localUrl, type: videoDlEntry(key, id)?.mime === 'video/webm' ? 'video/webm' : 'video/mp4' }], subtitles: [] }
             : null
         let series = null
         let playback = localPlayback

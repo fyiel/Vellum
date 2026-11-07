@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 
 const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 const tauri = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url)))
+const webmClip = [...readFileSync(new URL('./fixtures/offline-clip.webm', import.meta.url))]
 
 test('cancelling a manga download interrupts pending metadata requests', async ({ page }) => {
     await page.goto(app)
@@ -89,6 +90,54 @@ test('a failed video writer releases its job and permits retry', async ({ page }
         return { error, activeAfterFailure, activeAfterRetry: !!dl.videoDlActive('mock:retry', '1'), saved: !!dl.videoDlEntry('mock:retry', '1') }
     })
     expect(result).toEqual({ error: 'Disk full', activeAfterFailure: false, activeAfterRetry: false, saved: true })
+})
+
+test('downloaded WebM episodes retain their format and play from offline storage', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async bytes => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const { dlEntry } = await import('/src/lib/downloads.js')
+        const { downloadVideoEpisode, loadDownloadedVideoUrl } = await import('/src/lib/dl-video.js')
+        const key = 'mock:webm', id = 'first'
+        setTransport(async url => {
+            const path = String(url)
+            if (path.includes('/playback?')) return Response.json({ key, episodeId: id, providerLabel: 'WebM', sources: [{ kind: 'direct', url: '/clip.webm', type: 'video/webm' }] })
+            if (path.includes('/series/')) return Response.json({ key, kind: 'anime', title: 'WebM fixture', episodes: [{ id, number: 1, title: 'Clip' }] })
+            return new Response(new Uint8Array(bytes), { headers: { 'content-type': 'video/webm' } })
+        })
+        await downloadVideoEpisode(key, id, { title: 'WebM fixture' })
+        const originalCreate = URL.createObjectURL.bind(URL)
+        let objectMime
+        URL.createObjectURL = blob => { objectMime = blob.type; return originalCreate(blob) }
+        const url = await loadDownloadedVideoUrl(key, id)
+        URL.createObjectURL = originalCreate
+        const video = document.createElement('video')
+        video.preload = 'auto'
+        video.src = url
+        document.body.append(video)
+        const playback = await Promise.race([
+            new Promise(resolve => {
+                video.onloadedmetadata = () => resolve('loaded')
+                video.onerror = () => resolve(`error ${video.error?.code}`)
+            }),
+            new Promise(resolve => setTimeout(() => resolve('timed out'), 5000)),
+        ])
+        video.remove()
+        URL.revokeObjectURL(url)
+        return { savedMime: dlEntry('video', key, id)?.mime, objectMime, playback }
+    }, webmClip)
+    expect(result).toEqual({ savedMime: 'video/webm', objectMime: 'video/webm', playback: 'loaded' })
+
+    await page.evaluate(() => {
+        const original = HTMLMediaElement.prototype.canPlayType
+        HTMLMediaElement.prototype.canPlayType = function (type) {
+            ;(window.__probedVideoTypes ||= []).push(type)
+            return original.call(this, type)
+        }
+        location.hash = '#/watch/play/mock%3Awebm/first'
+    })
+    await expect(page.locator('#vplayer video.video-media')).toBeVisible()
+    expect(await page.evaluate(() => window.__probedVideoTypes)).toContain('video/webm')
 })
 
 test('registry quota failures reject downloads and keep existing entries recoverable', async ({ page }) => {

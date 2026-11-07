@@ -161,7 +161,7 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
         if (ctrl.signal.aborted) throw new Error('download cancelled')
         await writer.close()
         if (ctrl.signal.aborted) throw new Error('download cancelled')
-        dlRegister({ kind: 'video', key, id, title: meta.title, label: meta.label, mediaKind: meta.mediaKind, size })
+        dlRegister({ kind: 'video', key, id, title: meta.title, label: meta.label, mediaKind: meta.mediaKind, mime: file?.type || 'video/mp4', size })
     } catch (error) {
         await writer?.abort().catch(() => {})
         throw error
@@ -181,8 +181,12 @@ export async function deleteVideoDownload(key, id) {
 }
 
 export async function loadDownloadedVideoUrl(key, id) {
-    if (!dlEntry('video', key, id)) return null
+    const entry = dlEntry('video', key, id)
+    if (!entry) return null
     const blob = await dlRead(dlPath.video(key, id))
     if (!blob || !blob.size) return null
-    return URL.createObjectURL(blob)
+    // The persistent path predates WebM support and ends in .mp4. OPFS infers
+    // File.type from that suffix, so preserve the actual downloaded format here.
+    // Older registry entries have no mime field and retain their prior MP4 behavior.
+    return URL.createObjectURL(new Blob([blob], { type: entry.mime === 'video/webm' ? 'video/webm' : 'video/mp4' }))
 }
