@@ -39,19 +39,27 @@ const urlExt = url => String(url.match(/\.(jpe?g|png|webp|avif|gif|bmp|svg)(?:[?
 const storedExt = (type, url) => EXT_BY_TYPE[String(type || '').split(';')[0].trim().toLowerCase()] || urlExt(url) || 'img'
 
 const inflight = new Set()
-// A browser can only read bytes from a host that serves CORS headers, and a doomed attempt both
-// wastes the request and logs a console error. The API can resolve a title itself and stream the
-// bytes back (`proxy=1`), which is same-origin in dev and CORS-enabled on pages; desktop reads
-// the exact url, CORS-free. A cold title costs the API a few upstream searches, so this is only
-// asked for by the download surfaces, never for a whole feed.
-const sourceFor = (url, title) => {
-    // native transport is not subject to CORS, so it reads the url straight
-    if (isNative) return url
-    if (placeholder(url) && !title) return null
-    const target = apiUrl(`/read/api/cover?t=${encodeURIComponent(title || '')}`)
-    return `${target}${target.includes('?') ? '&' : '?'}proxy=1`
+// Web cover hosts commonly omit CORS. Tauri's HTTP transport is CORS-free, but
+// its existing capability deliberately permits only the configured reader backend.
+// Keep cover downloads within that boundary instead of expanding native permissions.
+const sourcesFor = (url, title) => {
+    if (isNative && !window.__TAURI_INTERNALS__) return [url] // Capacitor transport
+    const fallback = title ? apiUrl(`/read/api/cover?t=${encodeURIComponent(title)}&proxy=1`) : null
+    if (!window.__TAURI_INTERNALS__) return fallback ? [fallback] : []
+    try {
+        const backend = new URL(apiUrl('/'), location.href)
+        const source = new URL(url, backend)
+        if (source.origin === backend.origin) {
+            // The default cover endpoint redirects to an external CDN. Explicit proxy mode
+            // returns bytes from the already-authorized backend instead.
+            if (source.pathname === '/read/api/cover') source.searchParams.set('proxy', '1')
+            return [source.href]
+        }
+        // The backend validates exact-image URLs and every redirect against its allowlist.
+        // Unsupported hosts can still use the existing server-side title resolver.
+        return [apiUrl(`/read/api/image?url=${encodeURIComponent(source.href)}`), fallback].filter(Boolean)
+    } catch { return fallback ? [fallback] : [] }
 }
-const placeholder = url => !url || NO_IMAGE.test(url)
 // One cold title costs the API several upstream searches, and the library renders every
 // downloaded series at once on boot, so the work is queued instead of fired together
 const queue = []
@@ -73,16 +81,21 @@ export function storeCover(url, title) {
     pump()
 }
 async function keep(url, title) {
-    const source = sourceFor(url, title)
     try {
-        if (!source) return null
-        const response = await rawFetch(source).catch(() => null)
-        if (!response?.ok) return null
-        const blob = await response.blob().catch(() => null)
-        if (!blob?.size) return null
-        const type = blob.type || response.headers.get('content-type') || ''
-        // never keep an error page or a redirect body as if it were art
-        if (type && !type.toLowerCase().startsWith('image/')) return null
+        let blob, type
+        for (const source of sourcesFor(url, title)) {
+            const response = await rawFetch(source).catch(() => null)
+            if (!response?.ok) continue
+            const value = await response.blob().catch(() => null)
+            if (!value?.size) continue
+            const contentType = value.type || response.headers.get('content-type') || ''
+            // Never keep an error page or a redirect body as if it were art.
+            if (contentType && !contentType.toLowerCase().startsWith('image/')) continue
+            blob = value
+            type = contentType
+            break
+        }
+        if (!blob) return null
         const path = dlPath.cover(`${hash(url)}.${storedExt(type, url)}`)
         await dlWrite(path, blob)
         const next = load()
