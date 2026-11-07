@@ -7,7 +7,7 @@ import {
   seriesKey,
 } from "../lib/api.js";
 import { go, back, hashSlug } from "../lib/router.js";
-import { loadDownloadedNovelChapter } from "../lib/dl-novel.js";
+import { loadDownloadedNovelChapter, novelDlEntry } from "../lib/dl-novel.js";
 import { dlEntries } from "../lib/downloads.js";
 import {
   readSet,
@@ -151,6 +151,10 @@ export async function showReader(slug, n) {
   if (navigator.onLine === false) useDownloads();
 
   if (state.slug !== slug || !state.chapters.length) {
+    // Fetch the requested text alongside the list without replacing a saved copy
+    if (navigator.onLine !== false && !novelDlEntry(slug, n)) {
+      prefetchChapter(slug, n, { signal: ctrl.signal });
+    }
     setProse(`<div class="spinner"></div>`);
     rfoot.innerHTML = "";
     try {

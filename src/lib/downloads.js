@@ -145,7 +145,26 @@ export async function dlRemove(path) {
 
 const NS = 'vellum'
 const listeners = new Set()
-const load = () => { try { return JSON.parse(localStorage.getItem(`${NS}:dl`)) ?? [] } catch { return [] } }
+let snapshotRaw
+let snapshot = []
+let lookup = new Map()
+const entryKey = (kind, key, id) => JSON.stringify([kind, key, String(id)])
+const load = () => {
+    let raw
+    try { raw = localStorage.getItem(`${NS}:dl`) } catch { raw = null }
+    if (raw === snapshotRaw) return snapshot
+
+    let parsed
+    try { parsed = JSON.parse(raw) } catch {}
+    snapshotRaw = raw
+    snapshot = Array.isArray(parsed) ? parsed.filter(entry => entry && typeof entry === 'object') : []
+    lookup = new Map()
+    for (const entry of snapshot) {
+        const key = entryKey(entry.kind, entry.key, entry.id)
+        if (!lookup.has(key)) lookup.set(key, entry)
+    }
+    return snapshot
+}
 const save = entries => {
     try { localStorage.setItem(`${NS}:dl`, JSON.stringify(entries)) } catch (cause) {
         // Bytes alone are not a usable download: readers find them through this registry.
@@ -156,8 +175,14 @@ const save = entries => {
 }
 export const dlListen = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 
-export const dlEntries = () => load()
-export const dlEntry = (kind, key, id) => load().find(entry => entry.kind === kind && entry.key === key && entry.id === String(id)) || null
+// Read the storage value each time so changes in other tabs remain visible
+// Parse and index only when it changes instead of once per chapter row
+export const dlEntries = () => load().map(entry => ({ ...entry }))
+export const dlEntry = (kind, key, id) => {
+    load()
+    const entry = lookup.get(entryKey(kind, key, id))
+    return entry ? { ...entry } : null
+}
 
 export function dlRegister(entry) {
     const rest = load().filter(item => !(item.kind === entry.kind && item.key === entry.key && item.id === String(entry.id)))
