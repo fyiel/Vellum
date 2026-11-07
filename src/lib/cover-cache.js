@@ -16,7 +16,10 @@ const load = () => {
         return value && typeof value === 'object' ? value : {}
     } catch { return {} }
 }
-const save = map => { try { localStorage.setItem(`${NS}:covers`, JSON.stringify(map)) } catch {} }
+const save = map => {
+    try { localStorage.setItem(`${NS}:covers`, JSON.stringify(map)); return true }
+    catch { return false }
+}
 
 const NO_IMAGE = /noimagemid/i
 const cacheable = url => typeof url === 'string' && url.length > 0 && !NO_IMAGE.test(url)
@@ -100,12 +103,20 @@ async function keep(url, title) {
         await dlWrite(path, blob)
         const next = load()
         next[url] = path
-        // evict oldest first, and take the bytes with them
-        for (const key of Object.keys(next).slice(0, Math.max(0, Object.keys(next).length - MAX))) {
-            dlRemove(next[key]).catch(() => {})
+        const keys = Object.keys(next)
+        const evicted = []
+        for (const key of keys.slice(0, Math.max(0, keys.length - MAX))) {
+            evicted.push(next[key])
             delete next[key]
         }
-        save(next)
+        // Only delete evicted bytes after the registry was durably updated. Otherwise
+        // a quota failure strands existing entries pointing at removed offline covers.
+        if (!save(next)) {
+            if (!Object.values(load()).includes(path)) await dlRemove(path).catch(() => {})
+            return null
+        }
+        const retained = new Set(Object.values(next))
+        for (const oldPath of evicted) if (!retained.has(oldPath)) dlRemove(oldPath).catch(() => {})
         return path
     } finally { inflight.delete(url) }
 }
