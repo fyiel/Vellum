@@ -61,3 +61,12 @@ test('resolves relative uris and detects fragmented mp4', () => {
     assert.equal(looksFragmentedMp4(null, 'seg-1.m4s'), true)
     assert.equal(looksFragmentedMp4(null, 'seg-1.ts'), false)
 })
+
+
+test('left-pads short explicit HLS IVs as 128-bit big-endian integers', () => {
+    assert.deepEqual(segmentIv({ iv: '0x1' }, 7), segmentIv({}, 1))
+    assert.deepEqual(segmentIv({ iv: '0xABC' }, 7), segmentIv({}, 0xabc))
+    for (const iv of ['0x', '0xgg', `0x${'1'.repeat(33)}`]) {
+        assert.throws(() => segmentIv({ iv }, 1), /invalid AES-128/)
+    }
+})

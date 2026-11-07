@@ -132,6 +132,10 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .manga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
   .den .manga-card-copy { padding-top: 7px; }
   .den .manga-card h2 { font-size: 12px; }
+  .mreader-pages, .mreader-step { width: 100%; }
+}
+
+@media (max-width: 900px) {
   .den .view.sdet { overflow-y: auto; flex-direction: column; }
   /* compact detail layout shared by novel and manga series pages (same #view-series node) */
   .den .view.sdet .info { width: 100%; overflow: visible; border: 0; border-bottom: 1px solid var(--line); padding: 16px; display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
@@ -145,7 +149,6 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
   .den .view.sdet .chrow { grid-template-columns: 48px minmax(0, 1fr) 10px; gap: 10px; }
   .den .view.sdet .chd { display: none; }
   .den .mchrow { grid-template-columns: 76px minmax(0, 1fr) 32px 8px; padding: 11px 8px; }
-  .mreader-pages, .mreader-step { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -57,6 +57,16 @@ Requires [Rust](https://rustup.rs) and [Node.js](https://nodejs.org). On Linux
 you'll also need the Tauri system dependencies see the
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
+## Tests
+
+- `bun run test:unit` runs every deterministic Node unit test.
+- `bun run test:e2e:offline` runs provider-independent Chromium browser tests with mocked data.
+- `bun run test:e2e:live` runs the `@live` catalogue, download, and subtitle tests against the real providers. These need network access and may fail when a provider is unavailable.
+- `bun run test:e2e` runs both browser groups. Set `VELLUM_TEST_PORT` to use a port other than 5173.
+
+Install the test browser with `bunx playwright install chromium`. CI runs the unit tests,
+provider-independent browser tests, and web build before Pages or release builds can publish.
+
 ## Tech stack
 
 - **Frontend:** Vite + vanilla JS/CSS

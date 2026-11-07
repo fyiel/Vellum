@@ -28,21 +28,44 @@ async function fetchBytes(url, signal) {
 
 // straight file download with byte-level progress
 async function downloadFile(url, writer, progress, signal) {
-    const response = await rawFetch(url, { signal: withTimeout(signal) })
-    if (!response.ok || !response.body) throw new Error(`http ${response.status}`)
-    progress.total = Number(response.headers.get('content-length')) || 0
-    const reader = response.body.getReader()
-    let size = 0
-    for (;;) {
-        if (signal.aborted) throw new Error('download cancelled')
-        const { done, value } = await reader.read()
-        if (done) break
-        await writer.write(value)
-        size += value.byteLength
-        progress.done = size
-        notify()
+    // A whole episode commonly takes more than 30 seconds. Bound periods without
+    // network progress, not the total transfer, and pause the clock for disk writes.
+    const ctrl = new AbortController()
+    const onAbort = () => ctrl.abort(signal.reason)
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+    let timer
+    const arm = () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => ctrl.abort(new Error('download timed out')), 30_000)
     }
-    return size
+    let reader
+    let completed = false
+    try {
+        arm()
+        const response = await rawFetch(url, { signal: ctrl.signal })
+        if (!response.ok || !response.body) throw new Error(`http ${response.status}`)
+        progress.total = Number(response.headers.get('content-length')) || 0
+        reader = response.body.getReader()
+        let size = 0
+        for (;;) {
+            if (signal.aborted) throw new Error('download cancelled')
+            arm()
+            const { done, value } = await reader.read()
+            clearTimeout(timer)
+            if (done) { completed = true; break }
+            await writer.write(value)
+            size += value.byteLength
+            progress.done = size
+            notify()
+        }
+        return size
+    } finally {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        if (!completed) await reader?.cancel().catch(() => {})
+        reader?.releaseLock()
+    }
 }
 
 async function aesKey(uri, playlistUrl, signal, cache) {
@@ -124,8 +147,9 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
     const progress = { done: 0, total: 0, bytes: 0, ctrl }
     active.set(tag, progress)
     notify()
-    const writer = await dlWriter(dlPath.video(key, id))
+    let writer
     try {
+        writer = await dlWriter(dlPath.video(key, id))
         const playback = await getVideoPlayback(key, id, { signal: ctrl.signal })
         const direct = playback.sources.filter(source => source.kind === 'direct')
         const file = direct.find(source => ['video/mp4', 'video/webm'].includes(source.type))
@@ -134,10 +158,12 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
         if (file) size = await downloadFile(absolute(videoAssetUrl(file.url)), writer, progress, ctrl.signal)
         else if (hls) size = await downloadHls(absolute(videoAssetUrl(hls.url)), writer, progress, ctrl.signal)
         else throw new Error('this provider has no downloadable stream')
+        if (ctrl.signal.aborted) throw new Error('download cancelled')
         await writer.close()
-        dlRegister({ kind: 'video', key, id, title: meta.title, label: meta.label, size })
+        if (ctrl.signal.aborted) throw new Error('download cancelled')
+        dlRegister({ kind: 'video', key, id, title: meta.title, label: meta.label, mediaKind: meta.mediaKind, size })
     } catch (error) {
-        await writer.abort()
+        await writer?.abort().catch(() => {})
         throw error
     } finally {
         active.delete(tag)

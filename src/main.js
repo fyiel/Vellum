@@ -30,17 +30,20 @@ import { dlEntries } from './lib/downloads.js'
 
 // Immersive reading and playback code stays out of the browsing shell until first use.
 let readerMod = null
-const loadReader = () => readerMod ??= import('./screens/reader.js').catch(error => {
+let readerApi = null
+const loadReader = () => readerMod ??= import('./screens/reader.js').then(module => { readerApi = module; return module }).catch(error => {
     readerMod = null
     throw error
 })
 let mangaReaderMod = null
-const loadMangaReader = () => mangaReaderMod ??= import('./screens/manga-reader.js').catch(error => {
+let mangaReaderApi = null
+const loadMangaReader = () => mangaReaderMod ??= import('./screens/manga-reader.js').then(module => { mangaReaderApi = module; return module }).catch(error => {
     mangaReaderMod = null
     throw error
 })
 let videoPlayerMod = null
-const loadVideoPlayer = () => videoPlayerMod ??= import('./screens/video-player.js').catch(error => {
+let videoPlayerApi = null
+const loadVideoPlayer = () => videoPlayerMod ??= import('./screens/video-player.js').then(module => { videoPlayerApi = module; return module }).catch(error => {
     videoPlayerMod = null
     throw error
 })
@@ -193,52 +196,44 @@ async function openVideoPlayer(route) {
     } catch { showVideoPlayerLoadError(route) }
 }
 
+let routeRequest = 0
+
+function closeInactiveReaders(route) {
+    if (route.name !== 'read') {
+        readerApi?.closeReader()
+        closeReaderShell()
+    }
+    if (route.name !== 'manga-read') {
+        mangaReaderApi?.closeMangaReader()
+        closeMangaReaderShell()
+    }
+    if (route.name !== 'video-play') {
+        videoPlayerApi?.closeVideoPlayer()
+        closeVideoPlayerShell()
+    }
+}
+
 startRouter(async route => {
+    const mine = ++routeRequest
     mountShell()
+    await closeInactiveReaders(route)
+    if (mine !== routeRequest) return
 
     if (route.name === 'read') {
-        if (mangaReaderMod) (await mangaReaderMod).closeMangaReader()
-        if (videoPlayerMod) (await videoPlayerMod).closeVideoPlayer()
         setActiveNav(origin)
         await openReader(route)
         return
     }
-
     if (route.name === 'manga-read') {
-        if (readerMod) (await readerMod).closeReader()
-        if (videoPlayerMod) (await videoPlayerMod).closeVideoPlayer()
         setActiveNav('manga')
         await openMangaReader(route)
         return
     }
     if (route.name === 'video-play') {
-        if (readerMod) (await readerMod).closeReader()
-        if (mangaReaderMod) (await mangaReaderMod).closeMangaReader()
         setActiveNav('watch')
         await openVideoPlayer(route)
         return
     }
-
-    if (readerMod) {
-        try {
-            const { closeReader } = await readerMod
-            if (parseHash().name !== 'read') closeReader()
-        } catch {
-            readerMod = null
-            closeReaderShell()
-        }
-    } else {
-        closeReaderShell()
-    }
-    if (mangaReaderMod) {
-        try { (await mangaReaderMod).closeMangaReader() }
-        catch { mangaReaderMod = null; closeMangaReaderShell() }
-    } else closeMangaReaderShell()
-    if (videoPlayerMod) {
-        try { (await videoPlayerMod).closeVideoPlayer() }
-        catch { videoPlayerMod = null; closeVideoPlayerShell() }
-    } else closeVideoPlayerShell()
-    if (parseHash().name !== route.name) return
 
     if (route.name === 'series') { setActiveNav(origin); view('series'); showSeries(route.key, origin) }
     else if (route.name === 'manga-series') {

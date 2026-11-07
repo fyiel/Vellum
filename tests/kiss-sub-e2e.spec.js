@@ -1,9 +1,11 @@
 // throwaway e2e probe: encrypted KissKH subtitle track must attach with parsed cues
 import { test, expect } from '@playwright/test'
 
-test('kiss encrypted subtitles attach as parsed cues', async ({ page }) => {
+const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
+
+test('kiss encrypted subtitles attach as parsed cues', { tag: '@live' }, async ({ page }) => {
     test.setTimeout(120_000)
-    await page.goto('http://127.0.0.1:5173/#/watch/play/kiss%3A8705/173841')
+    await page.goto(`${app}#/watch/play/kiss%3A8705/173841`)
     const video = page.locator('video.video-media')
     await video.waitFor({ timeout: 60_000 })
     // the default (English) track decrypts, attaches, and parses to real cues

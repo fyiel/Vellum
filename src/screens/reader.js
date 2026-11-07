@@ -51,6 +51,12 @@ const state = { view: "home", series: null, slug: null, chapters: [] };
 const R = $("#reader");
 const prose = $("#reader-prose");
 const rfoot = $("#reader-foot");
+const blockUrls = new WeakMap();
+const releaseUrls = urls => { for (const url of urls || []) URL.revokeObjectURL(url); };
+const setProse = html => {
+  prose.querySelectorAll(".ch-block").forEach(block => releaseUrls(blockUrls.get(block)));
+  prose.innerHTML = html;
+};
 let chromeHidden = false;
 const rd = {
   slug: null,
@@ -145,7 +151,7 @@ export async function showReader(slug, n) {
   if (navigator.onLine === false) useDownloads();
 
   if (state.slug !== slug || !state.chapters.length) {
-    prose.innerHTML = `<div class="spinner"></div>`;
+    setProse(`<div class="spinner"></div>`);
     rfoot.innerHTML = "";
     try {
       const { chapters } = await getChapters(slug, { signal: ctrl.signal });
@@ -156,7 +162,7 @@ export async function showReader(slug, n) {
     } catch (e) {
       if (routeGen !== rd.gen) return; // a dead route must not render into the live view
       if (!useDownloads()) {
-        prose.innerHTML = `<div class="empty">${esc(e.message)}<button class="btn" id="reader-list-retry">retry</button></div>`;
+        setProse(`<div class="empty">${esc(e.message)}<button class="btn" id="reader-list-retry">retry</button></div>`);
         $("#reader-list-retry").onclick = () => showReader(slug, n);
         return;
       }
@@ -167,7 +173,7 @@ export async function showReader(slug, n) {
 
   const idx = chapterIndex(n);
   if (idx < 0) {
-    prose.innerHTML = `<div class="empty">chapter ${esc(n)} isn’t available</div>`;
+    setProse(`<div class="empty">chapter ${esc(n)} isn’t available</div>`);
     rfoot.innerHTML = "";
     return;
   }
@@ -192,8 +198,9 @@ export const closeReader = () => {
   rd.gen++; // invalidate any pending chapter load so it can't keep mutating the hidden reader
   clearTimeout(idleTimer);
   posSave();
-  closeSheet();
-  closeDrawer();
+  setProse("");
+  closeSheet(false);
+  closeDrawer(false);
   R.classList.remove("active");
   document.documentElement.classList.remove("reading");
   document.body.classList.remove("reading");
@@ -218,7 +225,7 @@ async function startAt(slug, idx, p = 0) {
     end: false,
     failed: false,
   });
-  prose.innerHTML = `<div class="spinner" id="boot-spin"></div>`;
+  setProse(`<div class="spinner" id="boot-spin"></div>`);
   rfoot.innerHTML = "";
   setChrome(false);
 
@@ -226,7 +233,7 @@ async function startAt(slug, idx, p = 0) {
   if (gen !== rd.gen) return;
   $("#boot-spin")?.remove();
   if (!ok) {
-    prose.innerHTML = `<div class="empty">(x_x)\n\ncouldn’t load this chapter</div>`;
+    setProse(`<div class="empty">(x_x)\n\ncouldn’t load this chapter</div>`);
     return;
   }
 
@@ -244,13 +251,22 @@ async function startAt(slug, idx, p = 0) {
 
 // a downloaded chapter reads from disk even online — it is the offline copy;
 // on network failure fall back to it as well
-const fetchChapter = async (n) =>
-  (await loadDownloadedNovelChapter(rd.slug, n).catch(() => null)) ??
-  getChapter(rd.slug, n, { signal: rd.ctrl?.signal }).catch(async (error) => {
-    const local = await loadDownloadedNovelChapter(rd.slug, n).catch(() => null);
-    if (local) return local;
+const localChapter = async (slug, n) => {
+  const chapter = await loadDownloadedNovelChapter(slug, n).catch(() => null);
+  if (chapter) chapter.objectUrls = [...new Set([...chapter.html.matchAll(/src="(blob:[^"]+)"/g)].map(match => match[1]))];
+  return chapter;
+};
+const fetchChapter = async (n) => {
+  const { slug, ctrl } = rd;
+  const local = await localChapter(slug, n);
+  if (local) return local;
+  try { return await getChapter(slug, n, { signal: ctrl?.signal }); }
+  catch (error) {
+    const fallback = await localChapter(slug, n);
+    if (fallback) return fallback;
     throw error;
-  });
+  }
+};
 
 const prefetch = (idx) => {
   const c = state.chapters[idx];
@@ -283,12 +299,15 @@ const cleanCache = new Map();
 const CLEAN_MAX = 20;
 const cleanBody = (slug, n, html) => {
   const key = `${slug}:${n}`;
-  let body = cleanCache.get(key);
+  const temporary = html.includes("blob:");
+  let body = temporary ? undefined : cleanCache.get(key);
   if (body === undefined) {
     body = scrubDataUri(DOMPurify.sanitize(html, CLEAN))
       .replace(/<img\b/g, '<img loading="lazy" decoding="async"');
-    cleanCache.set(key, body);
-    if (cleanCache.size > CLEAN_MAX) cleanCache.delete(cleanCache.keys().next().value);
+    if (!temporary) {
+      cleanCache.set(key, body);
+      if (cleanCache.size > CLEAN_MAX) cleanCache.delete(cleanCache.keys().next().value);
+    }
   }
   return body
     .replace(/<p>/g, '<div class="rp">')
@@ -307,6 +326,7 @@ const makeBlock = (idx, c, ch) => {
     `<div class="reader-ch-meta">chapter ${esc(c.d ?? c.n)} of ${state.chapters.length}</div>` +
     (title ? `<h2>${esc(title)}</h2>` : "") +
     body;
+  blockUrls.set(block, ch.objectUrls);
   return block;
 };
 
@@ -332,11 +352,12 @@ async function appendNext(gen = rd.gen) {
     renderFoot();
     return false;
   }
-  if (gen !== rd.gen) return false;
+  if (gen !== rd.gen) { releaseUrls(ch.objectUrls); return false; }
   try {
     prose.appendChild(makeBlock(idx, c, ch));
     rebuildOffsets();
   } catch {
+    releaseUrls(ch.objectUrls);
     rd.loading = false;
     if (gen === rd.gen) {
       rd.failed = true;
@@ -427,7 +448,7 @@ async function loadPrev() {
     }
     return;
   }
-  if (gen !== rd.gen) return;
+  if (gen !== rd.gen) { releaseUrls(ch.objectUrls); return; }
 
   const h = docH();
   const y = scrollY(); // same reason as trimTop: compensate from the pre-mutation position
@@ -436,6 +457,7 @@ async function loadPrev() {
     prose.prepend(makeBlock(idx, c, ch));
     rebuildOffsets();
   } catch {
+    releaseUrls(ch.objectUrls);
     rd.ploading = false;
     renderPrevHint();
     return;
@@ -458,6 +480,7 @@ function trimTop() {
     // where we are, and the browser clamps the scroll on its own, so compensating off the
     // post-removal value would subtract the height twice and throw the reader back a chapter
     const y = scrollY();
+    releaseUrls(blockUrls.get(first));
     first.remove();
     rd.first = Number(first.dataset.idx) + 1;
     renderPrevHint();
@@ -627,7 +650,8 @@ const jumpBy = (d) => {
   if (c) go(`#/read/${hashSlug(rd.slug)}/${c.n}`);
 };
 window.addEventListener("keydown", (e) => {
-  if (state.view !== "reader" || e.target.closest("input")) return;
+  if (state.view !== "reader" || trapDialogFocus(e)) return;
+  if (e.target.closest("input, textarea, button, select, [contenteditable]")) return;
   if (e.key === "ArrowRight") jumpBy(1);
   if (e.key === "ArrowLeft") jumpBy(-1);
 });
@@ -635,9 +659,28 @@ window.addEventListener("keydown", (e) => {
 const drawer = $("#drawer"),
   drawerBd = $("#drawer-backdrop");
 const dw = { lo: 0, hi: 0, q: "" };
+let dialogFocus = null;
+const trapDialogFocus = event => {
+  const open = drawer.classList.contains("open") ? drawer : sheet.classList.contains("open") ? sheet : null;
+  if (!open) return false;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (open === drawer) closeDrawer();
+    else closeSheet();
+  } else if (event.key === "Tab") {
+    const focusable = [...open.querySelectorAll('input, a[href], button:not([disabled])')];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }
+  return true;
+};
 
 const openDrawer = () => {
   if (!state.chapters.length) return;
+  closeSheet(false);
+  dialogFocus = document.activeElement;
   dw.q = "";
   $("#dw-q").value = "";
   dw.lo = Math.max(0, rd.cur - 25);
@@ -645,11 +688,23 @@ const openDrawer = () => {
   renderDrawer();
   drawer.classList.add("open");
   drawerBd.classList.add("open");
+  drawer.inert = false;
+  drawer.setAttribute("aria-hidden", "false");
+  R.inert = true;
+  $("#r-list").setAttribute("aria-expanded", "true");
+  $("#dw-q").focus({ preventScroll: true });
   $("#drawer-list .chap.current")?.scrollIntoView({ block: "center" });
 };
-const closeDrawer = () => {
+const closeDrawer = (restoreFocus = true) => {
+  const wasOpen = drawer.classList.contains("open");
   drawer.classList.remove("open");
   drawerBd.classList.remove("open");
+  drawer.inert = true;
+  drawer.setAttribute("aria-hidden", "true");
+  R.inert = false;
+  $("#r-list").setAttribute("aria-expanded", "false");
+  if (wasOpen && restoreFocus) dialogFocus?.focus({ preventScroll: true });
+  if (wasOpen) dialogFocus = null;
 };
 $("#r-list").onclick = openDrawer;
 drawerBd.onclick = closeDrawer;
@@ -715,13 +770,27 @@ function renderDrawer() {
 const sheet = $("#sheet"),
   backdrop = $("#sheet-backdrop");
 const openSheet = () => {
+  closeDrawer(false);
+  dialogFocus = document.activeElement;
   syncSheet();
   sheet.classList.add("open");
   backdrop.classList.add("open");
+  sheet.inert = false;
+  sheet.setAttribute("aria-hidden", "false");
+  R.inert = true;
+  $("#r-settings").setAttribute("aria-expanded", "true");
+  (sheet.querySelector("button.on") || sheet.querySelector("button"))?.focus({ preventScroll: true });
 };
-const closeSheet = () => {
+const closeSheet = (restoreFocus = true) => {
+  const wasOpen = sheet.classList.contains("open");
   sheet.classList.remove("open");
   backdrop.classList.remove("open");
+  sheet.inert = true;
+  sheet.setAttribute("aria-hidden", "true");
+  R.inert = false;
+  $("#r-settings").setAttribute("aria-expanded", "false");
+  if (wasOpen && restoreFocus) dialogFocus?.focus({ preventScroll: true });
+  if (wasOpen) dialogFocus = null;
 };
 $("#r-settings").onclick = openSheet;
 backdrop.onclick = closeSheet;

@@ -114,12 +114,16 @@ function renderDownloads() {
     }
 }
 
-function deleteDownload(el) {
+async function deleteDownload(el) {
     const { kind, key, id } = el.dataset
     if (!confirm(`Delete this downloaded ${DL_KIND_LABEL[kind]?.toLowerCase() || 'item'}?`)) return
-    if (kind === 'manga') deleteMangaDownload(key, id)
-    else if (kind === 'video') deleteVideoDownload(key, id)
-    else deleteNovelDownload(key, id)
+    try {
+        if (kind === 'manga') await deleteMangaDownload(key, id)
+        else if (kind === 'video') await deleteVideoDownload(key, id)
+        else await deleteNovelDownload(key, id)
+    } catch (error) {
+        alert(error.message || 'Could not delete this download. Please try again.')
+    }
 }
 
 function render() {

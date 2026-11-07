@@ -2,7 +2,7 @@ import { getVideoPlayback, getVideoSeries, parseVideoKey, videoAssetUrl } from '
 import { loadDownloadedVideoUrl, videoDlEntry } from '../lib/dl-video.js'
 import { encryptedTrackUrl } from '../lib/kiss-sub.js'
 import { go, parseHash } from '../lib/router.js'
-import { posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
+import { library, posGet, posSet, readSet, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
 import { videoProviderLabel, dramaLabel } from './video-series.js'
 
@@ -53,9 +53,9 @@ function libraryEntry(position, duration) {
         cover: state.series.poster,
         author: state.series.studio || state.series.cast?.[0],
         source: state.series.source,
-        format: state.series.kind === 'drama' ? dramaLabel(state.series.country) : 'Anime',
-        total: state.episodes.length,
-        episodeIds: state.episodes.map(episode => episode.id),
+        format: state.offlineCatalogue ? state.series.format : state.series.kind === 'drama' ? dramaLabel(state.series.country) : 'Anime',
+        total: state.offlineCatalogue ? undefined : state.episodes.length,
+        episodeIds: state.offlineCatalogue ? undefined : state.episodes.map(episode => episode.id),
         watchedCount: readSet(state.key).size,
         lastId: state.id,
         lastLabel: episodeLabel(state.episode),
@@ -77,6 +77,7 @@ function recordSelection() {
 function saveProgress(force = false) {
     const video = state.video
     if (!state.active || !video || !state.series || !state.episode) return
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return
     const now = Date.now()
     if (!force && now - state.savedAt < 1000) return
     state.savedAt = now
@@ -152,7 +153,7 @@ function renderDirect(playback, source, Hls = null) {
         state.hls = hls
         hls.attachMedia(video)
         hls.loadSource(videoAssetUrl(source.url))
-        hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal) showMediaError() })
+        hls.on(Hls.Events.ERROR, (_, data) => { if (data.fatal && state.hls === hls) showMediaError() })
     } else video.src = videoAssetUrl(source.url)
     for (const subtitle of playback.subtitles || []) {
         if (subtitle.encrypted) { void addEncryptedTrack(video, subtitle); continue }
@@ -165,12 +166,13 @@ function renderDirect(playback, source, Hls = null) {
     state.video = video
     const saved = posGet(state.key)
     video.addEventListener('loadedmetadata', () => {
+        if (state.video !== video) return
         if (saved?.id === state.id && Number(saved.position) > 0 && Number(saved.position) < video.duration * .9) video.currentTime = Number(saved.position)
     }, { once: true })
-    video.addEventListener('timeupdate', () => saveProgress())
-    video.addEventListener('pause', () => saveProgress(true))
-    video.addEventListener('ended', () => saveProgress(true))
-    video.addEventListener('error', showMediaError)
+    video.addEventListener('timeupdate', () => { if (state.video === video) saveProgress() })
+    video.addEventListener('pause', () => { if (state.video === video) saveProgress(true) })
+    video.addEventListener('ended', () => { if (state.video === video) saveProgress(true) })
+    video.addEventListener('error', () => { if (state.video === video) showMediaError() })
     measure('vellum:video-player:media-shell')
 }
 
@@ -344,7 +346,7 @@ export async function showVideoPlayer(key, id) {
     const ctrl = new AbortController()
     const gen = ++state.gen
     clearTimeout(state.embedTimer)
-    Object.assign(state, { active: true, key, id, gen, ctrl, series: null, episode: null, episodes: [], video: null, hls: null, embedTimer: 0, savedAt: 0 })
+    Object.assign(state, { active: true, key, id, gen, ctrl, series: null, episode: null, episodes: [], video: null, hls: null, embedTimer: 0, savedAt: 0, offlineCatalogue: false })
     beginMeasure()
     player.classList.add('active')
     player.dataset.state = 'loading'
@@ -358,6 +360,10 @@ export async function showVideoPlayer(key, id) {
     try {
         // a downloaded episode plays from disk even online — it is the offline copy
         const localUrl = await loadDownloadedVideoUrl(key, id).catch(() => null)
+        if (!stillHere(key, id, gen)) {
+            if (localUrl) URL.revokeObjectURL(localUrl)
+            return
+        }
         state.localUrl = localUrl
         const localPlayback = localUrl
             ? { providerLabel: 'Downloaded copy', sources: [{ kind: 'direct', url: localUrl, type: 'video/mp4' }], subtitles: [] }
@@ -373,7 +379,9 @@ export async function showVideoPlayer(key, id) {
             // offline with a downloaded copy: play it with the registry's metadata for chrome
             const entry = videoDlEntry(key, id)
             if (!localPlayback || !entry) throw error
-            series = { key, kind: 'anime', title: entry.title, episodes: [{ id, number: null, title: entry.label }] }
+            const saved = library().find(item => item.slug === key)
+            series = { key, kind: saved?.kind || entry.mediaKind || 'anime', title: entry.title, format: saved?.format, episodes: [{ id, number: null, title: entry.label }] }
+            if (stillHere(key, id, gen)) state.offlineCatalogue = true
             playback = localPlayback
         }
         if (!stillHere(key, id, gen)) return

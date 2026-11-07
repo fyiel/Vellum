@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#15161a">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nucover:; media-src 'self' https: blob:; frame-src https:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https:; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: nucover:; media-src 'self' https: blob:; frame-src https:; font-src 'self' data:; connect-src 'self' ws://localhost:5173 http://localhost:5173 https:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,9 +23,9 @@
 <div class="den" id="den">
   <div class="tb" data-tauri-drag-region>
     <div class="sq">
-      <span class="s red" data-win="close" title="Close"></span>
-      <span class="s yel" data-win="min" title="Minimize"></span>
-      <span class="s grn" data-win="zoom" title="Zoom"></span>
+      <button type="button" class="s red" data-win="close" title="Close" aria-label="Close window"></button>
+      <button type="button" class="s yel" data-win="min" title="Minimize" aria-label="Minimize window"></button>
+      <button type="button" class="s grn" data-win="zoom" title="Maximize" aria-label="Toggle maximize"></button>
     </div>
     <span class="crumb"><b id="crumb">Library</b></span>
     <span class="sp"></span>
@@ -217,7 +217,7 @@
 
 <!-- chapter drawer -->
 <div class="sheet-backdrop" id="drawer-backdrop"></div>
-<div class="sheet drawer" id="drawer">
+<div class="sheet drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Chapters" aria-hidden="true" inert>
   <div class="grip"></div>
   <div class="drawer-head">
     <input id="dw-q" inputmode="search" autocomplete="off" autocapitalize="none" placeholder="Jump to chapter…">
@@ -227,7 +227,7 @@
 
 <!-- settings sheet -->
 <div class="sheet-backdrop" id="sheet-backdrop"></div>
-<div class="sheet" id="sheet">
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Reading settings" aria-hidden="true" inert>
   <div class="grip"></div>
   <div class="set-row">
     <span class="set-label">Theme</span>

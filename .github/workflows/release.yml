@@ -13,8 +13,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+
   # windows + macos desktop bundles via tauri
   desktop:
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +56,7 @@ jobs:
 
   # android debug apk via capacitor (native project is generated on the fly)
   android:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -80,6 +85,7 @@ jobs:
   # ios unsigned build via capacitor. no apple developer account, so this is a
   # compile-check that packages an unsigned .ipa (sideload tools re-sign it)
   ios:
+    needs: checks
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

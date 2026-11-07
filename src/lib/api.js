@@ -14,10 +14,11 @@ const requireValue = (promise, accept, message) => promise.then(value => {
     return value
 })
 
-export const searchNovels = (q, { signal, sources = [] } = {}) => {
-    const selected = [...new Set(sources)].sort().join(',')
-    return cached(`search:instant2:${JSON.stringify([q.trim().toLowerCase(), selected])}`, MIN,
-        () => apiGet(`/read/api/search?q=${enc(q)}&progressive=1${selected ? `&sources=${enc(selected)}` : ''}`, { signal, timeoutMs: 8_000 }),
+export const searchNovels = (q, { signal, sources = [], genres, tags, status, minRating, length, sort, order } = {}) => {
+    const selected = [...new Set(sources)].sort()
+    const qs = discoverQuery({ q: q.trim(), progressive: 1, sources: selected, genres, tags, status, minRating, length, sort, order })
+    return cached(`search:instant3:${qs}`, MIN,
+        () => apiGet(`/read/api/search?${qs}`, { signal, timeoutMs: 8_000 }),
         { signal, swr: false, accept: data => hasResults(data) && !data.pending })
 }
 
@@ -54,7 +55,7 @@ const discoverQuery = params => {
 
 export const discover = params => {
     const query = discoverQuery(params)
-    return cached(`discover:nu6:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: data => hasResults(data) && !data.partial })
+    return cached(`discover:nu7:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: data => hasResults(data) && !data.partial })
 }
 
 export const discoverTaxonomy = () =>

@@ -9,6 +9,7 @@ const isVideo = entry => entry.kind === 'anime' || entry.kind === 'drama'
 const kindName = kind => kind === 'drama' ? 'Drama' : 'Anime'
 const itemLabel = item => item.kind === 'drama' ? dramaLabel(item.country) : 'Anime'
 const route = key => `#/watch/series/${encodeURIComponent(key)}`
+const matchesQuery = item => !query || [item.title, ...(item.alternateTitles || [])].some(title => String(title).toLowerCase().includes(query.toLowerCase()))
 const playRoute = entry => `#/watch/play/${encodeURIComponent(entry.slug)}/${encodeURIComponent(entry.lastId)}`
 const time = seconds => {
     const value = Math.max(0, Number(seconds) || 0)
@@ -64,7 +65,7 @@ function paint() {
     $('#vlist').setAttribute('aria-busy', String(loading))
     $('#vstatus').textContent = rows.length ? `Loaded ${rows.length}${hasMore ? ' so far' : ''}` : ''
     const more = $('#vmore')
-    more.hidden = provisional || !rows.length || !hasMore
+    more.hidden = provisional || !hasMore
     more.disabled = loading
     more.textContent = loading ? 'Loading…' : moreFailed ? 'Try again' : 'Load more'
 }
@@ -85,7 +86,7 @@ async function fetchPage(next, fresh, mine, progress) {
         if (mine !== gen) return
         if (request.q !== query || request.kind !== kind) return
         if (page !== next) return
-        rows = query ? data.results.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : data.results
+        rows = data.results.filter(matchesQuery)
         hasMore = Boolean(data.hasMore)
         notice = providerNotice(data)
         paint()
@@ -94,13 +95,13 @@ async function fetchPage(next, fresh, mine, progress) {
     if (mine !== gen) return
     const seen = new Set(fresh ? [] : rows.map(item => item.key))
     const incoming = data.results.filter(item => !seen.has(item.key))
-    const matched = query ? incoming.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : incoming
+    const matched = incoming.filter(matchesQuery)
     rows = fresh ? matched : rows.concat(matched)
     if (fresh) {
         notice = providerNotice(data)
     }
     page = next
-    hasMore = Boolean(data.hasMore) && (query ? incoming.length > 0 : matched.length > 0)
+    hasMore = Boolean(data.hasMore)
 }
 
 async function start() {
@@ -123,7 +124,7 @@ async function start() {
     // follows when both have resolved (or one has failed) and stays authoritative
     const onProgress = progress => {
         if (mine !== gen || !provisional) return
-        rows = query ? progress.results.filter(item => item.title.toLowerCase().includes(query.toLowerCase())) : progress.results
+        rows = progress.results.filter(matchesQuery)
         hasMore = Boolean(progress.hasMore)
         paint()
     }
@@ -204,6 +205,7 @@ export function showVideo() {
     hintImageHosts()
     clearTimeout(timer)
     paintContinue()
-    if (!inited) { inited = true; start() }
+    const pending = $('#vsearch').value.trim()
+    if (!inited || pending !== query) { query = pending; inited = true; start() }
     else paintControls()
 }

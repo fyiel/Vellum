@@ -1,12 +1,14 @@
 import { test, expect } from '@playwright/test'
 
+const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
+
 // live-backend end-to-end downloads: each test downloads one item, reads it online from the
 // local copy, then reads it fully offline. The lazy reader/player chunks are warmed online
 // first because the dev server serves modules over http (in the packaged app they are local).
 
-test('manga chapter downloads and reads offline', async ({ page, context }) => {
+test('manga chapter downloads and reads offline', { tag: '@live' }, async ({ page, context }) => {
     test.setTimeout(240_000)
-    await page.goto('http://127.0.0.1:5173/#/manga/series/mf%3Alrmyz')
+    await page.goto(`${app}#/manga/series/mf%3Alrmyz`)
     await page.waitForSelector('.mchrow', { timeout: 60_000 })
     const firstRow = page.locator('.mchrow').first()
     const chapterId = await firstRow.getAttribute('data-id')
@@ -18,30 +20,30 @@ test('manga chapter downloads and reads offline', async ({ page, context }) => {
 
     await firstRow.click()
     await expect(page.locator('.manga-page.loaded').first()).toBeVisible({ timeout: 30_000 })
-    await page.goto('http://127.0.0.1:5173/#/manga/series/mf%3Alrmyz')
+    await page.goto(`${app}#/manga/series/mf%3Alrmyz`)
     await context.setOffline(true)
     await page.evaluate(({ key, id }) => { location.hash = `#/manga/read/${encodeURIComponent(key)}/${encodeURIComponent(id)}` }, { key: 'mf:lrmyz', id: chapterId })
     await expect(page.locator('.manga-page.loaded').first()).toBeVisible({ timeout: 30_000 })
 })
 
-test('novel chapter downloads and reads offline', async ({ page, context }) => {
+test('novel chapter downloads and reads offline', { tag: '@live' }, async ({ page, context }) => {
     test.setTimeout(120_000)
-    await page.goto('http://127.0.0.1:5173/#/series/nf%3Alord-of-the-mysteries')
+    await page.goto(`${app}#/series/nf%3Alord-of-the-mysteries`)
     await expect(page.locator('#chlist .chrow').first()).toBeVisible({ timeout: 60_000 })
     const n = await page.locator('#chlist .chrow').first().getAttribute('data-n')
     await page.locator(`#chlist .chline:has(.chrow[data-n="${n}"]) .chdl`).click()
     await expect(page.locator(`#chlist .chline:has(.chrow[data-n="${n}"]) .chdl`)).toHaveClass(/done/, { timeout: 30_000 })
     await page.locator('#chlist .chrow').first().click()
     await expect(page.locator('#reader .ch-block').first()).toBeVisible({ timeout: 30_000 })
-    await page.goto('http://127.0.0.1:5173/#/')
+    await page.goto(`${app}#/`)
     await context.setOffline(true)
     await page.evaluate(n => { location.hash = `#/read/lord-of-the-mysteries/${n}` }, n)
     await expect(page.locator('#reader .ch-block').first()).toBeVisible({ timeout: 30_000 })
 })
 
-test('video episode downloads (hls remux) and plays offline', async ({ page, context }) => {
+test('video episode downloads (hls remux) and plays offline', { tag: '@live' }, async ({ page, context }) => {
     test.setTimeout(600_000)
-    await page.goto('http://127.0.0.1:5173/#/watch/series/miruro%3A21')
+    await page.goto(`${app}#/watch/series/miruro%3A21`)
     await page.waitForSelector('.video-episode-row', { timeout: 60_000 })
     await page.locator('.chdl').first().click()
     await expect(page.locator('.chdl').first()).toHaveClass(/active/, { timeout: 30_000 })
@@ -54,7 +56,7 @@ test('video episode downloads (hls remux) and plays offline', async ({ page, con
     await expect(page.locator('video.video-media')).toBeVisible({ timeout: 60_000 })
     expect(await page.locator('video.video-media').getAttribute('src')).toMatch(/^blob:/)
 
-    await page.goto('http://127.0.0.1:5173/#/watch/series/miruro%3A21')
+    await page.goto(`${app}#/watch/series/miruro%3A21`)
     await context.setOffline(true)
     await page.locator('.video-episode-row').first().click()
     await expect(page.locator('video.video-media')).toBeVisible({ timeout: 60_000 })

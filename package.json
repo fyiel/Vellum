@@ -20,7 +20,10 @@
     "mobile:add:android": "cap add android",
     "mobile:add:ios": "cap add ios",
     "ios:build": "vite build && cap sync ios && cap build ios --scheme App",
-    "cap": "cap"
+    "cap": "cap",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:e2e:offline": "playwright test tests --grep-invert @live",
+    "test:e2e:live": "playwright test tests --grep @live"
   },
   "devDependencies": {
     "@capacitor/cli": "^6",

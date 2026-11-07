@@ -114,3 +114,9 @@
 .den.d-dense .info { gap: 12px; }
 
 .den #novel-source { max-width: 230px; width: 100%; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); padding: 6px; font: 400 12px var(--mono); }
+
+@media (max-width: 900px) {
+  .den .chtool { flex-wrap: wrap; }
+  .den .chtool .srch { flex: 1 0 100%; }
+  .den .chtool .chbatch { margin-right: auto; }
+}

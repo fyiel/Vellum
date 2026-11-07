@@ -116,6 +116,14 @@
   .den .watch-subtool { padding: 11px 10px 0; }
   .den .watch-scroll { padding: 9px 10px 20px; }
   .den .watch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
+  .vplayer-stage { padding: 8px 0; }
+  .video-provider-label { padding: 0 10px; }
+  .video-media, .video-embed-shell { width: 100%; }
+  .video-player-hint { display: none; }
+  .vplayer-step { padding-left: 8px; padding-right: 8px; }
+}
+
+@media (max-width: 900px) {
   .den .video-detail { overflow-y: auto; flex-direction: column; }
   .den .video-info { width: 100%; overflow: visible; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 108px minmax(0, 1fr); align-items: start; gap: 8px 14px; }
   .den .video-poster-lg { width: 108px; height: 162px; grid-row: 1 / span 5; }
@@ -126,11 +134,6 @@
   .den .video-episodes { min-height: 62vh; overflow: visible; }
   .den .video-episode-scroll { overflow: visible; padding: 0 6px 18px; }
   .den .video-episode-row { min-height: 52px; grid-template-columns: 72px minmax(0, 1fr) 36px 8px; gap: 7px; padding: 8px 7px; }
-  .vplayer-stage { padding: 8px 0; }
-  .video-provider-label { padding: 0 10px; }
-  .video-media, .video-embed-shell { width: 100%; }
-  .video-player-hint { display: none; }
-  .vplayer-step { padding-left: 8px; padding-right: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

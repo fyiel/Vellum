@@ -55,7 +55,7 @@ function paint() {
         : `<div class="manga-empty">${status || (query ? `No matches for “${esc(query)}”` : 'No manga available right now')}</div>`
     $('#mlist').setAttribute('aria-busy', String(loading))
     const more = $('#mmore')
-    more.hidden = !rows.length || !hasMore
+    more.hidden = !hasMore
     more.disabled = loading
     more.textContent = loading ? 'Loading…' : pageError ? 'Try again' : 'Load more'
 }
@@ -200,7 +200,9 @@ function wire() {
 export function showManga() {
     wire()
     clearTimeout(searchTimer)
-    if (!inited) {
+    const pending = $('#msearch').value.trim()
+    if (!inited || pending !== query) {
+        query = pending
         inited = true
         start()
     } else setControls()

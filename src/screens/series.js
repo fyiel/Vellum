@@ -159,7 +159,7 @@ function chaptersHtml(slug, chapters, count) {
     const rows = [...chapters].sort(byDesc).map(c => chrow(slug, c, read, curN)).join('')
     const list = rows || `<div class="void">no chapters yet</div>`
     // mobile opens at the top of the page (info + newest chapters in flow); desktop auto-scrolls to the bottom
-    const mobileTop = matchMedia('(max-width: 640px)').matches
+    const mobileTop = matchMedia('(max-width: 900px)').matches
 
     return `<div class="chtool">
         <div class="srch"><input id="chsearch" placeholder="Jump to chapter&hellip;"></div>
@@ -243,7 +243,7 @@ function filterChapters(q, restoreTop = 0) {
     q = q.trim().toLowerCase()
     for (const r of chRows) {
         const hit = !q || r.t.includes(q) || String(r.n).includes(q)
-        r.el.style.display = hit ? '' : 'none'
+        r.el.closest('.chline').style.display = hit ? '' : 'none'
     }
     // hiding rows clamps scrollTop; put the reader back where they were when the filter clears
     if (!q) {
@@ -288,16 +288,18 @@ function wire() {
     $('#schapters').addEventListener('click', e => {
         if (e.target.closest('#dl-next')) { runBatch(10); return }
         if (e.target.closest('#dl-all')) { runBatch(null); return }
-        const dl = e.target.closest('.chdl')
+        const dl = e.target.closest('#chlist .chdl')
         if (dl && cur) {
             const n = Number(dl.dataset.dl)
             if (novelDlActive(cur.slug, n)) return cancelNovelDownload(cur.slug, n)
             if (novelDlEntry(cur.slug, n)) {
-                if (confirm('Delete the downloaded copy of this chapter?')) deleteNovelDownload(cur.slug, n)
+                if (confirm('Delete the downloaded copy of this chapter?')) deleteNovelDownload(cur.slug, n).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
                 return
             }
             dlFailed.delete(n)
-            downloadNovelChapter(cur.slug, n, cur.series.title).catch(error => {
+            const { slug, series } = cur
+            downloadNovelChapter(slug, n, series.title).catch(error => {
+                if (cur?.slug !== slug) return
                 dlFailed.set(n, error?.message || 'Download failed')
                 paintDl()
             })

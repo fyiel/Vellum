@@ -41,6 +41,7 @@ const batchCandidates = count => {
 
 async function runBatch(count) {
     if (batch || !current) return
+    const { key } = current
     const ids = batchCandidates(count).map(chapter => chapter.id)
     if (!ids.length) {
         const next = $('#mdl-next')
@@ -50,9 +51,9 @@ async function runBatch(count) {
     if (count == null && !confirm(`Download all ${ids.length} chapters of ${current.series.title}?`)) return
     batch = { done: 0, total: ids.length }
     batchPaint()
-    await dlBatch(ids, id => downloadMangaChapter(current.key, id), {
+    await dlBatch(ids, id => downloadMangaChapter(key, id), {
         onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (id, error) => { dlFailed.set(id, error?.message || 'Download failed') },
+        onError: (id, error) => { if (current?.key === key) dlFailed.set(id, error?.message || 'Download failed') },
     })
     batch = null
     batchPaint()
@@ -123,7 +124,7 @@ const filteredChapters = () => {
 }
 
 function renderChapterList() {
-    if (!current) return
+    if (!current || !currentRouteIs(current.key) || !$('#mchapter-list')) return
     const sc = activeScroller()
     const saved = sc?.scrollTop ?? 0
     const filtered = filteredChapters()
@@ -169,16 +170,17 @@ function wire() {
         }
         if (event.target.closest('#manga-reset') && current && confirm(`Reset reading progress for ${current.series.title}?`)) {
             resetProgress(current.key)
+            current.saved = null
             current.first = orderMangaChapters(current.chapters)[0] || current.chapters[0]
             $('#manga-start').textContent = 'Start reading'
             $('#manga-reset').hidden = true
-            $('#mchapter-list')?.querySelectorAll('.mchrow').forEach(row => row.classList.remove('read', 'current'))
+            renderChapterList()
         }
     })
     $('#schapters').addEventListener('click', event => {
         if (event.target.closest('#mdl-next')) { runBatch(10); return }
         if (event.target.closest('#mdl-all')) { runBatch(null); return }
-        const dl = event.target.closest('.chdl')
+        const dl = event.target.closest('#mchapter-list .chdl')
         if (dl && current) {
             const id = dl.dataset.dl
             if (mangaDlActive(current.key, id)) {
@@ -186,11 +188,13 @@ function wire() {
                 return
             }
             if (mangaDlEntry(current.key, id)) {
-                if (confirm(`Delete the downloaded copy of this chapter?`)) deleteMangaDownload(current.key, id)
+                if (confirm(`Delete the downloaded copy of this chapter?`)) deleteMangaDownload(current.key, id).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
                 return
             }
             dlFailed.delete(id)
-            downloadMangaChapter(current.key, id).catch(error => {
+            const { key } = current
+            downloadMangaChapter(key, id).catch(error => {
+                if (current?.key !== key) return
                 dlFailed.set(id, error?.message || 'Download failed')
                 renderChapterList()
             })
@@ -228,7 +232,7 @@ function wire() {
     // capture on the static view shell catches the real scroller either way
     $('#view-series').addEventListener('scroll', event => {
         const scroller = event.target
-        if (!(scroller instanceof Element)) return
+        if (!(scroller instanceof Element) || !current || !currentRouteIs(current.key)) return
         if (scroller !== $('#view-series') && !$('#view-series').contains(scroller)) return
         if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - REVEAL_RADIUS) revealMore()
     }, { passive: true, capture: true })
@@ -254,6 +258,7 @@ export async function showMangaSeries(key, origin = 'manga') {
     $('#schapters').setAttribute('aria-busy', 'true')
     // re-showing the same series: keep the rendered list so the scroller doesn't collapse under the reader
     if (!same) {
+        dlFailed.clear()
         $('#sinfo').innerHTML = '<div class="void" role="status">Loading manga…</div>'
         $('#schapters').innerHTML = '<div class="void" role="status">Finding chapters…</div>'
     }

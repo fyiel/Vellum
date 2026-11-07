@@ -22,21 +22,30 @@ const fetchImage = async (url, signal) => {
 // fetch them alongside the text and rewrite the src to a dlimg:N placeholder, which
 // loadDownloadedNovelChapter swaps for a local blob url. an image that fails keeps its
 // remote src — the chapter text is still complete without it
-async function downloadImages(key, n, html, signal) {
+async function downloadImages(key, n, html, signal, written) {
     const doc = new DOMParser().parseFromString(html, 'text/html')
     const imgs = [...doc.querySelectorAll('img[src]')].filter(img => /^(https?:)?\/\//i.test(img.getAttribute('src')))
+    // Repair only missing remote images, without overwriting existing local image slots.
+    const kept = [...new Set([...html.matchAll(/src="dlimg:(\d+)"/g)].map(([, i]) => Number(i)))]
+    let next = kept.length ? Math.max(...kept) + 1 : 0
     let size = 0
-    for (const [i, img] of imgs.entries()) {
+    for (const i of kept) size += (await dlRead(dlPath.novelImage(key, n, i)))?.size || 0
+    for (const img of imgs) {
         if (signal.aborted) throw new Error('download cancelled')
+        let path
         try {
             const response = await fetchImage(new URL(img.getAttribute('src'), location.href).href, signal)
             if (!response.ok) continue
             const blob = await response.blob()
             if (!blob.size) continue
-            await dlWrite(dlPath.novelImage(key, n, i), blob)
+            const i = next++
+            path = dlPath.novelImage(key, n, i)
+            written.push(path)
+            await dlWrite(path, blob)
             img.setAttribute('src', `dlimg:${i}`)
             size += blob.size
         } catch (error) {
+            if (path) await dlRemove(path)
             if (signal.aborted) throw error
         }
     }
@@ -51,18 +60,34 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
     const ctrl = new AbortController()
     active.set(tag, { ctrl })
     notify()
+    const written = []
+    let committed = false
     try {
-        const chapter = await getChapter(key, n, { signal: ctrl.signal })
+        // A repair enriches the saved chapter itself. Re-fetching source HTML would
+        // replace already-downloaded illustrations with remote URLs during an outage.
+        let chapter = null
+        if (saved && force) {
+            try {
+                const old = await dlRead(dlPath.novelChapter(key, n))
+                const value = old && JSON.parse(await old.text())
+                if (typeof value?.html === 'string' && value.html.trim()) chapter = value
+            } catch {}
+        }
+        chapter ??= await getChapter(key, n, { signal: ctrl.signal })
         if (ctrl.signal.aborted) throw new Error('download cancelled')
-        // Repairing a saved chapter must keep its existing images usable if the source fails.
-        const images = await downloadImages(key, n, chapter.html, ctrl.signal)
+        const images = await downloadImages(key, n, chapter.html, ctrl.signal, written)
+        if (ctrl.signal.aborted) throw new Error('download cancelled')
         const text = JSON.stringify({ ...chapter, html: images.html })
         await dlWrite(dlPath.novelChapter(key, n), text)
-        dlRegister({ kind: 'novel', key, id, title, label: `Ch. ${n}`, size: text.length + images.size })
+        committed = true
+        dlRegister({ kind: 'novel', key, id, title, label: `Ch. ${n}`, size: new TextEncoder().encode(text).byteLength + images.size })
     } catch (error) {
         if (!saved) {
             await dlRemove(dlPath.novelChapter(key, n))
             await dlRemove(dlPath.novelImages(key, n))
+        } else if (!committed) {
+            // Old HTML still owns the old slots; remove only this attempt's new files.
+            for (const path of written) await dlRemove(path)
         }
         throw error
     } finally {

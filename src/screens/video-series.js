@@ -111,6 +111,7 @@ const batchCandidates = count => {
 
 async function runBatch(count) {
     if (batch || !current) return
+    const { series, episodes } = current
     const ids = batchCandidates(count).map(episode => episode.id)
     if (!ids.length) {
         const next = $('#vdl-next')
@@ -120,10 +121,10 @@ async function runBatch(count) {
     if (count == null && !confirm(`Download all ${ids.length} episodes of ${current.series.title}? Episodes can be hundreds of MB each.`)) return
     batch = { done: 0, total: ids.length }
     batchPaint()
-    const labelFor = id => episodeLabel(current.episodes.find(item => item.id === id) || { id })
-    await dlBatch(ids, id => downloadVideoEpisode(current.series.key, id, { title: current.series.title, label: labelFor(id) }), {
+    const labelFor = id => episodeLabel(episodes.find(item => item.id === id) || { id })
+    await dlBatch(ids, id => downloadVideoEpisode(series.key, id, { title: series.title, label: labelFor(id), mediaKind: series.kind }), {
         onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (id, error) => { dlFailed.set(id, error?.message || 'Download failed') },
+        onError: (id, error) => { if (current?.series.key === series.key) dlFailed.set(id, error?.message || 'Download failed') },
     })
     batch = null
     batchPaint()
@@ -147,7 +148,7 @@ function episodeRows(episodes) {
 }
 
 function renderEpisodes() {
-    if (!current) return
+    if (!current || !currentRouteIs(current.series.key) || !$('#video-episode-list')) return
     const q = query.toLowerCase()
     const filtered = current.episodes.filter(episode => !q || `${episodeLabel(episode)} ${episode.title || ''}`.toLowerCase().includes(q))
     const shown = filtered.slice(0, limit)
@@ -197,12 +198,14 @@ function wire() {
                 return
             }
             if (videoDlEntry(current.series.key, id)) {
-                if (confirm('Delete the downloaded copy of this episode?')) deleteVideoDownload(current.series.key, id)
+                if (confirm('Delete the downloaded copy of this episode?')) deleteVideoDownload(current.series.key, id).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
                 return
             }
             dlFailed.delete(id)
-            const episode = current.episodes.find(item => item.id === id)
-            downloadVideoEpisode(current.series.key, id, { title: current.series.title, label: episodeLabel(episode || { id }) }).catch(error => {
+            const { series, episodes } = current
+            const episode = episodes.find(item => item.id === id)
+            downloadVideoEpisode(series.key, id, { title: series.title, label: episodeLabel(episode || { id }), mediaKind: series.kind }).catch(error => {
+                if (current?.series.key !== series.key) return
                 dlFailed.set(id, error?.message || 'Download failed')
                 renderEpisodes()
             })
@@ -235,6 +238,7 @@ function wire() {
 export async function showVideoSeries(key, origin = 'watch') {
     wire()
     const mine = ++request
+    if (current?.series.key !== key) dlFailed.clear()
     current = null
     query = ''
     limit = BATCH

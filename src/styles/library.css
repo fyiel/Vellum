@@ -35,7 +35,7 @@ body { background: #15161a; overflow: hidden; }
 
 .den .tb { display: flex; align-items: center; gap: 13px; height: 38px; flex: none; padding: 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .den .sq { display: flex; gap: 7px; }
-.den .s { width: 11px; height: 11px; background: var(--row); border: 1px solid var(--line2); cursor: pointer; }
+.den .s { appearance: none; padding: 0; width: 11px; height: 11px; background: var(--row); border: 1px solid var(--line2); cursor: pointer; }
 .den .s.red { background: #ff5f57; border-color: #ff5f57; }
 .den .s.yel { background: #febc2e; border-color: #febc2e; }
 .den .s.grn { background: #28c840; border-color: #28c840; }
@@ -149,7 +149,6 @@ body { background: #15161a; overflow: hidden; }
 
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .den .tb { height: 40px; padding: 0 12px; }
-  .den .tb .sq { display: none; }
   .den .body { flex-direction: column-reverse; }
   .den .side { width: auto; border-right: 0; border-top: 1px solid var(--line2); padding-bottom: var(--safe-b); }
   .den .side .nl, .den .side .grow { display: none; }

@@ -4,6 +4,15 @@ const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 
 test.setTimeout(60_000)
 
+async function mockNovelCatalogue(page) {
+  await page.route('**/read/api/discover/taxonomy', route => route.fulfill({ json: { genres: [], tags: [] } }))
+  await page.route('**/read/api/discover?**', route => route.fulfill({ json: {
+    results: [{ key: 'nf:fixture', title: 'Fixture novel', sources: ['novelfire'], readable: true }],
+    page: 1, hasMore: false,
+  } }))
+}
+
+
 test.beforeEach(async ({ page }) => {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -22,7 +31,7 @@ test.afterEach(async ({ page }) => {
   expect(page._vellumErrors).toEqual([])
 })
 
-test('walks the complete reading journey', async ({ page }) => {
+test('walks the complete reading journey', { tag: '@live' }, async ({ page }) => {
   await expect(page.getByText('nothing in your library yet')).toBeVisible()
 
   await page.locator('[data-nav="discover"]').click()
@@ -63,7 +72,7 @@ test('walks the complete reading journey', async ({ page }) => {
   await expect(page.locator('#view-library')).toContainText('Lord of the Mysteries')
 })
 
-test('walks discover filters and empty updates', async ({ page }) => {
+test('walks discover filters and empty updates', { tag: '@live' }, async ({ page }) => {
   await page.locator('[data-nav="discover"]').click()
   await expect(page.locator('#dlist .dcard').first()).toBeVisible()
 
@@ -80,13 +89,14 @@ test('walks discover filters and empty updates', async ({ page }) => {
 })
 
 test('shows recoverable API failures', async ({ page }) => {
+  await mockNovelCatalogue(page)
   let failures = 2
   await page.route('**/read/api/discover?**', async route => {
     if (failures > 0) {
       failures--
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"temporarily unavailable"}' })
     } else {
-      await route.continue()
+      await route.fallback()
     }
   })
 
@@ -98,7 +108,7 @@ test('shows recoverable API failures', async ({ page }) => {
   await expect(page.locator('#dlist .dcard').first()).toBeVisible()
 })
 
-test('loads search, series, and reader at a phone viewport', async ({ page }) => {
+test('loads search, series, and reader at a phone viewport', { tag: '@live' }, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.locator('[data-nav="discover"]').click()
   await page.locator('#dsearch').fill('Mother of Learning')
@@ -559,6 +569,10 @@ test('ignores a stale manga search and names a selected provider outage', async 
 })
 
 test('does not duplicate a chapter after rapid reader navigation', async ({ page }) => {
+  await page.route('**/read/api/chapters?slug=lord-of-the-mysteries', route => route.fulfill({ json: {
+    chapters: [1, 2].map(n => ({ n, t: `Chapter ${n}` })), total: 2,
+  } }))
+  await page.route('**/read/api/series/**', route => route.fulfill({ json: { title: 'Fixture novel' } }))
   let releaseFirst = () => {}
   let releaseSecond
   const firstGate = new Promise(resolve => { releaseFirst = resolve })
@@ -591,6 +605,7 @@ test('does not duplicate a chapter after rapid reader navigation', async ({ page
 })
 
 test('keeps loading when an older tab blocks the cache upgrade', async ({ page, context }) => {
+  await mockNovelCatalogue(page)
   const holder = await context.newPage()
   await holder.goto(app)
   await holder.evaluate(async () => {
@@ -1074,6 +1089,7 @@ test('does not call a failed updates check all caught up', async ({ page }) => {
 })
 
 test('sorts trending without applying staged filters', async ({ page }) => {
+  await mockNovelCatalogue(page)
   await page.locator('[data-nav="discover"]').click()
   await expect(page.locator('#dlist .dcard').first()).toBeVisible()
   await page.locator('#ftoggle').click()
@@ -1096,6 +1112,8 @@ test('sorts trending without applying staged filters', async ({ page }) => {
 })
 
 test('returns a directly opened series to Library', async ({ page }) => {
+  await page.route('**/read/api/series/**', route => route.fulfill({ json: { title: 'Lord of the Mysteries', slug: 'lord-of-the-mysteries' } }))
+  await page.route('**/read/api/chapters?slug=lord-of-the-mysteries', route => route.fulfill({ json: { chapters: [{ n: 1, t: 'First chapter' }], total: 1 } }))
   await page.goto(`${app}#/series/nf%3Alord-of-the-mysteries`)
   await expect(page.locator('#sinfo .dtitle')).toHaveText('Lord of the Mysteries')
   await page.locator('.crumb .back').click()

@@ -54,7 +54,10 @@ export const resolveUri = (base, uri) => new URL(uri, base).href
 // EXT-X-KEY without an IV attribute uses the segment's media sequence as a 128-bit big-endian IV
 export function segmentIv(key, sequence) {
     if (key.iv) {
-        const hex = key.iv.replace(/^0x/i, '')
+        const value = key.iv.replace(/^0x/i, '')
+        if (!/^[0-9a-f]{1,32}$/i.test(value)) throw new Error('invalid AES-128 initialization vector')
+        // HLS hexadecimal sequences are integers; short IVs are left-padded to 128 bits.
+        const hex = value.padStart(32, '0')
         const bytes = new Uint8Array(16)
         for (let index = 0; index < 16; index++) bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2) || '0', 16)
         return bytes

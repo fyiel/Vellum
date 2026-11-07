@@ -59,7 +59,8 @@ export async function dlWrite(path, data) {
         const { fs, baseDir } = await tauri()
         const parent = path.split('/').slice(0, -1).join('/')
         await fs.mkdir(tpath(parent), { baseDir, recursive: true }).catch(() => {})
-        const bytes = data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data
+        const bytes = typeof data === 'string' ? new TextEncoder().encode(data)
+            : data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data
         await fs.writeFile(tpath(path), bytes, { baseDir })
         return
     }
@@ -67,8 +68,14 @@ export async function dlWrite(path, data) {
     const dir = await opfsDir(parts.slice(0, -1), true)
     const handle = await dir.getFileHandle(parts.at(-1), { create: true })
     const writable = await handle.createWritable()
-    await writable.write(data)
-    await writable.close()
+    try {
+        await writable.write(data)
+        await writable.close()
+    } catch (error) {
+        // Release an OPFS write lock even when quota or a device error interrupts it.
+        await writable.abort().catch(() => {})
+        throw error
+    }
 }
 
 // incremental writer for large payloads (video): write(chunk) then close(); abort() drops the file
@@ -140,7 +147,11 @@ const NS = 'vellum'
 const listeners = new Set()
 const load = () => { try { return JSON.parse(localStorage.getItem(`${NS}:dl`)) ?? [] } catch { return [] } }
 const save = entries => {
-    try { localStorage.setItem(`${NS}:dl`, JSON.stringify(entries)) } catch {}
+    try { localStorage.setItem(`${NS}:dl`, JSON.stringify(entries)) } catch (cause) {
+        // Bytes alone are not a usable download: readers find them through this registry.
+        // Reject so callers clean up a new copy and never report it as saved.
+        throw new Error('Could not save the download list. Free some storage and try again.', { cause })
+    }
     listeners.forEach(fn => { try { fn() } catch {} })
 }
 export const dlListen = fn => { listeners.add(fn); return () => listeners.delete(fn) }

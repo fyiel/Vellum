@@ -31,6 +31,7 @@ let page = 0
 let loadingGen = 0
 let done = false
 let feedError = false
+let feedErrorMessage = ''
 let moreFailed = false
 let searchPending = false
 let searchRefreshTimer
@@ -120,16 +121,16 @@ function setCount() {
 }
 
 function voidMsg() {
-    if (feedError) return active ? 'could not reach the sources right now' : 'could not reach trending right now'
+    if (feedError) return feedErrorMessage ? esc(feedErrorMessage) : active ? 'could not reach the sources right now' : 'could not reach trending right now'
     if (query) return `no results for ${esc(query)}`
     if (active) return 'no results'
     return 'nothing trending right now'
 }
 
-const fetchSearch = () => searchNovels(query, {
-    signal: searchController?.signal,
-    sources: appliedFilters().sources,
-})
+const fetchSearch = () => {
+    const { sources, genres, tags, status, minRating, length, sort, order } = buildDiscoverParams(1)
+    return searchNovels(query, { signal: searchController?.signal, sources, genres, tags, status, minRating, length, sort, order })
+}
 
 function feedFetch(p) {
     if (query) return p === 1 ? fetchSearch() : Promise.resolve({ results: [] })
@@ -156,6 +157,7 @@ async function startFeed(commitFilters = false) {
     done = false
     loadingGen = 0
     feedError = false
+    feedErrorMessage = ''
     moreFailed = false
     seenKeys = new Set()
     setLabel()
@@ -181,8 +183,9 @@ async function loadMore(fresh = false, gen = feedGen) {
         if (fresh) {
             searchPending = false
             feedError = true
-            const message = !query && e.code === 'source_requires_query' ? esc(e.message) : voidMsg()
-            $('#dlist').innerHTML = `<div class="void">${message}</div>`
+            feedErrorMessage = ['unsupported_filter', 'source_requires_query'].includes(e.code) ? e.message : ''
+            if (feedErrorMessage) done = true
+            $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
             $('#rescount').textContent = ''
         } else {
             moreFailed = true
@@ -229,6 +232,15 @@ async function loadMore(fresh = false, gen = feedGen) {
         wrap.querySelector('.void')?.remove()
     }
 
+    if (Array.isArray(data.unsupportedSources) && data.unsupportedSources.length && !$('#dnotice')) {
+        const notice = document.createElement('div')
+        notice.id = 'dnotice'
+        notice.className = 'discover-notice'
+        notice.setAttribute('role', 'status')
+        const names = [...new Set(data.unsupportedSources)].map(source => srcLabel(srcIds({ source })[0]))
+        notice.textContent = `${names.join(', ')} ${names.length === 1 ? 'does not support these filters and was skipped' : 'do not support these filters and were skipped'}. Showing supported sources.`
+        wrap.prepend(notice)
+    }
     setCount()
 
     if (loadingGen === gen) loadingGen = 0
@@ -445,7 +457,9 @@ export function showDiscover() {
         return
     }
 
-    if (!inited) { inited = true; startFeed(true) }
+    const pending = $('#dsearch').value.trim()
+    if (!inited) { query = pending; inited = true; startFeed(true) }
+    else if (pending !== query) { query = pending; startFeed() }
     else if (query && searchPending) {
         searchDeadline = Date.now() + 60_000
         paintSearch({ results: items, pending: true }, feedGen)

@@ -85,9 +85,8 @@ export function mountShell() {
         }, { passive: true, capture: true })
     }
 
-    const mac = /mac/i.test(navigator.userAgentData?.platform || navigator.platform || '')
     const sq = $('.sq')
-    if (sq && !mac) sq.style.display = 'none'
+    if (sq) sq.style.display = window.__TAURI_INTERNALS__ ? '' : 'none'
 
     $$('.sq .s').forEach(b => b.addEventListener('click', () => winAction(b.dataset.win)))
     $$('.ni').forEach(n => n.addEventListener('click', () => { const r = NAV_ROUTE[n.dataset.nav]; if (r) go(r) }))

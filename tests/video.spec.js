@@ -349,7 +349,9 @@ test('loads HLS through the lazy fallback when native playback is unavailable', 
   const media = page.locator('#vplayer video')
   await expect(media).toHaveCount(1)
   await expect(page.locator('.video-provider-label')).toHaveText('Provided by Mock HLS')
-  await media.evaluate(video => video.play().catch(() => {}))
+  // This fixture has no media segments: play() stays pending, so assert transport startup,
+  // not successful decoding. A real-media/live test owns playback verification.
+  await media.evaluate(video => { void video.play().catch(() => {}) })
   await expect.poll(() => playlistRequests).toBeGreaterThan(0)
 })
 
