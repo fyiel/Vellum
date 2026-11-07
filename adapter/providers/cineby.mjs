@@ -57,10 +57,8 @@ const embedUrl = (value, request) => {
     return EMBED_HOSTS.some(base => host === base || host.endsWith(`.${base}`)) ? target.href : null
 }
 
-// the shared `cached` has no stale window and no negative caching, and this provider cannot let a
-// failed scrape look like an empty catalogue: an expired entry keeps being served while the
-// refresh runs behind the request, a failed refresh never drops the last good copy, and a failure
-// is stored as an error (never as content) for a short while so one blip cannot hide a title
+// Keep the last good catalogue available to every caller during a refresh
+// Rejected and malformed responses cool down without extending the stale deadline
 const CACHES = new WeakMap()
 const cacheOf = fetchImpl => {
     let cache = CACHES.get(fetchImpl)
@@ -72,30 +70,31 @@ const cachedFor = (fetchImpl, key, ttl, load, options = {}) => {
     const cache = cacheOf(fetchImpl)
     const now = Date.now()
     const entry = cache.get(key)
-    if (entry?.pending) return entry.pending
     if (entry?.value !== undefined && entry.expires > now) return Promise.resolve(entry.value)
     if (entry?.error !== undefined && entry.errorUntil > now) return Promise.reject(entry.error)
     const stale = entry?.value !== undefined && entry.staleUntil > now ? entry.value : undefined
-    const pending = load().then(
-        value => {
-            if (!accept(value)) throw Object.assign(new Error('Cineby returned an empty payload'), { code: 'provider_unavailable' })
+    if (entry?.pending) return stale !== undefined ? Promise.resolve(stale) : entry.pending
+    const active = stale === undefined ? {} : { value: stale, expires: 0, staleUntil: entry.staleUntil }
+    const pending = Promise.resolve().then(load).then(value => {
+        if (!accept(value)) throw Object.assign(new Error('Cineby returned an empty payload'), { code: 'provider_unavailable' })
+        const seen = Date.now()
+        if (cache.get(key) === active) cache.set(key, { value, expires: seen + ttl, staleUntil: seen + ttl + staleMs })
+        return value
+    }).catch(error => {
+        if (cache.get(key) === active) {
             const seen = Date.now()
-            cache.set(key, { value, expires: seen + ttl, staleUntil: seen + ttl + staleMs })
-            return value
-        },
-        error => {
-            if (stale === undefined) cache.set(key, { error, errorUntil: Date.now() + negTtl })
-            else cache.set(key, { value: stale, expires: 0, staleUntil: Date.now() + staleMs })
-            throw error
-        },
-    )
+            if (stale === undefined || entry.staleUntil <= seen) cache.set(key, { error, errorUntil: seen + negTtl })
+            else cache.set(key, { value: stale, expires: Math.min(entry.staleUntil, seen + negTtl), staleUntil: entry.staleUntil })
+        }
+        throw error
+    })
+    active.pending = pending
+    cache.set(key, active)
+    if (cache.size > 64) cache.delete(cache.keys().next().value)
     if (stale !== undefined) {
         pending.catch(() => {})
-        cache.set(key, { value: stale, expires: 0, staleUntil: entry.staleUntil, pending })
         return Promise.resolve(stale)
     }
-    cache.set(key, { pending })
-    if (cache.size > 64) cache.delete(cache.keys().next().value)
     return pending
 }
 

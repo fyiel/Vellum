@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { handleAnimeRequest, handleAnimeVideoRequest } from '../adapter/anime-adapter.mjs'
+import { cached, handleAnimeRequest, handleAnimeVideoRequest } from '../adapter/anime-adapter.mjs'
 
 const request = path => new Request(`https://vellum.test${path}`)
 const response = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } })
@@ -460,4 +460,60 @@ test('keeps the per-provider id gates on known prefixes', async () => {
     const result = await handleAnimeRequest(request('/read/api/anime/series/miruro%3Anot-a-number'), {}, deadFetch)
     assert.equal(result.status, 400)
     assert.equal((await result.json()).error.code, 'invalid_request')
+})
+
+test('shared provider cache coalesces a slow cold load beyond its freshness interval', async t => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    let finish
+    let calls = 0
+    const fetchImpl = () => {}
+    const load = () => {
+        calls++
+        return new Promise(resolve => { finish = resolve })
+    }
+    const first = cached(fetchImpl, 'slow', 10, load)
+    await Promise.resolve()
+    now += 50
+    const second = cached(fetchImpl, 'slow', 10, load)
+    assert.strictEqual(first, second)
+    assert.equal(calls, 1)
+    finish('loaded')
+    assert.equal(await second, 'loaded')
+})
+
+test('shared provider cache returns stale content even when the refresh throws synchronously', async t => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    const fetchImpl = () => {}
+    let calls = 0
+    const load = () => {
+        calls++
+        if (calls > 1) throw new Error('offline')
+        return Promise.resolve('good')
+    }
+    await cached(fetchImpl, 'stale', 10, load, 30, undefined, 100)
+    now += 11
+    assert.equal(await cached(fetchImpl, 'stale', 10, load, 30, undefined, 100), 'good')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(await cached(fetchImpl, 'stale', 10, load, 30, undefined, 100), 'good')
+    assert.equal(calls, 2)
+})
+
+test('shared provider cache never extends stale content beyond its retention deadline', async t => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    const fetchImpl = () => {}
+    let calls = 0
+    const load = async () => {
+        if (++calls > 1) throw new Error('offline')
+        return 'good'
+    }
+    await cached(fetchImpl, 'bounded-stale', 10, load, 1000, undefined, 20)
+    now += 11
+    assert.equal(await cached(fetchImpl, 'bounded-stale', 10, load, 1000, undefined, 20), 'good')
+    await new Promise(resolve => setImmediate(resolve))
+    now += 20
+    await assert.rejects(cached(fetchImpl, 'bounded-stale', 10, load, 1000, undefined, 20), /offline/)
+    assert.equal(calls, 3)
 })

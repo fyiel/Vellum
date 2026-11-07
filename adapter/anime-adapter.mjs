@@ -125,7 +125,7 @@ export const cached = (fetchImpl, key, ttl, load, negTtl = 0, accept = value => 
     if (hit) {
         // fresh, pending or negatively cached: the stored promise is the single answer everyone
         // waiting on this key shares
-        if (hit.expires > now) {
+        if (hit.pending || hit.expires > now) {
             entries.delete(key)
             entries.set(key, hit)
             return hit.value
@@ -135,23 +135,26 @@ export const cached = (fetchImpl, key, ttl, load, negTtl = 0, accept = value => 
             entries.set(key, hit)
             if (!refreshing.has(key)) {
                 refreshing.add(key)
-                load().then(value => {
+                Promise.resolve().then(load).then(value => {
+                    if (entries.get(key) !== hit) return
                     if (cacheAccept(accept, value)) {
                         cachePut(entries, key, { value: Promise.resolve(value), expires: Date.now() + ttl, keep: Date.now() + ttl + staleMs, ok: true })
                     } else {
-                        hit.expires = Date.now() + (negTtl || CACHE_RETRY_MS)
+                        hit.expires = Math.min(hit.keep, Date.now() + (negTtl || CACHE_RETRY_MS))
                     }
-                }).catch(() => { hit.expires = Date.now() + (negTtl || CACHE_RETRY_MS) }).finally(() => refreshing.delete(key))
+                }).catch(() => { hit.expires = Math.min(hit.keep, Date.now() + (negTtl || CACHE_RETRY_MS)) }).finally(() => refreshing.delete(key))
             }
             return hit.value
         }
     }
 
-    const entry = { value: null, expires: now + ttl, keep: now + ttl + staleMs, ok: false }
+    const entry = { value: null, expires: now + ttl, keep: now + ttl + staleMs, ok: false, pending: true }
     const promise = Promise.resolve().then(load)
     entry.value = promise
     cachePut(entries, key, entry)
     promise.then(value => {
+        entry.pending = false
+        if (entries.get(key) !== entry) return
         const ok = cacheAccept(accept, value)
         entry.ok = ok
         const at = Date.now()
@@ -160,6 +163,8 @@ export const cached = (fetchImpl, key, ttl, load, negTtl = 0, accept = value => 
         entry.keep = at + lifetime + (ok ? staleMs : 0)
         if (lifetime > 0) { entries.delete(key); entries.set(key, entry) } else entries.delete(key)
     }, () => {
+        entry.pending = false
+        if (entries.get(key) !== entry) return
         if (negTtl > 0) {
             entry.expires = Date.now() + negTtl
             entry.keep = entry.expires

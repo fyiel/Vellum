@@ -173,3 +173,64 @@ test('returns a partial discover outcome when the Cineby listing cannot be parse
     assert.deepEqual(result.error, { provider: 'cineby', code: 'provider_unavailable', message: 'Cineby listing is unavailable' })
     assert.equal(calls, 1)
 })
+
+test('every Cineby stale cache reader returns immediately while one refresh is pending', async t => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    let finish
+    let calls = 0
+    const value = { results: [{ id: 42, title: 'Cached Film', media_type: 'movie' }], total_pages: 1 }
+    const fetchImpl = async () => {
+        calls++
+        if (calls === 1) return jsonResponse(value)
+        return new Promise(resolve => { finish = () => resolve(jsonResponse(value)) })
+    }
+    await discover(ctx(fetchImpl))
+    now += 6 * 60 * 60_000 + 1
+    const first = await discover(ctx(fetchImpl))
+    let resolved = false
+    const second = discover(ctx(fetchImpl)).then(result => {
+        resolved = true
+        return result
+    })
+    await new Promise(resolve => setImmediate(resolve))
+    try {
+        assert.equal(resolved, true)
+        assert.equal(calls, 2)
+    } finally { finish() }
+    assert.deepEqual(await second, first)
+})
+
+test('Cineby backs off failed refreshes without discarding its good catalogue', async t => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    let calls = 0
+    const value = { results: [{ id: 42, title: 'Cached Film', media_type: 'movie' }], total_pages: 1 }
+    const fetchImpl = async () => ++calls === 1 ? jsonResponse(value) : notFound()
+    await discover(ctx(fetchImpl))
+    now += 6 * 60 * 60_000 + 1
+    await discover(ctx(fetchImpl))
+    await new Promise(resolve => setImmediate(resolve))
+    const repeat = await discover(ctx(fetchImpl))
+    assert.equal(repeat.rows[0].title, 'Cached Film')
+    assert.equal(calls, 2)
+    now += 12 * 60 * 60_000
+    assert.equal((await discover(ctx(fetchImpl))).partial, true)
+    assert.equal(calls, 3)
+})
+
+test('Cineby can recover after malformed successful JSON instead of retaining a rejected promise forever', async t => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    let calls = 0
+    const value = { results: [{ id: 42, title: 'Recovered Film', media_type: 'movie' }], total_pages: 1 }
+    const fetchImpl = async () => jsonResponse(++calls === 1 ? {} : value)
+    assert.equal((await discover(ctx(fetchImpl))).partial, true)
+    assert.equal((await discover(ctx(fetchImpl))).partial, true)
+    assert.equal(calls, 1)
+    now += 30_001
+    const recovered = await discover(ctx(fetchImpl))
+    assert.equal(recovered.partial, false)
+    assert.equal(recovered.rows[0].title, 'Recovered Film')
+    assert.equal(calls, 2)
+})
