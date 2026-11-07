@@ -35,7 +35,14 @@ function db() {
         }
         req.onsuccess = () => {
             if (!finish(req.result)) req.result.close()
-            else req.result.onversionchange = () => req.result.close()
+            else {
+                const opened = dbp
+                req.result.onversionchange = () => {
+                    req.result.close()
+                    // Future requests must not reuse a connection closed by a newer tab.
+                    if (dbp === opened) dbp = null
+                }
+            }
         }
         req.onerror = () => finish(null)
         // an older tab can hold version 1 open indefinitely; use memory/network instead of hanging every page
