@@ -20,7 +20,11 @@ export async function downloadMangaChapter(key, id) {
     active.set(tag, progress)
     notify()
     try {
-        const [series, content] = await Promise.all([getMangaSeries(key), getMangaChapter(key, id)])
+        const [series, content] = await Promise.all([
+            getMangaSeries(key, { signal: ctrl.signal }),
+            getMangaChapter(key, id, { signal: ctrl.signal }),
+        ])
+        if (ctrl.signal.aborted) throw new Error('download cancelled')
         const chapter = content.chapter
         progress.total = content.pages.length
         let size = 0
@@ -30,11 +34,14 @@ export async function downloadMangaChapter(key, id) {
             if (!response.ok) throw new Error(`page ${index + 1} failed (http ${response.status})`)
             const blob = await response.blob()
             if (!blob.size) throw new Error(`page ${index + 1} failed (empty)`)
+            if (ctrl.signal.aborted) throw new Error('download cancelled')
             await dlWrite(dlPath.mangaPage(key, id, index), blob)
             size += blob.size
             progress.done = index + 1
             notify()
         }
+        // A cancellation during the final disk write must not publish a copy.
+        if (ctrl.signal.aborted) throw new Error('download cancelled')
         dlRegister({
             kind: 'manga', key, id,
             title: series.title,

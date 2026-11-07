@@ -4,6 +4,69 @@ import { readFileSync } from 'node:fs'
 const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 const tauri = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url)))
 
+test('cancelling a manga download interrupts pending metadata requests', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const dl = await import('/src/lib/dl-manga.js')
+        const key = 'mf:cancel-metadata', id = 'c1'
+        let requests = 0, aborted = 0
+        setTransport((url, init) => new Promise((resolve, reject) => {
+            requests++
+            const timer = setTimeout(() => resolve(Response.json({})), 600)
+            init.signal.addEventListener('abort', () => {
+                clearTimeout(timer)
+                aborted++
+                reject(new DOMException('Cancelled', 'AbortError'))
+            }, { once: true })
+        }))
+        const task = dl.downloadMangaChapter(key, id).then(() => 'saved', error => error.message)
+        const until = performance.now() + 300
+        while (requests < 2 && performance.now() < until) await new Promise(resolve => setTimeout(resolve, 5))
+        dl.cancelMangaDownload(key, id)
+        const outcome = await Promise.race([task, new Promise(resolve => setTimeout(() => resolve('pending'), 150))])
+        return { requests, aborted, outcome, active: !!dl.mangaDlActive(key, id), saved: !!dl.mangaDlEntry(key, id) }
+    })
+    expect(result.requests).toBe(2)
+    expect(result.aborted).toBe(2)
+    expect(result.outcome).not.toBe('pending')
+    expect(result.active).toBe(false)
+    expect(result.saved).toBe(false)
+})
+
+test('cancelling a manga download at the final page never registers an incomplete copy', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const dl = await import('/src/lib/dl-manga.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mf:cancel-final', id = 'c1'
+        setTransport(async url => {
+            const path = String(url)
+            if (path.includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Fixture', format: 'manga' })
+            if (path.includes('/manga/chapter?')) return Response.json({
+                key, chapter: { id, number: 1, title: 'First' },
+                pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=0` }],
+            })
+            if (path.includes('/manga/image?')) return {
+                ok: true, status: 200,
+                blob: async () => {
+                    dl.cancelMangaDownload(key, id)
+                    return new Blob(['incomplete image'])
+                },
+            }
+            throw new Error(`unexpected request ${path}`)
+        })
+        const outcome = await dl.downloadMangaChapter(key, id).then(() => 'saved', error => error.message)
+        return {
+            outcome, active: !!dl.mangaDlActive(key, id),
+            saved: !!dl.mangaDlEntry(key, id),
+            bytes: !!await dlRead(dlPath.mangaPage(key, id, 0)),
+        }
+    })
+    expect(result).toEqual({ outcome: 'download cancelled', active: false, saved: false, bytes: false })
+})
+
 test('a failed video writer releases its job and permits retry', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
