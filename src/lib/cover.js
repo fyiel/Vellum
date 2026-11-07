@@ -36,6 +36,22 @@ let installed = false;
 export function installCoverFallback() {
   if (installed) return;
   installed = true;
+  const pending = new Map();
+  const useLocal = (img, blob) => {
+    pending.get(img)?.();
+    const url = URL.createObjectURL(blob);
+    const release = () => {
+      if (pending.get(img) !== release) return;
+      pending.delete(img);
+      img.removeEventListener("load", release);
+      img.removeEventListener("error", release);
+      URL.revokeObjectURL(url);
+    };
+    pending.set(img, release);
+    img.addEventListener("load", release);
+    img.addEventListener("error", release);
+    img.src = url;
+  };
   // a lazy img created while offline is not fetched at all — it just sits there pending, so no
   // error ever fires and the fallback below would never run. swap in the stored copy up front.
   const hydrate = async (img) => {
@@ -43,9 +59,7 @@ export function installCoverFallback() {
     img.dataset.coverDone = "1";
     const blob = await localCover(img.dataset.cover).catch(() => null);
     if (!blob || !img.isConnected) return;
-    const url = URL.createObjectURL(blob);
-    img.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
-    img.src = url;
+    useLocal(img, blob);
   };
   const hydrateSoon = (root) => {
     if (navigator.onLine !== false) return;
@@ -56,8 +70,14 @@ export function installCoverFallback() {
   };
   window.addEventListener("offline", () => hydrateSoon(document));
   new MutationObserver((records) => {
-    if (navigator.onLine !== false) return;
-    for (const record of records) for (const node of record.addedNodes) hydrateSoon(node);
+    for (const record of records) {
+      // Cards can be removed before an image fires load/error. Retire their URLs.
+      if (pending.size) for (const node of record.removedNodes) {
+        if (node instanceof HTMLImageElement) { if (!node.isConnected) pending.get(node)?.(); }
+        else for (const img of node.querySelectorAll?.("img") ?? []) if (!img.isConnected) pending.get(img)?.();
+      }
+      if (navigator.onLine === false) for (const node of record.addedNodes) hydrateSoon(node);
+    }
   }).observe(document.documentElement, { childList: true, subtree: true });
   document.addEventListener(
     "error",
@@ -71,9 +91,7 @@ export function installCoverFallback() {
         img.dataset.coverDone = "1";
         const blob = await localCover(img.dataset.cover).catch(() => null);
         if (blob && img.isConnected) {
-          const url = URL.createObjectURL(blob);
-          img.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
-          img.src = url;
+          useLocal(img, blob);
           return;
         }
         if (before) img.dataset.coverDone = before;
