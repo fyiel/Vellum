@@ -228,10 +228,13 @@ function renderEmbed(playback, source) {
         // the unavailable timer stays armed.
         let embedProbe = null
         let embedProbeTimer = 0
+        const playbackSignal = state.ctrl.signal
+        const stopProbe = () => { embedProbe?.abort(); clearTimeout(embedProbeTimer) }
+        playbackSignal.addEventListener('abort', stopProbe, { once: true })
         const unavailable = () => {
             if (!stillHere(key, id, gen)) return
-            embedProbe?.abort()
-            clearTimeout(embedProbeTimer)
+            playbackSignal.removeEventListener('abort', stopProbe)
+            stopProbe()
             clearTimeout(state.embedTimer)
             shell.dataset.state = 'error'
             player.dataset.state = 'blocked'
@@ -241,22 +244,23 @@ function renderEmbed(playback, source) {
         }
         const handleLoad = () => {
             if (!stillHere(key, id, gen)) { frame.remove(); return }
+            if (shell.dataset.state !== 'loading') return
             if (frame.contentDocument) return // about:blank — keep waiting
-            embedProbe?.abort()
-            clearTimeout(embedProbeTimer)
-            embedProbe = new AbortController()
-            embedProbeTimer = setTimeout(() => embedProbe?.abort(), 8000)
-            fetch(source.url, { mode: 'no-cors', credentials: 'omit', signal: embedProbe.signal })
+            stopProbe()
+            const probe = embedProbe = new AbortController()
+            const timer = embedProbeTimer = setTimeout(() => probe.abort(), 8000)
+            fetch(source.url, { mode: 'no-cors', credentials: 'omit', signal: probe.signal })
                 .then(() => {
                     if (!stillHere(key, id, gen)) return
                     if (shell.dataset.state !== 'loading') return // blocked meanwhile — do not flip back
+                    playbackSignal.removeEventListener('abort', stopProbe)
                     clearTimeout(state.embedTimer)
                     shell.dataset.state = 'ready'
                     player.dataset.state = 'ready'
                     shell.setAttribute('aria-busy', 'false')
                 })
                 .catch(() => {}) // unreachable embed — let the unavailable timer fire
-                .finally(() => { clearTimeout(embedProbeTimer); embedProbeTimer = 0 })
+                .finally(() => { clearTimeout(timer); if (embedProbe === probe) embedProbeTimer = 0 })
         }
         frame.addEventListener('load', handleLoad)
         frame.addEventListener('error', unavailable, { once: true })

@@ -287,6 +287,39 @@ test('loads an HTTPS embed only after consent with allow-restrictions', async ({
   expect(await page.evaluate(k => JSON.parse(localStorage.getItem(`vellum:pos:${k}`)), key)).toMatchObject({ id: 'episode-1' })
 })
 
+test('leaving embed playback aborts its outstanding liveness probe', async ({ page }) => {
+  const state = { episodes: [episode(1)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Embed',
+    sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
+  }))
+  await page.route('https://embed.example/watch?**', route => route.fulfill({
+    contentType: 'text/html', body: '<!doctype html><title>Mock player</title>',
+  }))
+  await page.evaluate(() => {
+    const original = window.fetch.bind(window)
+    const probe = { started: false, aborted: false }
+    window.__embedProbe = probe
+    window.fetch = (url, options) => {
+      if (!String(url).startsWith('https://embed.example/watch?')) return original(url, options)
+      probe.started = true
+      return new Promise((_, reject) => {
+        options?.signal?.addEventListener('abort', () => {
+          probe.aborted = true
+          reject(new DOMException('Probe aborted', 'AbortError'))
+        }, { once: true })
+      })
+    }
+  })
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await page.locator('.video-embed-load').click()
+  await expect.poll(() => page.evaluate(() => window.__embedProbe.started)).toBe(true)
+  await page.locator('#vp-back').click()
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'idle')
+  await expect.poll(() => page.evaluate(() => window.__embedProbe.aborted), { timeout: 1500 }).toBe(true)
+})
+
 test('reports an organic embed failure as blocked after the unavailable timer', async ({ page }) => {
   const state = { episodes: [episode(1)] }
   await mockVideo(page, state, id => ({
