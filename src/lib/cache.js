@@ -4,6 +4,7 @@ const MEM_MAX = 300
 const DISK_MAX = 800
 const VER = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'dev'
 const vkey = k => `${VER}|${k}`
+const aborted = () => Object.assign(new Error('request aborted'), { name: 'AbortError' })
 
 const mem = new Map()
 const inflight = new Map()
@@ -138,9 +139,11 @@ function background(key, ttlMs, loader, negTtlMs, accept, onFresh) {
         })
 }
 
-async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore, onFresh) {
+async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore, onFresh, isCancelled) {
     const now = Date.now()
     const disk = await idbGet(key)
+    // Navigation may have cancelled the caller while IndexedDB was opening or reading.
+    if (isCancelled()) throw aborted()
     // a stored value that fails accept (eg an empty page cached while a source was down) is
     // never served, so a transient outage cannot stick for the full ttl and no caller
     // caches negatives by default (negTtlMs defaults to 0)
@@ -158,7 +161,7 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
     const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined, signal, onFresh } = opts
     const key = vkey(rawKey)
 
-    if (signal?.aborted) return Promise.reject(Object.assign(new Error('request aborted'), { name: 'AbortError' }))
+    if (signal?.aborted) return Promise.reject(aborted())
 
     const hot = mem.get(key)
     if (hot && hot.exp > Date.now() && accept(hot.v)) return Promise.resolve(hot.v)
@@ -171,11 +174,22 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
         if (signal?.aborted || inflight.get(key) !== entry) return
         writers.set(key, entry)
     }
+    let cancel
     const onAbort = () => {
         if (inflight.get(key) === entry) inflight.delete(key)
         if (writers.get(key) === entry) writers.delete(key)
+        cancel?.(aborted())
     }
-    const p = resolve(key, ttlMs, loader, swr, negTtlMs, accept, () => writers.get(key) === entry, claimStore, onFresh).finally(() => {
+    const notifyFresh = value => { if (!signal?.aborted) onFresh?.(value) }
+    const work = resolve(key, ttlMs, loader, swr, negTtlMs, accept,
+        () => writers.get(key) === entry, claimStore, notifyFresh, () => signal?.aborted)
+    // Reject the caller as soon as it aborts, even if its provider ignores cancellation.
+    const ready = signal ? Promise.race([work, new Promise((_, reject) => { cancel = reject })]) : work
+    const p = ready.then(value => {
+        // IndexedDB reads and transports that ignore cancellation can settle after navigation.
+        if (signal?.aborted) throw aborted()
+        return value
+    }).finally(() => {
         signal?.removeEventListener('abort', onAbort)
         if (inflight.get(key) === entry) inflight.delete(key)
         if (writers.get(key) === entry) writers.delete(key)
