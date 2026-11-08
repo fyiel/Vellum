@@ -6,6 +6,10 @@ import { dlEntries, dlEntry, dlExists, dlPath, dlRead, dlRegister, dlRemove, dlU
 const active = new Map()
 const listeners = new Set()
 const IMAGE_FETCHES = 4
+// Saved HTML normally uses double quotes, but older or imported chapters may
+// carry single-quoted or unquoted src attributes. Match real src attributes,
+// excluding data-src and other attribute names that contain the same suffix.
+const localImageSrc = /(\s+src\s*=\s*)(?:"dlimg:(\d+)"|'dlimg:(\d+)'|dlimg:(\d+)(?=[\s>]))/gi
 const notify = (key, n) => listeners.forEach(fn => { try { fn(key, n) } catch {} })
 export const onNovelDl = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export const novelDlActive = (key, n) => active.get(`${key}:${n}`) || null
@@ -34,11 +38,12 @@ const fetchImage = async (url, signal) => {
 // fetch them alongside the text and rewrite the src to a dlimg:N placeholder, which
 // loadDownloadedNovelChapter swaps for a local blob url. an image that fails keeps its
 // remote src — the chapter text is still complete without it
-async function downloadImages(key, n, html, signal, written, preserveExisting = false) {
+async function downloadImages(key, n, html, signal, written) {
     const doc = new DOMParser().parseFromString(html, 'text/html')
-    const imgs = [...doc.querySelectorAll('img[src]')].filter(img => /^(https?:)?\/\//i.test(img.getAttribute('src')))
+    const sources = [...doc.querySelectorAll('img[src]')]
+    const imgs = sources.filter(img => /^(https?:)?\/\//i.test(img.getAttribute('src')))
     // Repair only missing remote images, without overwriting existing local image slots.
-    const kept = [...new Set([...html.matchAll(/src="dlimg:(\d+)"/g)].map(([, i]) => Number(i)))]
+    const kept = [...new Set(sources.map(img => /^dlimg:(\d+)$/.exec(img.getAttribute('src'))?.[1]).filter(i => i !== undefined).map(Number))]
     let next = kept.length ? Math.max(...kept) + 1 : 0
     let size = 0
     for (const i of kept) size += (await dlRead(dlPath.novelImage(key, n, i)))?.size || 0
@@ -62,10 +67,8 @@ async function downloadImages(key, n, html, signal, written, preserveExisting = 
             try {
                 // A prior chapter file may have been evicted or become corrupt,
                 // leaving unregistered illustrations behind. Never overwrite
-                // those bytes while replacing its chapter from the network.
-                if (preserveExisting) {
-                    while (await dlExists(dlPath.novelImage(key, n, next))) next++
-                }
+                // those bytes, including during repair of an existing chapter.
+                while (await dlExists(dlPath.novelImage(key, n, next))) next++
                 const slot = next++
                 path = dlPath.novelImage(key, n, slot)
                 written.push(path)
@@ -115,7 +118,7 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
             const previous = await dlRead(chapterPath)
             if (previous) previousText = await previous.text()
         }
-        const images = await downloadImages(key, n, chapter.html, ctrl.signal, written, !saved)
+        const images = await downloadImages(key, n, chapter.html, ctrl.signal, written)
         if (ctrl.signal.aborted) throw new Error('download cancelled')
         const text = JSON.stringify({ ...chapter, html: images.html })
         writeAttempted = true
@@ -203,7 +206,7 @@ export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
         const value = JSON.parse(await blob.text())
         if (typeof value?.html !== 'string' || !value.html.trim()) { stale = true; return null }
         if (signal?.aborted) return null
-        const slots = [...new Set([...value.html.matchAll(/src="dlimg:(\d+)"/g)].map(([, i]) => i))]
+        const slots = [...new Set([...value.html.matchAll(localImageSrc)].map(([, , double, single, bare]) => double ?? single ?? bare))]
         const images = new Array(slots.length)
         let next = 0
         const worker = async () => {
@@ -225,7 +228,10 @@ export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
             urls.set(slots[i], url)
         }
         if (signal?.aborted) return null
-        value.html = value.html.replace(/src="dlimg:(\d+)"/g, (match, i) => urls.has(i) ? `src="${urls.get(i)}"` : match)
+        value.html = value.html.replace(localImageSrc, (match, prefix, double, single, bare) => {
+            const url = urls.get(double ?? single ?? bare)
+            return url ? `${prefix}"${url}"` : match
+        })
         complete = true
         return value
     } catch (error) {

@@ -1211,6 +1211,34 @@ for (const imageAvailable of [false, true]) {
     })
 }
 
+test('novel image repair preserves local and orphaned illustrations with single-quoted slots', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const { downloadNovelChapter } = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'repair-single-quoted-slot'
+        const html = `<p>Previously saved text</p><IMG SRC='dlimg:0'><img src='https://images.example/new.png'>`
+        await dl.dlWrite(dl.dlPath.novelChapter(key, 1), JSON.stringify({ html }))
+        await dl.dlWrite(dl.dlPath.novelImage(key, 1, 0), 'Original illustration')
+        await dl.dlWrite(dl.dlPath.novelImage(key, 1, 1), 'Unreferenced illustration')
+        dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved chapter' })
+        setTransport(async () => new Response('New illustration', { headers: { 'content-type': 'image/png' } }))
+        await downloadNovelChapter(key, 1, 'Saved chapter', { force: true })
+        const chapter = JSON.parse(await (await dl.dlRead(dl.dlPath.novelChapter(key, 1))).text())
+        const existing = await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)))?.text()
+        const orphan = await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 1)))?.text()
+        const added = await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 2)))?.text()
+        return { html: chapter.html, existing, orphan, added }
+    })
+    expect(result.html).toContain('Previously saved text')
+    expect(result.html).toContain('src="dlimg:0"')
+    expect(result.html).toContain('src="dlimg:2"')
+    expect(result.existing).toBe('Original illustration')
+    expect(result.orphan).toBe('Unreferenced illustration')
+    expect(result.added).toBe('New illustration')
+})
+
 for (const stalled of ['request', 'body']) {
     test(`non-cooperative novel illustration ${stalled} falls back to its proxy after timeout`, async ({ page }) => {
         await page.goto(app)

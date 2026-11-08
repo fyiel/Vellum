@@ -231,6 +231,39 @@ test('saved novel illustrations open concurrently in order and reuse duplicate s
     console.log(`Saved novel 12 illustrations: serial=${result.serialMs.toFixed(1)}ms, concurrent=${result.parallelMs.toFixed(1)}ms`)
 })
 
+test('saved novel illustrations resolve single-quoted and unquoted local image slots', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const { loadDownloadedNovelChapter } = await import('/src/lib/dl-novel.js')
+        const key = 'offline-quoted-images', n = 1
+        await dl.dlWrite(dl.dlPath.novelImage(key, n, 0), 'Existing illustration')
+        await dl.dlWrite(dl.dlPath.novelChapter(key, n), JSON.stringify({
+            html: `<p>Offline chapter</p><IMG SRC='dlimg:0'><img src=dlimg:0>`,
+        }))
+        dl.dlRegister({ kind: 'novel', key, id: String(n), title: 'Saved chapter' })
+        const create = URL.createObjectURL
+        const blobs = new Map()
+        URL.createObjectURL = function (blob) {
+            const url = create.call(URL, blob)
+            blobs.set(url, blob)
+            return url
+        }
+        try {
+            const saved = await loadDownloadedNovelChapter(key, n)
+            const sources = [...new DOMParser().parseFromString(saved.html, 'text/html').querySelectorAll('img')]
+                .map(img => img.getAttribute('src'))
+            const bytes = await blobs.get(sources[0])?.text()
+            for (const url of new Set(sources)) if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
+            return { sources, bytes }
+        } finally { URL.createObjectURL = create }
+    })
+    expect(result.sources).toHaveLength(2)
+    expect(result.sources[0]).toMatch(/^blob:/)
+    expect(result.sources[1]).toBe(result.sources[0])
+    expect(result.bytes).toBe('Existing illustration')
+})
+
 test('cancelled saved-novel loads stop before materializing illustration URLs', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
