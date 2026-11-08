@@ -147,6 +147,62 @@ test('missing or empty saved manga pages allow a fresh chapter download while re
     })))
 })
 
+test('a failed retry preserves the surviving pages of an incomplete manga chapter', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const manga = await import('/src/lib/dl-manga.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'mf:retry-preserve-pages', id = 'c1'
+        for (const i of [0, 2]) await dl.dlWrite(dl.dlPath.mangaPage(key, id, i), `original page ${i}`)
+        dl.dlRegister({ kind: 'manga', key, id, pages: 3, title: 'Fixture' })
+        await manga.loadDownloadedMangaChapter(key, id) // removes the incomplete registry row
+
+        const transport = fail => async url => {
+            const path = String(url)
+            if (path.includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Fixture', format: 'manga' })
+            if (path.includes('/manga/chapter?')) return Response.json({
+                key, chapter: { id, number: 1 },
+                pages: Array.from({ length: 3 }, (_, i) => ({ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=${i}` })),
+            })
+            if (path.includes('/manga/image?')) {
+                const index = Number(new URL(path, location.href).searchParams.get('page'))
+                if (fail && index === 1) {
+                    await new Promise(resolve => setTimeout(resolve, 100))
+                    return new Response('outage', { status: 503 })
+                }
+                return new Response(`new page ${index}`)
+            }
+            throw new Error(`unexpected request ${path}`)
+        }
+        setTransport(transport(true))
+        const error = await manga.downloadMangaChapter(key, id).then(() => null, err => err.message)
+        const preserved = await Promise.all([0, 2].map(async i =>
+            (await dl.dlRead(dl.dlPath.mangaPage(key, id, i)))?.text()))
+        const registeredAfterFailure = !!manga.mangaDlEntry(key, id)
+
+        setTransport(transport(false))
+        await manga.downloadMangaChapter(key, id)
+        const pages = await Promise.all([0, 1, 2].map(async i =>
+            (await dl.dlRead(dl.dlPath.mangaPage(key, id, i)))?.text()))
+        const root = await navigator.storage.getDirectory()
+        const mangaRoot = await (await (await root.getDirectoryHandle('downloads'))
+            .getDirectoryHandle('manga')).getDirectoryHandle(encodeURIComponent(key))
+        const backups = []
+        for await (const name of mangaRoot.keys()) if (name.includes('.rollback-')) backups.push(name)
+        return { error, preserved, registeredAfterFailure, pages,
+            registered: !!manga.mangaDlEntry(key, id), backups }
+    })
+    expect(result).toEqual({
+        error: 'page 2 failed (http 503)',
+        preserved: ['original page 0', 'original page 2'],
+        registeredAfterFailure: false,
+        pages: ['new page 0', 'new page 1', 'new page 2'],
+        registered: true,
+        backups: [],
+    })
+})
+
 test('a temporary manga page read failure preserves the saved chapter and its bytes', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {

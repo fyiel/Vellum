@@ -139,13 +139,14 @@ export async function dlRead(path) {
 
 // Distinguish an evicted file from a transient read failure before clearing
 // any persistent registry record that says the download exists.
-export async function dlExists(path) {
+export async function dlExists(path, { directory = false } = {}) {
     if (isTauri()) {
         const { fs, baseDir } = await tauri()
         return fs.exists(tpath(path), { baseDir })
     }
     try {
         const parts = path.split('/')
+        if (directory) { await opfsDir(parts, false); return true }
         const dir = await opfsDir(parts.slice(0, -1), false)
         await dir.getFileHandle(parts.at(-1), { create: false })
         return true

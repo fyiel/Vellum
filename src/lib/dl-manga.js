@@ -22,12 +22,19 @@ export async function downloadMangaChapter(key, id) {
     const progress = { done: 0, total: 0, ctrl, finished }
     active.set(tag, progress)
     notify()
+    // A missing page leaves other files behind. Keep on-disk backups during a
+    // retry: OPFS File snapshots can become unreadable after their path changes.
+    const originals = new Map()
+    let newDirectory = false
+    let backupDir
     try {
         const [series, content] = await Promise.all([
             getMangaSeries(key, { signal: ctrl.signal }),
             getMangaChapter(key, id, { signal: ctrl.signal }),
         ])
         if (ctrl.signal.aborted) throw new Error('download cancelled')
+        newDirectory = !await dlExists(dlPath.manga(key, id), { directory: true })
+        if (!newDirectory) backupDir = `${dlPath.manga(key, id)}.rollback-${crypto.randomUUID()}`
         const chapter = content.chapter
         progress.total = content.pages.length
         let size = 0
@@ -43,7 +50,16 @@ export async function downloadMangaChapter(key, id) {
                     const blob = await raceAbort(response.blob(), requestSignal)
                     if (!blob.size) throw new Error(`page ${index + 1} failed (empty)`)
                     if (ctrl.signal.aborted) throw new Error('download cancelled')
-                    await dlWrite(dlPath.mangaPage(key, id, index), blob)
+                    const path = dlPath.mangaPage(key, id, index)
+                    if (!newDirectory) {
+                        const old = await dlRead(path)
+                        if (!old && await dlExists(path)) throw new Error(`saved page ${index + 1} unreadable`)
+                        const backup = old ? `${backupDir}/${index}` : null
+                        if (backup) await dlWrite(backup, old)
+                        originals.set(path, backup)
+                    }
+                    if (ctrl.signal.aborted) throw new Error('download cancelled')
+                    await dlWrite(path, blob)
                     if (ctrl.signal.aborted) throw new Error('download cancelled')
                     size += blob.size
                     progress.done++
@@ -68,8 +84,24 @@ export async function downloadMangaChapter(key, id) {
             pages: content.pages.length,
             size,
         })
+        if (backupDir) await dlRemove(backupDir)
     } catch (error) {
-        await dlRemove(dlPath.manga(key, id))
+        if (newDirectory) await dlRemove(dlPath.manga(key, id))
+        else {
+            let restoreError
+            for (const [path, backup] of originals) {
+                try {
+                    if (backup) {
+                        const old = await dlRead(backup)
+                        if (!old) throw new Error(`saved page backup unavailable: ${path}`)
+                        await dlWrite(path, old)
+                    } else await dlRemove(path)
+                } catch (cause) { restoreError ??= cause }
+            }
+            // If restoration fails, retain the backup files for recovery.
+            if (!restoreError && backupDir) await dlRemove(backupDir)
+            if (restoreError) throw new Error('Could not restore the saved manga pages', { cause: restoreError })
+        }
         throw error
     } finally {
         active.delete(tag)
