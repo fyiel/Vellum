@@ -34,14 +34,14 @@ function db() {
             d.createObjectStore(STORE).createIndex('at', 'at')
         }
         req.onsuccess = () => {
-            if (!finish(req.result)) req.result.close()
-            else {
-                const opened = dbp
-                req.result.onversionchange = () => {
-                    req.result.close()
-                    // Future requests must not reuse a connection closed by a newer tab.
-                    if (dbp === opened) dbp = null
-                }
+            // A blocked upgrade may finish after its callers fell back to memory.
+            // Keep the newly opened connection for later requests in this session.
+            if (!finish(req.result)) dbp = Promise.resolve(req.result)
+            const opened = dbp
+            req.result.onversionchange = () => {
+                req.result.close()
+                // Future requests must not reuse a connection closed by a newer tab.
+                if (dbp === opened) dbp = null
             }
         }
         req.onerror = () => finish(null)
