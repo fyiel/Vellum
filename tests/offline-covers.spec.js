@@ -53,16 +53,32 @@ test('keeps a downloaded series cover readable offline', async ({ page, context 
     // the downloaded series gets a copy; the browsed one must not spend a round trip
     await expect.poll(async () => Object.keys(await stored()).some(key => key.includes('seen.jpg')), { timeout: 15_000 }).toBe(true)
     expect(Object.keys(await stored()).some(key => key.includes('never-fetched'))).toBe(false)
+    await page.evaluate(() => {
+        window.onlineCoverImages = Object.fromEntries(['seen', 'never-fetched'].map(name => [name,
+            [...document.querySelectorAll('.cv img')].find(el => (el.dataset.cover || '').includes(`${name}.jpg`)),
+        ]))
+    })
 
     // now the library is opened with no network at all: routes bypass offline emulation, so the
     // handlers are dropped to make both the cover host and the API genuinely unreachable
     await page.unroute('**/covers.example/**')
     await page.unroute('**/read/api/cover?**')
     await context.setOffline(true)
-    await page.evaluate(() => { location.hash = '#/updates' })
+    await page.evaluate(() => {
+        // Force fresh image elements on return. Reused tiles can legitimately keep their
+        // decoded online images visible after going offline.
+        const entries = JSON.parse(localStorage.getItem('vellum:lib'))
+        for (const item of entries) item.lastN += 1
+        localStorage.setItem('vellum:lib', JSON.stringify(entries))
+        location.hash = '#/updates'
+    })
     await page.waitForTimeout(200)
     await page.evaluate(() => { location.hash = '#/' })
 
+    const freshImages = await page.evaluate(() => Object.fromEntries(['seen', 'never-fetched'].map(name => [name,
+        [...document.querySelectorAll('.cv img')].find(el => (el.dataset.cover || '').includes(`${name}.jpg`)) !== window.onlineCoverImages[name],
+    ])))
+    expect(freshImages).toEqual({ seen: true, 'never-fetched': true })
     await expect.poll(async () => (await probe('seen'))?.natural ?? 0, { timeout: 15_000 }).toBeGreaterThan(0)
     expect((await probe('never-fetched'))?.natural ?? 0).toBe(0)
     expect(errors).toEqual([])
