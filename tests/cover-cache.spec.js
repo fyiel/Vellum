@@ -44,3 +44,38 @@ test('reuses an unchanged cover registry and observes updates from another tab',
     expect(result.parsesAfter).toBe(2)
     expect(result.requests).toBe(1)
 })
+
+for (const kind of ['missing', 'empty']) {
+    test(`re-downloads a ${kind} offline cover after finding its stale registry entry`, async ({ page }) => {
+        await page.goto(app)
+        const initial = await page.evaluate(async kind => {
+            const { storeCover, localCover } = await import('/src/lib/cover-cache.js')
+            const { dlPath, dlRemove, dlWrite } = await import('/src/lib/downloads.js')
+            const { setTransport } = await import('/src/lib/http.js')
+            const url = `https://covers.example/${kind}.jpg`
+            const path = dlPath.cover(`${kind}.png`)
+            if (kind === 'empty') await dlWrite(path, new Blob([]))
+            else await dlRemove(path)
+            localStorage.setItem('vellum:covers', JSON.stringify({ [url]: path }))
+
+            const copy = await localCover(url)
+            const registered = JSON.parse(localStorage.getItem('vellum:covers'))[url] ?? null
+            window.coverFetches = 0
+            setTransport(async () => {
+                window.coverFetches++
+                return new Response('<svg xmlns="http://www.w3.org/2000/svg" width="3" height="4"/>', {
+                    headers: { 'content-type': 'image/svg+xml' },
+                })
+            })
+            storeCover(url, 'Recovered cover')
+            return { url, size: copy?.size ?? null, registered }
+        }, kind)
+
+        expect(initial).toMatchObject({ size: null, registered: null })
+        await expect.poll(() => page.evaluate(async url => {
+            const { localCover } = await import('/src/lib/cover-cache.js')
+            return (await localCover(url))?.text() || null
+        }, initial.url)).toContain('<svg')
+        expect(await page.evaluate(() => window.coverFetches)).toBe(1)
+    })
+}

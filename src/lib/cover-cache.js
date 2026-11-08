@@ -157,5 +157,16 @@ export async function localCover(url) {
     if (!cacheable(url)) return null
     const path = load()[url]
     if (!path) return null
-    return await dlRead(path).catch(() => null)
+    const blob = await dlRead(path).catch(() => null)
+    if (blob?.size) return blob
+    // Browsers can evict OPFS independently of localStorage. An absent or empty
+    // file must not keep this URL marked as cached forever: the next library
+    // render can then queue a fresh copy when the user is online.
+    const current = load()
+    if (current[url] === path) {
+        const next = { ...current }
+        delete next[url]
+        save(next)
+    }
+    return null
 }
