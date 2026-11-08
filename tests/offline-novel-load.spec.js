@@ -23,6 +23,125 @@ test('saved novel chapter keeps the known series total when the catalog fails', 
     }, key)).toEqual({ total: 600, lastN: 1, readCount: 1 })
 })
 
+test('missing, empty, or invalid saved novel chapters allow a fresh download', async ({ page }) => {
+    await page.goto(app)
+    const results = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        setTransport(async () => Response.json({ html: '<p>Fresh chapter</p>' }))
+        const results = []
+        for (const [kind, oldText] of [
+            ['missing', null], ['empty', ''], ['bad-json', '{"html":'],
+            ['bad-html', JSON.stringify({ html: ' ' })],
+        ]) {
+            const key = `novel-stale-${kind}`, n = 1
+            if (oldText !== null) await dl.dlWrite(dl.dlPath.novelChapter(key, n), oldText)
+            dl.dlRegister({ kind: 'novel', key, id: String(n), title: 'Fixture' })
+            const offline = await novel.loadDownloadedNovelChapter(key, n)
+            const stale = !!novel.novelDlEntry(key, n)
+            const retained = await (await dl.dlRead(dl.dlPath.novelChapter(key, n)))?.text() ?? null
+            await novel.downloadNovelChapter(key, n, 'Fixture')
+            const copy = await novel.loadDownloadedNovelChapter(key, n)
+            results.push({ kind, offline: offline === null, stale, retained,
+                saved: !!novel.novelDlEntry(key, n), html: copy?.html })
+        }
+        return results
+    })
+    expect(results).toEqual([
+        ['missing', null], ['empty', ''], ['bad-json', '{"html":'],
+        ['bad-html', JSON.stringify({ html: ' ' })],
+    ].map(([kind, retained]) => ({ kind, offline: true, stale: false, retained,
+        saved: true, html: '<p>Fresh chapter</p>' })))
+})
+
+test('failed retry of a corrupt novel chapter leaves its original bytes and images intact', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'novel-stale-failed-retry', n = 1, original = '{"html":"recoverable data"'
+        await dl.dlWrite(dl.dlPath.novelChapter(key, n), original)
+        await dl.dlWrite(dl.dlPath.novelImage(key, n, 0), 'old illustration')
+        dl.dlRegister({ kind: 'novel', key, id: String(n), title: 'Fixture' })
+        await novel.loadDownloadedNovelChapter(key, n)
+        setTransport(async () => { throw new Error('temporarily offline') })
+        let failure
+        try { await novel.downloadNovelChapter(key, n, 'Fixture') } catch (e) { failure = e.message }
+        return { failure, registered: !!novel.novelDlEntry(key, n),
+            chapter: await (await dl.dlRead(dl.dlPath.novelChapter(key, n)))?.text() ?? null,
+            illustration: await (await dl.dlRead(dl.dlPath.novelImage(key, n, 0)))?.text() ?? null,
+            original }
+    })
+    expect(result.failure).toContain('temporarily offline')
+    expect(result).toMatchObject({ registered: false, illustration: 'old illustration', chapter: result.original })
+})
+
+test('replacing a corrupt novel chapter preserves orphan illustrations through failed writes and retry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'novel-stale-image-collision', n = 1, original = '{"html":"partially saved"'
+        await dl.dlWrite(dl.dlPath.novelChapter(key, n), original)
+        await dl.dlWrite(dl.dlPath.novelImage(key, n, 0), 'old illustration')
+        dl.dlRegister({ kind: 'novel', key, id: String(n), title: 'Fixture' })
+        await novel.loadDownloadedNovelChapter(key, n)
+        setTransport(async url => String(url).includes('/chapter?')
+            ? Response.json({ html: '<p>Fresh</p><img src="https://images.example/new.png">' })
+            : new Response('new illustration'))
+        const setItem = Storage.prototype.setItem
+        Storage.prototype.setItem = function (name, value) {
+            if (name === 'vellum:dl') throw new DOMException('Full', 'QuotaExceededError')
+            return setItem.call(this, name, value)
+        }
+        let error
+        try { await novel.downloadNovelChapter(key, n, 'Fixture') } catch (e) { error = e.message }
+        finally { Storage.prototype.setItem = setItem }
+        const afterFailure = {
+            chapter: await (await dl.dlRead(dl.dlPath.novelChapter(key, n)))?.text(),
+            originalImage: await (await dl.dlRead(dl.dlPath.novelImage(key, n, 0)))?.text(),
+            newImage: !!await dl.dlRead(dl.dlPath.novelImage(key, n, 1)),
+        }
+        await novel.downloadNovelChapter(key, n, 'Fixture')
+        return { error, afterFailure, saved: !!novel.novelDlEntry(key, n),
+            chapter: (await novel.loadDownloadedNovelChapter(key, n))?.html,
+            originalImage: await (await dl.dlRead(dl.dlPath.novelImage(key, n, 0)))?.text(),
+            newImage: await (await dl.dlRead(dl.dlPath.novelImage(key, n, 1)))?.text(),
+            original }
+    })
+    expect(result.error).toContain('download list')
+    expect(result.afterFailure).toEqual({ chapter: result.original, originalImage: 'old illustration', newImage: false })
+    expect(result.saved).toBe(true)
+    expect(result.chapter).toContain('src="blob:')
+    expect(result.originalImage).toBe('old illustration')
+    expect(result.newImage).toBe('new illustration')
+})
+
+test('temporary novel file read failures preserve the downloaded entry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const key = 'novel-unreadable', n = 1
+        await dl.dlWrite(dl.dlPath.novelChapter(key, n), JSON.stringify({ html: '<p>Saved chapter</p>' }))
+        dl.dlRegister({ kind: 'novel', key, id: String(n), title: 'Fixture' })
+        const getFile = FileSystemFileHandle.prototype.getFile
+        FileSystemFileHandle.prototype.getFile = async function (...args) {
+            if (this.name === '1.json') throw new DOMException('In use', 'NotReadableError')
+            return getFile.apply(this, args)
+        }
+        let offline
+        try { offline = await novel.loadDownloadedNovelChapter(key, n) }
+        finally { FileSystemFileHandle.prototype.getFile = getFile }
+        return { offline: offline === null, registered: !!novel.novelDlEntry(key, n),
+            original: (await novel.loadDownloadedNovelChapter(key, n))?.html }
+    })
+    expect(result).toEqual({ offline: true, registered: true, original: '<p>Saved chapter</p>' })
+})
+
 test('saved novel illustrations open concurrently in order and reuse duplicate slots', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {

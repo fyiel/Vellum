@@ -1,6 +1,6 @@
 import { getChapter } from './api.js'
 import { apiUrl, raceAbort, rawFetch } from './http.js'
-import { dlEntries, dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
+import { dlEntries, dlEntry, dlExists, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
 
 // in-flight downloads: `${key}:${n}` -> { ctrl }
 const active = new Map()
@@ -34,7 +34,7 @@ const fetchImage = async (url, signal) => {
 // fetch them alongside the text and rewrite the src to a dlimg:N placeholder, which
 // loadDownloadedNovelChapter swaps for a local blob url. an image that fails keeps its
 // remote src — the chapter text is still complete without it
-async function downloadImages(key, n, html, signal, written) {
+async function downloadImages(key, n, html, signal, written, preserveExisting = false) {
     const doc = new DOMParser().parseFromString(html, 'text/html')
     const imgs = [...doc.querySelectorAll('img[src]')].filter(img => /^(https?:)?\/\//i.test(img.getAttribute('src')))
     // Repair only missing remote images, without overwriting existing local image slots.
@@ -60,6 +60,12 @@ async function downloadImages(key, n, html, signal, written) {
             if (!blob) continue
             let path
             try {
+                // A prior chapter file may have been evicted or become corrupt,
+                // leaving unregistered illustrations behind. Never overwrite
+                // those bytes while replacing its chapter from the network.
+                if (preserveExisting) {
+                    while (await dlExists(dlPath.novelImage(key, n, next))) next++
+                }
                 const slot = next++
                 path = dlPath.novelImage(key, n, slot)
                 written.push(path)
@@ -103,7 +109,13 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
         }
         chapter ??= await getChapter(key, n, { signal: ctrl.signal })
         if (ctrl.signal.aborted) throw new Error('download cancelled')
-        const images = await downloadImages(key, n, chapter.html, ctrl.signal, written)
+        if (!saved) {
+            // A stale registry row may have been removed while its old chapter
+            // bytes remain. Keep them for rollback if the replacement fails.
+            const previous = await dlRead(chapterPath)
+            if (previous) previousText = await previous.text()
+        }
+        const images = await downloadImages(key, n, chapter.html, ctrl.signal, written, !saved)
         if (ctrl.signal.aborted) throw new Error('download cancelled')
         const text = JSON.stringify({ ...chapter, html: images.html })
         writeAttempted = true
@@ -112,8 +124,13 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
         dlRegister({ kind: 'novel', key, id, title, label: `Ch. ${n}`, size: new TextEncoder().encode(text).byteLength + images.size })
     } catch (error) {
         if (!saved) {
-            await dlRemove(chapterPath)
-            await dlRemove(dlPath.novelImages(key, n))
+            if (writeAttempted) {
+                if (previousText != null) await dlWrite(chapterPath, previousText)
+                else await dlRemove(chapterPath)
+            }
+            // Only remove files this attempt created; orphaned illustrations
+            // may still be the sole remaining copy of a failed chapter.
+            for (const path of written) await dlRemove(path)
         } else {
             try {
                 // Restore the saved chapter if a write or registry update failed.
@@ -148,14 +165,24 @@ export async function deleteNovelDownload(key, n) {
 // offline reader payload: same shape as getChapter (parsed { html, title?, ... }),
 // with dlimg:N placeholders swapped for local blob urls
 export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
-    if (signal?.aborted || !dlEntry('novel', key, String(n))) return null
-    const blob = await dlRead(dlPath.novelChapter(key, n))
-    if (!blob || signal?.aborted) return null
+    const id = String(n)
+    const entry = dlEntry('novel', key, id)
+    if (signal?.aborted || !entry) return null
+    const path = dlPath.novelChapter(key, n)
+    const blob = await dlRead(path)
+    if (signal?.aborted) return null
+    let stale = !!blob && !blob.size
+    if (!blob) {
+        try { stale = !await dlExists(path) }
+        catch { return null } // temporary filesystem error; preserve the entry
+    }
     const created = []
     let complete = false
     try {
+        if (!blob?.size) return null
         const value = JSON.parse(await blob.text())
-        if (typeof value?.html !== 'string' || !value.html.trim() || signal?.aborted) return null
+        if (typeof value?.html !== 'string' || !value.html.trim()) { stale = true; return null }
+        if (signal?.aborted) return null
         const slots = [...new Set([...value.html.matchAll(/src="dlimg:(\d+)"/g)].map(([, i]) => i))]
         const images = new Array(slots.length)
         let next = 0
@@ -181,8 +208,21 @@ export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
         value.html = value.html.replace(/src="dlimg:(\d+)"/g, (match, i) => urls.has(i) ? `src="${urls.get(i)}"` : match)
         complete = true
         return value
-    } catch { return null }
-    finally { if (!complete) for (const url of created) URL.revokeObjectURL(url) }
+    } catch (error) {
+        if (error instanceof SyntaxError) stale = true
+        return null
+    } finally {
+        if (!complete) for (const url of created) URL.revokeObjectURL(url)
+        if (stale && !signal?.aborted && !novelDlActive(key, n)) {
+            const current = dlEntry('novel', key, id)
+            if (current?.at === entry.at && current?.size === entry.size && current?.title === entry.title) {
+                // Remove only the stale index, leaving any remaining bytes for
+                // recovery until a fresh download has succeeded.
+                await dlUnregister('novel', key, id)
+                notify()
+            }
+        }
+    }
 }
 
 // repair pass for chapters saved before in-chapter images were downloaded: any stored
