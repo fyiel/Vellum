@@ -48,23 +48,30 @@ export const anilistAnimeRow = value => {
 async function graphql(query, variables, signal) {
     // bounded timeout, caller abort preserved (manual controller for old-webview compat)
     const ctrl = new AbortController()
-    const onAbort = () => ctrl.abort()
-    if (signal?.aborted) ctrl.abort()
+    const onAbort = () => ctrl.abort(new DOMException('AniList request cancelled', 'AbortError'))
+    if (signal?.aborted) onAbort()
     else signal?.addEventListener('abort', onAbort, { once: true })
-    const timer = setTimeout(() => ctrl.abort(), 15_000)
+    const timer = setTimeout(() => ctrl.abort(new Error('AniList request timed out')), 15_000)
+    // A fetch implementation or JSON body may ignore AbortSignal; settle the caller anyway.
+    let onInterrupt
+    const interrupted = new Promise((_, reject) => {
+        onInterrupt = () => reject(ctrl.signal.reason)
+        ctrl.signal.addEventListener('abort', onInterrupt, { once: true })
+        if (ctrl.signal.aborted) onInterrupt()
+    })
     try {
-        const response = await fetch(ANILIST, {
+        const response = await Promise.race([fetch(ANILIST, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ query, variables }),
             signal: ctrl.signal,
-        })
+        }), interrupted])
         if (!response.ok) {
             const error = new Error(`AniList ${response.status}`)
             error.status = response.status
             throw error
         }
-        const data = await response.json()
+        const data = await Promise.race([response.json(), interrupted])
         // GraphQL errors arrive as 200 + {errors} (e.g. rate limiting); never treat them as an empty feed
         if (!data || Array.isArray(data?.errors) || !data?.data) {
             const error = new Error(data?.errors?.[0]?.message || 'AniList returned no data')
@@ -74,6 +81,7 @@ async function graphql(query, variables, signal) {
         return data
     } finally {
         clearTimeout(timer)
+        ctrl.signal.removeEventListener('abort', onInterrupt)
         signal?.removeEventListener('abort', onAbort)
     }
 }
