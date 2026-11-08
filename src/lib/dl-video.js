@@ -93,8 +93,12 @@ async function downloadHls(url, writer, progress, signal) {
     }
     const { init, segments, maps } = parseMedia(text)
     if (!segments.length) throw new Error('stream playlist is empty')
-    const encrypted = segments[0].key
-    if (encrypted && encrypted.method !== 'AES-128') throw new Error(`${encrypted.method} encrypted streams can't be downloaded`)
+    // The encryption method can change anywhere in a media playlist. Validate
+    // the whole playlist before writing bytes so unsupported methods never
+    // produce a seemingly successful but unplayable offline copy.
+    const unsupported = segments.find(({ key }) => key && key.method !== 'AES-128')?.key
+        || maps.find(({ key }) => key && key.method !== 'AES-128')?.key
+    if (unsupported) throw new Error(`${unsupported.method} encrypted streams can't be downloaded`)
 
     // TS segments get remuxed to a single mp4; fMP4 segments concatenate as-is
     const remux = !looksFragmentedMp4(init, segments[0].uri)

@@ -193,6 +193,50 @@ for (const playlist of ['master', 'variant']) {
     })
 }
 
+test('HLS downloads reject encryption methods introduced after the first segment', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:rotated-method', id = '1'
+        const bytes = new Uint8Array(16).fill(7)
+        const iv = new Uint8Array(16)
+        iv[15] = 1
+        const cryptoKey = await crypto.subtle.importKey('raw', bytes, 'AES-CBC', false, ['encrypt'])
+        // Deliberately valid AES-CBC ciphertext: treating SAMPLE-AES as AES-128
+        // would decrypt it and incorrectly report an offline download as usable.
+        const encrypted = await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, cryptoKey, new TextEncoder().encode('encrypted fragment'))
+        const playlist = '#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\nclear.m4s\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key.bin",IV=0x1\n#EXTINF:4,\nencrypted.m4s\n#EXT-X-ENDLIST\n'
+        const requests = []
+        setTransport(async url => {
+            const path = String(url)
+            requests.push(path)
+            if (path.includes('/playback?')) return Response.json({
+                key, episodeId: id, providerLabel: 'Test',
+                sources: [{ kind: 'direct', url: '/rotated.m3u8', type: 'application/x-mpegURL' }],
+            })
+            if (path.endsWith('/rotated.m3u8')) return new Response(playlist)
+            if (path.endsWith('/init.mp4')) return new Response(new Uint8Array([1, 2]))
+            if (path.endsWith('/clear.m4s')) return new Response(new Uint8Array([3, 4]))
+            if (path.endsWith('/key.bin')) return new Response(bytes)
+            if (path.endsWith('/encrypted.m4s')) return new Response(encrypted)
+            throw new Error(`unexpected request ${path}`)
+        })
+        let error = null
+        try { await video.downloadVideoEpisode(key, id) } catch (cause) { error = cause.message }
+        return {
+            error, saved: !!video.videoDlEntry(key, id),
+            bytes: !!await dlRead(dlPath.video(key, id)),
+            fetchedEncryptedBytes: requests.some(path => path.endsWith('/encrypted.m4s')),
+        }
+    })
+    expect(result).toEqual({
+        error: "SAMPLE-AES encrypted streams can't be downloaded",
+        saved: false, bytes: false, fetchedEncryptedBytes: false,
+    })
+})
+
 for (const encryptedSegment of [true, false]) {
     test(`AES-128 HLS initialization data is decrypted when segments are ${encryptedSegment ? 'encrypted' : 'clear'}`, async ({ page }) => {
         await page.goto(app)
