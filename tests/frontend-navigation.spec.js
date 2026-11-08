@@ -160,6 +160,25 @@ test('a failed manga detail load clears the chapter spinner and retries cleanly'
     expect(errors).toEqual([])
 })
 
+test('a failed novel detail load can be retried without leaving the title', async ({ page }) => {
+    const errors = await fixtures(page)
+    let tries = 0
+    await page.route('**/read/api/series/**', route => {
+        if (tries++ === 0) return route.fulfill({
+            status: 503, contentType: 'application/json',
+            body: JSON.stringify({ error: { message: 'Source temporarily unavailable', retryable: false } }),
+        })
+        return reply(route, { title: 'Novel fixture', nfSlug: 'fixture', cover })
+    })
+    await navigate(page, '#/series/nf%3Afixture')
+    await expect(page.locator('#sinfo')).toContainText('Source temporarily unavailable')
+    await expect(page.locator('#series-retry')).toBeVisible()
+    await page.locator('#series-retry').click()
+    await expect(page.locator('#sinfo .dtitle')).toHaveText('Novel fixture')
+    await expect(page.locator('#chlist .chrow')).toHaveCount(3)
+    expect(errors).toEqual([])
+})
+
 for (const kind of ['novel', 'manga']) {
     test(`a pending ${kind} chapter filter cannot hide the next title's chapters`, async ({ page }) => {
         const errors = await fixtures(page)

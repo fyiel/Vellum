@@ -403,7 +403,10 @@ export async function showSeries(key, origin) {
     let series
     try { series = await getSeries(seriesKey(key), { signal: controller.signal }) }
     catch (e) {
-        if (mine === req && parseHash().name === 'series' && parseHash().key === key) info.innerHTML = `<div class="void">${esc(e.message)}</div>`
+        if (mine === req && parseHash().name === 'series' && parseHash().key === key) {
+            info.innerHTML = `<div class="void" role="status">${esc(e?.message || 'Series unavailable')}<button class="btn" id="series-retry" type="button">Try again</button></div>`
+            $('#series-retry').onclick = () => showSeries(key, origin)
+        }
         return
     }
     if (mine !== req || parseHash().name !== 'series' || parseHash().key !== key) return
