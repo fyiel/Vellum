@@ -79,3 +79,69 @@ test('closing a cold reader discards both pending responses', async ({ page }) =
         expect(errors).toEqual([])
     } finally { listGate.resolve(); textGate.resolve() }
 })
+
+test('manga page turns reuse the chapter order of a large catalog', async ({ page }) => {
+    const key = 'mf:page-order'
+    const chapters = [
+        { id: 'second-b', number: 2 },
+        { id: 'chapter-3', number: 3 },
+        ...Array.from({ length: 2000 }, (_, i) => ({ id: `chapter-${i + 10}`, number: i + 10 })),
+        { id: 'chapter-1', number: 1 },
+        { id: 'second-a', number: 2 },
+        { id: 'special', number: null },
+    ]
+    await page.addInitScript(() => {
+        window.catalogSorts = 0
+        const sort = Array.prototype.sort
+        Array.prototype.sort = function (compare) {
+            if (this.length >= 1000) window.catalogSorts++
+            return sort.call(this, compare)
+        }
+    })
+    await page.route('**/read/api/manga/series/**', route => reply(route, {
+        key, kind: 'manga', format: 'manga', title: 'Page Order',
+    }))
+    await page.route('**/read/api/manga/chapters?**', route => reply(route, { key, chapters }))
+    await page.route('**/read/api/manga/chapter?**', route => {
+        const id = new URL(route.request().url()).searchParams.get('id')
+        return reply(route, {
+            key, chapter: chapters.find(item => item.id === id),
+            pages: Array.from({ length: 24 }, (_, i) => ({
+                url: `/read/api/manga/image?key=mf%3Apage-order&id=${id}&page=${i}`,
+                width: 800, height: 1200,
+            })),
+        })
+    })
+    await page.route('**/read/api/manga/image?**', route => route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"/>',
+    }))
+
+    await page.goto(`${app}#/manga/read/mf%3Apage-order/second-a`)
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+    await expect(page.locator('#mreader')).toHaveAttribute('data-mode', 'paged')
+    const total = await page.evaluate(key => JSON.parse(localStorage.getItem('vellum:lib'))?.find(entry => entry.slug === key)?.total, key)
+    expect(total).toBe(chapters.length)
+    const { elapsedMs, sorts } = await page.evaluate(() => {
+        const before = window.catalogSorts
+        const start = performance.now()
+        for (let i = 0; i < 12; i++) document.querySelector('#mr-next').click()
+        return { elapsedMs: +(performance.now() - start).toFixed(1), sorts: window.catalogSorts - before }
+    })
+    console.log(`Manga 12 synchronous page turns: ${elapsedMs}ms, full catalog sorts: ${sorts}`)
+    await expect(page.locator('#mr-pos')).toHaveText('Page 13 / 24')
+    expect(sorts).toBe(0)
+
+    // Identical chapter numbers form one logical chapter for navigation.
+    const chapterSorts = await page.evaluate(() => window.catalogSorts)
+    await page.keyboard.press('Shift+ArrowLeft')
+    await expect(page.locator('#mr-title')).toContainText('Ch. 3')
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+    await page.keyboard.press('Shift+ArrowRight')
+    await expect(page.locator('#mr-title')).toContainText('Ch. 1')
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+    expect(await page.evaluate(before => window.catalogSorts - before, chapterSorts)).toBe(0)
+})

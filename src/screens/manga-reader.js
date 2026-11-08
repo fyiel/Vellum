@@ -86,12 +86,31 @@ const stillHere = (key, id, gen) => {
     return state.active && state.gen === gen && current.name === 'manga-read' && current.key === key && current.id === id
 }
 
-const ordered = () => orderMangaChapters(state.chapters)
+let orderedSource = null
+let orderedChapters = []
+let chapterIndices = new Map()
+
+function clearChapterOrder() {
+    orderedSource = null
+    orderedChapters = []
+    chapterIndices.clear()
+}
 
 function adjacentChapter(offset) {
-    const chapters = ordered()
-    const index = chapters.findIndex(chapter => chapter.id === state.id)
-    if (index < 0) return
+    // A catalog is immutable until the next reader load. Page turns consult
+    // neighbors repeatedly, so sort and index it only when the list changes.
+    if (orderedSource !== state.chapters) {
+        orderedSource = state.chapters
+        orderedChapters = orderMangaChapters(state.chapters)
+        chapterIndices = new Map()
+        for (let index = 0; index < orderedChapters.length; index++) {
+            const id = orderedChapters[index].id
+            if (!chapterIndices.has(id)) chapterIndices.set(id, index)
+        }
+    }
+    const chapters = orderedChapters
+    const index = chapterIndices.get(state.id)
+    if (index == null) return
     let next = index + offset
     while (chapters[index].number != null && chapters[next]?.number === chapters[index].number) next += offset
     return chapters[next]
@@ -737,6 +756,7 @@ function wire() {
 
 export async function showMangaReader(key, id) {
     wire()
+    if (state.key !== key) clearChapterOrder()
     clearChapterPreloads(state.key === key ? [id] : [])
     const entry = state.key === key && state.enterAt?.id === id ? state.enterAt : null
     state.enterAt = null
@@ -837,6 +857,7 @@ export async function showMangaReader(key, id) {
 
 export function closeMangaReader() {
     if (!state.active) return
+    clearChapterOrder()
     clearChapterPreloads()
     imageZoom.reset()
     saveProgress()
