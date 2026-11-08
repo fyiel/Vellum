@@ -2,6 +2,27 @@ import { test, expect } from '@playwright/test'
 
 const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 
+test('saved novel chapter keeps the known series total when the catalog fails', async ({ page }) => {
+    await page.goto(app)
+    const key = 'offline-novel-total'
+    await page.evaluate(async key => {
+        const dl = await import('/src/lib/downloads.js')
+        const { touchLibrary } = await import('/src/lib/store.js')
+        touchLibrary({ slug: key, kind: 'novel', title: 'Saved Book', total: 600 })
+        await dl.dlWrite(dl.dlPath.novelChapter(key, 1), JSON.stringify({ html: '<p>saved offline novel</p>' }))
+        dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved Book', label: 'Chapter 1' })
+        const { setTransport } = await import('/src/lib/http.js')
+        setTransport(async () => { throw new Error('catalog unavailable') })
+        location.hash = `#/read/${key}/1`
+    }, key)
+
+    await expect(page.locator('#reader-prose')).toContainText('saved offline novel')
+    await expect.poll(() => page.evaluate(key => {
+        const entry = JSON.parse(localStorage.getItem('vellum:lib')).find(item => item.slug === key)
+        return { total: entry?.total, lastN: entry?.lastN, readCount: entry?.readCount }
+    }, key)).toEqual({ total: 600, lastN: 1, readCount: 1 })
+})
+
 test('saved novel illustrations open concurrently in order and reuse duplicate slots', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {

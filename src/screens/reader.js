@@ -46,7 +46,7 @@ const applySettings = () => {
   if (state.view === "reader") document.body.style.background = bg;
 };
 
-const state = { view: "home", series: null, slug: null, chapters: [] };
+const state = { view: "home", series: null, slug: null, chapters: [], chaptersFromDownloads: false };
 
 const R = $("#reader");
 const prose = $("#reader-prose");
@@ -145,6 +145,7 @@ export async function showReader(slug, n) {
     if (!saved.length) return false;
     state.slug = slug;
     state.chapters = saved.map(entry => ({ n: Number(entry.id), t: entry.label || `Chapter ${entry.id}` })).sort((a, b) => a.n - b.n);
+    state.chaptersFromDownloads = true;
     state.series = { key: seriesKey(slug), nfSlug: slug, title: saved[0].title, totalChapters: state.chapters.length };
     return true;
   };
@@ -163,6 +164,7 @@ export async function showReader(slug, n) {
       if (!Array.isArray(chapters)) throw new Error("couldn't load the chapter list");
       state.slug = slug;
       state.chapters = chapters;
+      state.chaptersFromDownloads = false;
     } catch (e) {
       if (routeGen !== rd.gen) return; // a dead route must not render into the live view
       if (!useDownloads()) {
@@ -552,7 +554,7 @@ const updateLibrary = (idx, readSize) => {
     title: s.title,
     cover: s.cover,
     lastN: c.n,
-    total: state.chapters.length,
+    total: state.chaptersFromDownloads ? undefined : state.chapters.length,
     readCount: readSize ?? readSet(rd.slug).size,
   });
 };
