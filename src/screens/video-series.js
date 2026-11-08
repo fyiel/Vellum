@@ -177,14 +177,35 @@ function episodeRows(episodes) {
     </button>${dlButton(current.series.key, episode.id)}</div>`).join('')
 }
 
+const filteredEpisodes = () => {
+    const q = query.toLowerCase()
+    return current.episodes.filter(episode => !q || `${episodeLabel(episode)} ${episode.title || ''}`.toLowerCase().includes(q))
+}
+const episodeMoreButton = (shown, total) => shown < total
+    ? `<button class="video-episode-more" id="video-episode-more" type="button">Show ${Math.min(BATCH, total - shown)} more <span>${shown} of ${total}</span></button>`
+    : ''
+
 function renderEpisodes() {
     if (!current || !currentRouteIs(current.series.key) || !$('#video-episode-list')) return
-    const q = query.toLowerCase()
-    const filtered = current.episodes.filter(episode => !q || `${episodeLabel(episode)} ${episode.title || ''}`.toLowerCase().includes(q))
+    const filtered = filteredEpisodes()
     const shown = filtered.slice(0, limit)
     $('#video-episode-list').innerHTML = shown.length
-        ? `${episodeRows(shown)}${shown.length < filtered.length ? `<button class="video-episode-more" id="video-episode-more" type="button">Show ${Math.min(BATCH, filtered.length - shown.length)} more <span>${shown.length} of ${filtered.length}</span></button>` : ''}`
+        ? `${episodeRows(shown)}${episodeMoreButton(shown.length, filtered.length)}`
         : '<div class="video-episode-empty" role="status">No matching episodes</div>'
+}
+
+function revealMoreEpisodes() {
+    if (!current || !currentRouteIs(current.series.key)) return null
+    const list = $('#video-episode-list')
+    if (!list) return null
+    const filtered = filteredEpisodes()
+    const before = Math.min(limit, filtered.length)
+    if (before >= filtered.length) return null
+    limit += BATCH
+    const added = filtered.slice(before, limit)
+    list.querySelector('#video-episode-more')?.remove()
+    list.insertAdjacentHTML('beforeend', episodeRows(added) + episodeMoreButton(before + added.length, filtered.length))
+    return list.children[before]?.querySelector('.video-episode-row')
 }
 
 function startEpisode() {
@@ -242,10 +263,7 @@ function wire() {
             return
         }
         if (event.target.closest('#video-episode-more')) {
-            const before = $('#video-episode-list').querySelectorAll('.video-episode-row').length
-            limit += BATCH
-            renderEpisodes()
-            $('#video-episode-list').querySelectorAll('.video-episode-row')[before]?.focus({ preventScroll: true })
+            revealMoreEpisodes()?.focus({ preventScroll: true })
             return
         }
         const episode = event.target.closest('.video-episode-row')
