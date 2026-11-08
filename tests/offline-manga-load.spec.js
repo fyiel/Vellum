@@ -156,6 +156,122 @@ test('offline manga progress preserves known chapter counts when provider metada
     })
 })
 
+async function savedMangaPair(page, key, format, metadataAvailable = false) {
+    await page.goto(app)
+    await page.evaluate(async ({ key, format, metadataAvailable }) => {
+        const dl = await import('/src/lib/downloads.js')
+        const { touchLibrary } = await import('/src/lib/store.js')
+        touchLibrary({
+            slug: key, key, kind: 'manga', title: 'Saved Pair', format,
+            total: 600, chapterIds: Array.from({ length: 600 }, (_, i) => `chapter-${i + 1}`),
+        })
+        const image = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"/>'], { type: 'image/svg+xml' })
+        for (let n = 1; n <= 2; n++) {
+            for (let i = 0; i < 2; i++) await dl.dlWrite(dl.dlPath.mangaPage(key, `chapter-${n}`, i), image)
+            dl.dlRegister({ kind: 'manga', key, id: `chapter-${n}`, number: n, pages: 2, title: 'Saved Pair', format })
+        }
+        const created = [], revoked = [], requests = []
+        const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL)
+        URL.createObjectURL = blob => { const url = create(blob); created.push(url); return url }
+        URL.revokeObjectURL = url => { revoked.push(url); revoke(url) }
+        window.offlinePair = { created, revoked, requests }
+        const { setTransport } = await import('/src/lib/http.js')
+        setTransport(async url => {
+            requests.push(String(url))
+            if (metadataAvailable) {
+                if (String(url).includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Saved Pair', format })
+                if (String(url).includes('/manga/chapters?')) return Response.json({
+                    key,
+                    chapters: [1, 2].map(n => ({ id: `chapter-${n}`, number: n, title: `Chapter ${n}` })),
+                })
+            }
+            throw new Error('provider unavailable')
+        })
+        location.hash = `#/manga/read/${encodeURIComponent(key)}/chapter-1`
+    }, { key, format, metadataAvailable })
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+}
+
+test('paged manga navigates downloaded chapters without metadata and keeps the catalog total', async ({ page }) => {
+    const key = 'mf:offline-paged-neighbors'
+    await savedMangaPair(page, key, 'manga')
+    await page.locator('#mr-next').click()
+    await expect(page.locator('#mr-pos')).toHaveText('Page 2 / 2')
+    await expect(page.locator('#mr-next')).toBeEnabled()
+    await page.locator('#mr-next').click()
+    await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+    const progress = await page.evaluate(key => {
+        const entry = JSON.parse(localStorage.getItem('vellum:lib')).find(row => row.slug === key)
+        return { total: entry.total, chapterIds: entry.chapterIds.length, lastId: entry.lastId, read: JSON.parse(localStorage.getItem(`vellum:read:${key}`)) }
+    }, key)
+    expect(progress).toEqual({ total: 600, chapterIds: 600, lastId: 'chapter-2', read: ['chapter-1', 'chapter-2'] })
+})
+
+test('scrolling saved manga streams the next chapter and releases downloaded image URLs', async ({ page }) => {
+    const key = 'mf:offline-scroll-neighbors'
+    await savedMangaPair(page, key, 'manhwa')
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight)
+        window.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+    await expect(page).toHaveURL(/chapter-2$/)
+    await expect(page.locator('#mr-pages .manga-page')).toHaveCount(4)
+    await page.evaluate(() => { location.hash = '#/' })
+    await expect(page.locator('#mreader')).not.toHaveClass(/active/)
+    const result = await page.evaluate(() => ({
+        created: window.offlinePair.created.length,
+        allReleased: window.offlinePair.created.every(url => window.offlinePair.revoked.includes(url)),
+        extraRequests: window.offlinePair.requests.filter(url => url.includes('/manga/chapter?')).length,
+    }))
+    expect(result).toEqual({ created: 4, allReleased: true, extraRequests: 0 })
+})
+
+test('online manga metadata streams a downloaded next chapter without fetching it again', async ({ page }) => {
+    const key = 'mf:online-saved-scroll-neighbors'
+    await savedMangaPair(page, key, 'manhwa', true)
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight)
+        window.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+    await expect(page.locator('#mr-pages .manga-page')).toHaveCount(4)
+    await page.evaluate(() => { location.hash = '#/' })
+    await expect(page.locator('#mreader')).not.toHaveClass(/active/)
+    const result = await page.evaluate(() => ({
+        created: window.offlinePair.created.length,
+        allReleased: window.offlinePair.created.every(url => window.offlinePair.revoked.includes(url)),
+        chapterRequests: window.offlinePair.requests.filter(url => url.includes('/manga/chapter?')),
+    }))
+    expect(result).toEqual({ created: 4, allReleased: true, chapterRequests: [] })
+})
+
+test('changing reading mode releases images from discarded streamed chapters', async ({ page }) => {
+    const key = 'mf:offline-discard-streamed'
+    await savedMangaPair(page, key, 'manhwa')
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await page.evaluate(() => {
+        window.scrollTo(0, document.body.scrollHeight)
+        window.dispatchEvent(new Event('scroll'))
+    })
+    await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+    await page.locator('#mr-mode').selectOption('paged')
+    const during = await page.evaluate(() => {
+        const { created, revoked } = window.offlinePair
+        return {
+            created: created.length,
+            previousReleased: created.slice(0, 2).every(url => revoked.includes(url)),
+            currentRetained: created.slice(2).every(url => !revoked.includes(url)),
+        }
+    })
+    expect(during).toEqual({ created: 4, previousReleased: true, currentRetained: true })
+    await page.evaluate(() => { location.hash = '#/' })
+    await expect(page.locator('#mreader')).not.toHaveClass(/active/)
+    expect(await page.evaluate(() => window.offlinePair.created.every(url => window.offlinePair.revoked.includes(url)))).toBe(true)
+})
+
 test('leaving a saved manga chapter during a disk read releases its image URLs', async ({ page }) => {
     await page.goto(app)
     const key = 'mf:close-offline', id = 'c1'

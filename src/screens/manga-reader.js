@@ -1,5 +1,6 @@
 import { getMangaChapter, getMangaChapters, getMangaSeries, mangaErrorMessage, mangaPageUrl, orderMangaChapters, parseMangaKey } from '../lib/manga-api.js'
 import { loadDownloadedMangaChapter } from '../lib/dl-manga.js'
+import { dlEntries, dlEntry } from '../lib/downloads.js'
 import { go, parseHash } from '../lib/router.js'
 import { library, loadMangaReaderSettings, posGet, posSet, readSet, saveMangaReaderSettings, saveRead, touchLibrary } from '../lib/store.js'
 import { $, esc } from '../lib/dom.js'
@@ -15,7 +16,36 @@ const otherSheets = ['#drawer', '#drawer-backdrop', '#sheet', '#sheet-backdrop']
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const DRAWER_BATCH = 400
 const chapterPreloads = new Map()
+const localUrls = new Set()
 let imageZoom = null
+
+function trackLocalPages(content) {
+    for (const page of content?.pages || []) {
+        if (typeof page?.url === 'string' && page.url.startsWith('blob:')) localUrls.add(page.url)
+    }
+}
+
+function releaseLocalPages(content) {
+    for (const page of content?.pages || []) {
+        if (typeof page?.url !== 'string' || !page.url.startsWith('blob:')) continue
+        localUrls.delete(page.url)
+        URL.revokeObjectURL(page.url)
+    }
+}
+
+function releaseAllLocalPages() {
+    for (const url of localUrls) URL.revokeObjectURL(url)
+    localUrls.clear()
+}
+
+function releaseDiscardedLocalPages(content) {
+    const retained = new Set(content.pages.map(page => page.url))
+    for (const url of localUrls) {
+        if (retained.has(url)) continue
+        URL.revokeObjectURL(url)
+        localUrls.delete(url)
+    }
+}
 
 const state = {
     active: false,
@@ -25,6 +55,7 @@ const state = {
     ctrl: null,
     series: null,
     chapters: [],
+    chaptersFromDownloads: false,
     chapter: null,
     content: null,
     page: 0,
@@ -123,6 +154,8 @@ function changeSettings() {
     state.streaming = false
     state.streamJump = false
     applySettings()
+    // Changing modes rebuilds the DOM with only the active chapter.
+    releaseDiscardedLocalPages(state.content)
     renderPages(state.content)
 }
 
@@ -240,6 +273,8 @@ function trimChapters() {
         const height = document.documentElement.scrollHeight
         for (let node = cutoff.previousSibling; node;) {
             const prev = node.previousSibling
+            const url = node.querySelector?.('img')?.dataset.src
+            if (url && localUrls.delete(url)) URL.revokeObjectURL(url)
             node.remove()
             node = prev
         }
@@ -258,9 +293,12 @@ function clearChapterPreloads(keep = []) {
 }
 
 function prefetchChapter(offset, warmImages) {
-    if (navigator.connection?.saveData) return
+    if (state.chaptersFromDownloads || navigator.connection?.saveData) return
     const chapter = adjacentChapter(offset)
     if (!chapter) return
+    // Streaming can read saved chapters directly; don't fetch their metadata
+    // and images from the provider just to warm the adjacent chapter.
+    if (dlEntry('manga', state.key, chapter.id)?.pages > 0) return
     clearChapterPreloads([state.id, adjacentChapter(-1)?.id, adjacentChapter(1)?.id])
     const key = state.key
     let preload = chapterPreloads.get(chapter.id)
@@ -313,9 +351,14 @@ async function maybeStreamNext(advance = false) {
     if (!next) { state.streamJump = false; return }
     if (!advance && (!state.scrolled || pageElement(state.content.pages.length - 1)?.getBoundingClientRect().bottom > innerHeight * 1.5)) return
     state.streaming = true
+    let localCopy = null
+    let attached = false
     try {
-        const content = await readerChapter(key, next.id, state.ctrl.signal)
+        localCopy = await loadDownloadedMangaChapter(key, next.id, { signal: state.ctrl.signal })
+        const content = localCopy?.content || (state.chaptersFromDownloads ? null : await readerChapter(key, next.id, state.ctrl.signal))
         if (!state.active || state.mode !== 'scroll' || state.gen !== gen || !content?.pages.length) return
+        trackLocalPages(content)
+        attached = true
         // the finished chapter is marked read and parked at its end (setCurrent pattern, reader.js:427-446)
         const done = state.id
         const read = readSet(key)
@@ -340,6 +383,7 @@ async function maybeStreamNext(advance = false) {
         if (state.streamJump) pageElement(0)?.scrollIntoView({ block: 'start' })
         updateLibrary()
     } catch {} finally {
+        if (localCopy && !attached) releaseLocalPages(localCopy.content)
         if (state.gen === gen) {
             state.streaming = false
             state.streamJump = false
@@ -411,8 +455,8 @@ function updateLibrary(includeChapters = true) {
         source: SOURCE[provider] || 'Manga',
         format: state.series.format,
         // Offline copies can open without provider chapter metadata; keep the known total.
-        total: state.chapters.length || undefined,
-        chapterIds: includeChapters ? state.chapters.map(chapter => chapter.id) : undefined,
+        total: state.chaptersFromDownloads ? undefined : state.chapters.length || undefined,
+        chapterIds: includeChapters && !state.chaptersFromDownloads ? state.chapters.map(chapter => chapter.id) : undefined,
         readCount: readSet(state.key).size,
         lastId: state.id,
         lastLabel: chapterLabel(state.chapter),
@@ -698,16 +742,14 @@ export async function showMangaReader(key, id) {
     state.enterAt = null
     imageZoom.reset()
     saveProgress()
-    for (const page of state.content?.pages || []) {
-        if (typeof page?.url === 'string' && page.url.startsWith('blob:')) URL.revokeObjectURL(page.url)
-    }
+    releaseAllLocalPages()
     state.ctrl?.abort()
     state.loadObserver?.disconnect()
     state.pageObserver?.disconnect()
     const ctrl = new AbortController()
     const gen = ++state.gen
     Object.assign(state, {
-        active: true, key, id, ctrl, series: null, chapters: [], chapter: null, content: null,
+        active: true, key, id, ctrl, series: null, chapters: [], chaptersFromDownloads: false, chapter: null, content: null,
         page: 0, streaming: false, streamJump: false, firstImageMeasured: false,
     })
     beginMeasure()
@@ -745,6 +787,7 @@ export async function showMangaReader(key, id) {
         const chapter = chapterData.chapters.find(item => item.id === id)
         if (!chapter) throw new Error('Chapter is no longer available')
         Object.assign(state, { series, chapters: chapterData.chapters, chapter, content })
+        trackLocalPages(content)
         Object.assign(state, loadMangaReaderSettings(key, series.format))
         applySettings()
         $('#mr-title').textContent = `${series.title} · ${chapterLabel(chapter)}`
@@ -761,12 +804,18 @@ export async function showMangaReader(key, id) {
         // network or provider failure: fall back to the downloaded copy when one exists
         local ??= await localRequest
         if (local && stillHere(key, id, gen)) {
+            const downloaded = dlEntries().filter(entry => entry.kind === 'manga' && entry.key === key
+                && typeof entry.id === 'string' && entry.id.length > 0 && Number.isSafeInteger(entry.pages) && entry.pages > 0)
             Object.assign(state, {
                 series: { title: local.entry.title, format: local.entry.format || library().find(entry => entry.slug === key)?.format },
-                chapters: [],
+                chapters: downloaded.map(entry => ({
+                    id: entry.id, number: Number.isFinite(entry.number) ? entry.number : null, title: entry.chapterTitle,
+                })),
+                chaptersFromDownloads: true,
                 chapter: local.content.chapter,
                 content: local.content,
             })
+            trackLocalPages(local.content)
             Object.assign(state, loadMangaReaderSettings(key, state.series.format))
             applySettings()
             $('#mr-title').textContent = `${local.entry.title} · ${chapterLabel(local.content.chapter)}`
@@ -782,9 +831,7 @@ export async function showMangaReader(key, id) {
         // Navigation can abandon a downloaded copy before it reaches state.
         // Release its URLs even when metadata requests finish after closing.
         const copy = local ?? await localRequest
-        if (copy && state.content !== copy.content) {
-            for (const page of copy.content.pages) URL.revokeObjectURL(page.url)
-        }
+        if (copy && state.content !== copy.content) releaseLocalPages(copy.content)
     }
 }
 
@@ -793,10 +840,8 @@ export function closeMangaReader() {
     clearChapterPreloads()
     imageZoom.reset()
     saveProgress()
-    // downloaded chapters hand out object URLs; hand them back
-    for (const page of state.content?.pages || []) {
-        if (typeof page?.url === 'string' && page.url.startsWith('blob:')) URL.revokeObjectURL(page.url)
-    }
+    // downloaded chapters hand out object URLs; hand them back, including streamed chapters
+    releaseAllLocalPages()
     state.active = false
     state.ctrl?.abort()
     state.ctrl = null
