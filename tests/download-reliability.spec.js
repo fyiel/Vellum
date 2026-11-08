@@ -891,6 +891,32 @@ test('failed OPFS writes abort the writer before propagating the error', async (
     expect(result).toEqual({ aborted: true, error: 'Disk full' })
 })
 
+test('aborted OPFS video writers do not commit partial media if cleanup fails', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { dlRead, dlWriter } = await import('/src/lib/downloads.js')
+        const removeEntry = FileSystemDirectoryHandle.prototype.removeEntry
+        let removalAttempts = 0
+        FileSystemDirectoryHandle.prototype.removeEntry = async function (name, ...args) {
+            if (name === 'aborted-stream.mp4') {
+                removalAttempts++
+                throw new DOMException('Storage is busy', 'NoModificationAllowedError')
+            }
+            return removeEntry.call(this, name, ...args)
+        }
+        try {
+            const writer = await dlWriter('video/aborted-stream.mp4')
+            await writer.write(new Uint8Array([1, 2, 3, 4]))
+            await writer.abort()
+            return {
+                removalAttempts,
+                remainingBytes: (await dlRead('video/aborted-stream.mp4'))?.size ?? 0,
+            }
+        } finally { FileSystemDirectoryHandle.prototype.removeEntry = removeEntry }
+    })
+    expect(result).toEqual({ removalAttempts: 1, remainingBytes: 0 })
+})
+
 for (const mode of ['steady', 'stalled', 'cancelled']) {
     test(`direct video download handles a ${mode} stream`, async ({ page }) => {
         await page.goto(app)

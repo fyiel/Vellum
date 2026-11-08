@@ -115,7 +115,10 @@ export async function dlWriter(path) {
         },
         close: () => writable.close(),
         abort: async () => {
-            try { await writable.close() } catch {}
+            // Closing commits the partial video before removing it. Abort the
+            // transaction so a busy filesystem cannot strand those bytes if
+            // the subsequent file deletion fails.
+            try { await writable.abort() } catch {}
             await dir.removeEntry(parts.at(-1)).catch(() => {})
         },
     }
