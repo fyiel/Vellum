@@ -90,3 +90,49 @@ test('following a 61st title does not silently discard an older library entry', 
     expect(saved.find(entry => entry.slug === 'nf:shelf-0')).toMatchObject({ title: 'Shelf title 0', total: 1 })
     expect(saved.find(entry => entry.slug === 'nf:shelf-40')).toMatchObject({ lastN: 1, readCount: 1 })
 })
+
+test('saved downloads stay synchronized across tabs while preserving focused rows', async ({ page }) => {
+    await page.goto(app)
+    await page.evaluate(async () => {
+        const { dlRegister } = await import('/src/lib/downloads.js')
+        const { showLibrary } = await import('/src/screens/library.js')
+        dlRegister({ kind: 'novel', key: 'tab-a', id: '1', title: 'Already saved', size: 1000 })
+        showLibrary()
+    })
+    await expect(page.locator('#dltable .dlrow')).toHaveCount(1)
+
+    const otherTab = await page.context().newPage()
+    try {
+        await otherTab.goto(app)
+        await page.bringToFront()
+        await page.evaluate(() => {
+            window.originalSavedRow = document.querySelector('#dltable .dlrow')
+            window.originalSavedButton = window.originalSavedRow.querySelector('.dldel')
+            window.originalSavedButton.focus()
+        })
+
+        await otherTab.evaluate(async () => {
+            const { dlRegister } = await import('/src/lib/downloads.js')
+            dlRegister({ kind: 'novel', key: 'tab-b', id: '2', title: 'Saved elsewhere', size: 2000 })
+        })
+        await expect(page.locator('#dltable .dlrow')).toHaveCount(2)
+        expect(await page.evaluate(() => ({
+            preserved: document.querySelector('[data-key="tab-a"]') === window.originalSavedRow,
+            focused: document.activeElement === window.originalSavedButton,
+            newRow: document.querySelector('#dltable .dlrow')?.dataset.key,
+        }))).toEqual({ preserved: true, focused: true, newRow: 'tab-b' })
+
+        await otherTab.evaluate(async () => {
+            const { dlUnregister } = await import('/src/lib/downloads.js')
+            await dlUnregister('novel', 'tab-b', '2')
+        })
+        await expect(page.locator('#dltable .dlrow')).toHaveCount(1)
+        await expect(page.locator('#dltable .dlrow')).toHaveAttribute('data-key', 'tab-a')
+
+        await otherTab.evaluate(() => localStorage.clear())
+        await expect(page.locator('#dltable .dlrow')).toHaveCount(0)
+        await expect(page.locator('#dl-lab')).toBeHidden()
+    } finally {
+        await otherTab.close()
+    }
+})

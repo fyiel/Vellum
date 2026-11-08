@@ -187,6 +187,7 @@ export async function dlRemove(path, { strict = false } = {}) {
 
 const NS = 'vellum'
 const listeners = new Set()
+const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
 let snapshotRaw
 let snapshot = []
 let lookup = new Map()
@@ -213,9 +214,15 @@ const save = entries => {
         // Reject so callers clean up a new copy and never report it as saved.
         throw new Error('Could not save the download list. Free some storage and try again.', { cause })
     }
-    listeners.forEach(fn => { try { fn() } catch {} })
+    notify()
 }
 export const dlListen = fn => { listeners.add(fn); return () => listeners.delete(fn) }
+
+// Storage events are delivered to other tabs, not the tab performing the write.
+// Keep the same listeners reactive when another tab adds, removes, or clears downloads.
+if (typeof window !== 'undefined') window.addEventListener('storage', event => {
+    if (event.storageArea === localStorage && (event.key === `${NS}:dl` || event.key === null)) notify()
+})
 
 // Read the storage value each time so changes in other tabs remain visible
 // Parse and index only when it changes instead of once per chapter row
