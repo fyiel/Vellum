@@ -88,7 +88,17 @@ export async function dlWriter(path) {
         await fs.writeFile(tpath(path), new Uint8Array(0), { baseDir })
         const file = await fs.open(tpath(path), { baseDir, append: true })
         return {
-            write: async chunk => file.write(chunk instanceof Blob ? new Uint8Array(await chunk.arrayBuffer()) : chunk),
+            write: async chunk => {
+                const bytes = chunk instanceof Blob ? new Uint8Array(await chunk.arrayBuffer()) : chunk
+                let offset = 0
+                while (offset < bytes.byteLength) {
+                    const count = await file.write(bytes.subarray(offset))
+                    if (!Number.isSafeInteger(count) || count <= 0 || count > bytes.byteLength - offset) {
+                        throw new Error('incomplete native file write')
+                    }
+                    offset += count
+                }
+            },
             close: () => file.close(),
             abort: async () => { try { await file.close() } catch {}; await fs.remove(tpath(path), { baseDir }).catch(() => {}) },
         }

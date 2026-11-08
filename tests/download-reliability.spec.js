@@ -634,6 +634,42 @@ test('native chapter text is sent to the filesystem as UTF-8 bytes', async ({ pa
     expect(result).toBe('Chapter café 世界')
 })
 
+test('native video writes persist partial chunks and reject stalled writes', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const bytes = []
+        let writes = 0
+        let stalled = false
+        window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
+            if (command === 'plugin:fs|mkdir') return
+            if (command === 'plugin:fs|write_file') { bytes.length = 0; return }
+            if (command === 'plugin:fs|open') return 1
+            if (command === 'plugin:fs|write') {
+                if (stalled) return 0
+                writes++
+                const count = Math.min(2, args.data.length)
+                bytes.push(...args.data.slice(0, count))
+                return count
+            }
+            if (command === 'plugin:resources|close') return
+            if (command === 'plugin:fs|remove') return
+            throw new Error(`unexpected native command: ${command}`)
+        } }
+        const { dlWriter } = await import('/src/lib/downloads.js')
+        const writer = await dlWriter('video/short-write.mp4')
+        await writer.write(new Uint8Array([1, 2, 3, 4, 5]))
+        await writer.close()
+        const saved = [...bytes]
+        stalled = true
+        const stuck = await dlWriter('video/stalled-write.mp4')
+        let error
+        try { await stuck.write(new Uint8Array([6])) } catch (cause) { error = cause.message }
+        await stuck.abort()
+        return { bytes: saved, writes, error }
+    })
+    expect(result).toEqual({ bytes: [1, 2, 3, 4, 5], writes: 3, error: 'incomplete native file write' })
+})
+
 test('failed OPFS writes abort the writer before propagating the error', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
