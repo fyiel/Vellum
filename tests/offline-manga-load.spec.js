@@ -91,7 +91,7 @@ test('partial or cancelled manga reads release all allocated image URLs', async 
     expect(result).toEqual({ partialReleased: true, cancelled: true, allReleased: true })
 })
 
-test('zero-byte saved manga pages fall back from the incomplete offline copy', async ({ page }) => {
+test('zero-byte saved manga pages release the stale chapter registry after falling back', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
         const dl = await import('/src/lib/downloads.js')
@@ -104,7 +104,69 @@ test('zero-byte saved manga pages fall back from the incomplete offline copy', a
         if (offline) for (const page of offline.content.pages) URL.revokeObjectURL(page.url)
         return { offline: offline === null, registered: !!dl.dlEntry('manga', key, id) }
     })
-    expect(result).toEqual({ offline: true, registered: true })
+    expect(result).toEqual({ offline: true, registered: false })
+})
+
+test('missing or empty saved manga pages allow a fresh chapter download while retaining existing pages until retry', async ({ page }) => {
+    await page.goto(app)
+    const results = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const manga = await import('/src/lib/dl-manga.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const results = []
+        for (const kind of ['missing', 'empty']) {
+            const key = `mf:stale-${kind}`, id = 'c1'
+            await dl.dlWrite(dl.dlPath.mangaPage(key, id, 0), 'existing first page')
+            if (kind === 'empty') await dl.dlWrite(dl.dlPath.mangaPage(key, id, 1), new Blob([]))
+            dl.dlRegister({ kind: 'manga', key, id, pages: 2, title: 'Fixture', size: 100 })
+            const offline = await manga.loadDownloadedMangaChapter(key, id)
+            const stale = !!manga.mangaDlEntry(key, id)
+            const kept = await (await dl.dlRead(dl.dlPath.mangaPage(key, id, 0)))?.text()
+
+            setTransport(async url => {
+                const path = String(url)
+                if (path.includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Fixture', format: 'manga' })
+                if (path.includes('/manga/chapter?')) return Response.json({
+                    key, chapter: { id, number: 1 },
+                    pages: Array.from({ length: 2 }, (_, i) => ({ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=${i}` })),
+                })
+                if (path.includes('/manga/image?')) return new Response(`fresh page ${new URL(path, location.href).searchParams.get('page')}`)
+                throw new Error(`unexpected request ${path}`)
+            })
+            await manga.downloadMangaChapter(key, id)
+            results.push({ kind, offline: offline === null, stale, kept,
+                registered: !!manga.mangaDlEntry(key, id),
+                pages: await Promise.all([0, 1].map(async i => (await dl.dlRead(dl.dlPath.mangaPage(key, id, i)))?.text())),
+            })
+        }
+        return results
+    })
+    expect(results).toEqual(['missing', 'empty'].map(kind => ({
+        kind, offline: true, stale: false, kept: 'existing first page', registered: true,
+        pages: ['fresh page 0', 'fresh page 1'],
+    })))
+})
+
+test('a temporary manga page read failure preserves the saved chapter and its bytes', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const manga = await import('/src/lib/dl-manga.js')
+        const key = 'mf:unreadable-page', id = 'c1'
+        for (let i = 0; i < 2; i++) await dl.dlWrite(dl.dlPath.mangaPage(key, id, i), `page ${i}`)
+        dl.dlRegister({ kind: 'manga', key, id, pages: 2, title: 'Fixture' })
+        const original = FileSystemFileHandle.prototype.getFile
+        FileSystemFileHandle.prototype.getFile = async function (...args) {
+            if (this.name === '1') throw new Error('temporary read failure')
+            return original.apply(this, args)
+        }
+        let offline
+        try { offline = await manga.loadDownloadedMangaChapter(key, id) }
+        finally { FileSystemFileHandle.prototype.getFile = original }
+        return { offline: offline === null, registered: !!manga.mangaDlEntry(key, id),
+            page: await (await dl.dlRead(dl.dlPath.mangaPage(key, id, 1)))?.text() }
+    })
+    expect(result).toEqual({ offline: true, registered: true, page: 'page 1' })
 })
 
 test('manga reader fetches metadata while opening its saved image files', async ({ page }) => {

@@ -1,6 +1,6 @@
 import { getMangaChapter, getMangaSeries, mangaPageUrl } from './manga-api.js'
 import { raceAbort, rawFetch } from './http.js'
-import { dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
+import { dlEntry, dlExists, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
 
 // in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
 const active = new Map()
@@ -96,13 +96,19 @@ export async function loadDownloadedMangaChapter(key, id, { signal } = {}) {
     const pages = new Array(entry.pages)
     let next = 0
     let missing = false
+    let incompletePage = null
     // Bounded concurrency removes the per-page filesystem round trip from the
     // critical path without opening hundreds of files at once on large chapters.
     const worker = async () => {
         while (next < entry.pages && !missing && !signal?.aborted) {
             const index = next++
-            const blob = await dlRead(dlPath.mangaPage(key, id, index))
-            if (!blob?.size) { missing = true; return }
+            const path = dlPath.mangaPage(key, id, index)
+            const blob = await dlRead(path)
+            if (!blob?.size) {
+                missing = true
+                incompletePage ??= { path, empty: !!blob }
+                return
+            }
             if (missing || signal?.aborted) return
             pages[index] = { url: URL.createObjectURL(blob) }
         }
@@ -114,6 +120,23 @@ export async function loadDownloadedMangaChapter(key, id, { signal } = {}) {
     if (missing || signal?.aborted || error) {
         for (const page of pages) if (page?.url) URL.revokeObjectURL(page.url)
         if (error) throw error
+        if (missing && !signal?.aborted) {
+            // A stale registry row blocks retrying a chapter whose saved pages
+            // have been evicted or emptied. An unreadable but existing file may
+            // recover, so leave its registry entry and bytes alone.
+            let stale = incompletePage.empty
+            if (!stale) {
+                try { stale = !await dlExists(incompletePage.path) }
+                catch { return null }
+            }
+            const current = dlEntry('manga', key, id)
+            if (stale && current?.at === entry.at && current?.pages === entry.pages
+                && current?.size === entry.size && !mangaDlActive(key, id)) {
+                // Retain surviving pages until a new download replaces them.
+                await dlUnregister('manga', key, id)
+                notify()
+            }
+        }
         return null
     }
     return {
