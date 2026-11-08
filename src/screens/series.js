@@ -131,7 +131,7 @@ async function runBatch(count) {
     try {
         await dlBatch(ns, n => downloadNovelChapter(slug, n, series.title), {
             onStep: done => { batch.done = done; if (cur?.slug === slug) batchPaint() },
-            onError: (n, error) => { if (cur?.slug === slug) { dlFailed.set(n, error?.message || 'Download failed'); paintDl() } },
+            onError: (n, error) => { if (cur?.slug === slug) { dlFailed.set(n, error?.message || 'Download failed'); paintDl(slug, n) } },
         })
     } finally {
         batches.delete(slug)
@@ -150,16 +150,20 @@ const dlButton = (slug, n) => {
     const { state, label, hint } = dlState(slug, n)
     return `<button type="button" class="chdl${state ? ` ${state}` : ''}" data-dl="${esc(n)}" title="${esc(hint)}" aria-label="${esc(hint)}">${label}</button>`
 }
-function paintDl() {
-    if (!cur) return
-    $$('#chlist .chdl').forEach(btn => {
+function paintDl(key, n) {
+    if (!cur || (key && key !== cur.slug)) return
+    const buttons = key && n != null
+        ? [$(`#chlist .chdl[data-dl="${CSS.escape(String(n))}"]`)]
+        : $$('#chlist .chdl')
+    for (const btn of buttons) {
+        if (!btn) continue
         const { state, label, hint } = dlState(cur.slug, Number(btn.dataset.dl))
         const cls = `chdl${state ? ` ${state}` : ''}`
         if (btn.className !== cls) btn.className = cls
         if (btn.textContent !== label) btn.textContent = label
         if (btn.title !== hint) btn.title = hint
         if (btn.getAttribute('aria-label') !== hint) btn.setAttribute('aria-label', hint)
-    })
+    }
 }
 
 function chrow(slug, c, read, curN) {
@@ -308,7 +312,10 @@ function wire() {
             const n = Number(dl.dataset.dl)
             if (novelDlActive(cur.slug, n)) return cancelNovelDownload(cur.slug, n)
             if (novelDlEntry(cur.slug, n)) {
-                if (confirm('Delete the downloaded copy of this chapter?')) deleteNovelDownload(cur.slug, n).then(paintDl).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
+                if (confirm('Delete the downloaded copy of this chapter?')) {
+                    const slug = cur.slug
+                    deleteNovelDownload(slug, n).then(() => paintDl(slug, n)).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
+                }
                 return
             }
             dlFailed.delete(n)
@@ -316,7 +323,7 @@ function wire() {
             downloadNovelChapter(slug, n, series.title).catch(error => {
                 if (cur?.slug !== slug) return
                 dlFailed.set(n, error?.message || 'Download failed')
-                paintDl()
+                paintDl(slug, n)
             })
             return
         }

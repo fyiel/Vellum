@@ -6,7 +6,7 @@ import { dlEntries, dlEntry, dlExists, dlPath, dlRead, dlRegister, dlRemove, dlU
 const active = new Map()
 const listeners = new Set()
 const IMAGE_FETCHES = 4
-const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
+const notify = (key, n) => listeners.forEach(fn => { try { fn(key, n) } catch {} })
 export const onNovelDl = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export const novelDlActive = (key, n) => active.get(`${key}:${n}`) || null
 export const novelDlEntry = (key, n) => dlEntry('novel', key, String(n))
@@ -90,7 +90,7 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
     let finish
     const finished = new Promise(resolve => { finish = resolve })
     active.set(tag, { ctrl, finished })
-    notify()
+    notify(key, n)
     const written = []
     const chapterPath = dlPath.novelChapter(key, n)
     let previousText = null
@@ -144,7 +144,7 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
     } finally {
         active.delete(tag)
         finish()
-        notify()
+        notify(key, n)
     }
 }
 
@@ -239,7 +239,7 @@ export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
                 // Remove only the stale index, leaving any remaining bytes for
                 // recovery until a fresh download has succeeded.
                 await dlUnregister('novel', key, id)
-                notify()
+                notify(key, n)
             }
         }
     }

@@ -133,7 +133,7 @@ test('novel progress only checks newly crossed chapters in a large catalog', asy
     } finally { await otherTab.close() }
 })
 
-test('novel download updates avoid unrelated DOM mutations in a large catalog', async ({ page }) => {
+test('novel download updates only inspect the affected button in a large catalog', async ({ page }) => {
     const slug = 'download-buttons-perf'
     const count = 3000
     const chapterList = Array.from({ length: count }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
@@ -150,21 +150,30 @@ test('novel download updates avoid unrelated DOM mutations in a large catalog', 
         const buttons = [...list.querySelectorAll('.chdl')]
         const untouched = buttons[0]
         let mutations = 0
+        let labelChecks = 0
         const observer = new MutationObserver(records => { mutations += records.length })
         observer.observe(list, { attributes: true, characterData: true, childList: true, subtree: true })
+        const getAttribute = Element.prototype.getAttribute
+        Element.prototype.getAttribute = function (name) {
+            if (name === 'aria-label' && this.classList.contains('chdl')) labelChecks++
+            return getAttribute.call(this, name)
+        }
         const { downloadNovelChapter } = await import('/src/lib/dl-novel.js')
-        await downloadNovelChapter(slug, 1, 'Large novel')
+        try { await downloadNovelChapter(slug, 1, 'Large novel') }
+        finally { Element.prototype.getAttribute = getAttribute }
         mutations += observer.takeRecords().length
         observer.disconnect()
         return {
             mutations,
+            labelChecks,
             unchangedLabel: untouched.textContent,
             changedLabel: buttons.at(-1).textContent,
         }
     }, slug)
-    console.log(`Novel ${count} rows, one download: ${result.mutations} DOM mutations`)
+    console.log(`Novel ${count} rows, one download: ${result.labelChecks} button checks, ${result.mutations} DOM mutations`)
     expect(result).toMatchObject({ unchangedLabel: '↓', changedLabel: '✓' })
     expect(result.mutations).toBeLessThan(20)
+    expect(result.labelChecks).toBeLessThan(20)
 })
 
 test('refining a novel chapter search avoids repeated DOM ancestor lookups', async ({ page }) => {
