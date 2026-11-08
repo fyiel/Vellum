@@ -84,6 +84,8 @@ body.manga-reading { margin: 0; background: #070707; color: #ddd; overscroll-beh
 .mreader-step > a { min-width: 0; padding: 14px; border: 1px solid #ffffff1c; color: #ddd; font: 500 12px 'Archivo'; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mreader-step > a:last-child { text-align: right; }
 .mreader-step a span { display: block; margin-bottom: 5px; color: #777; font: 500 9px 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .6px; }
+.mreader-stream-error { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid #ffffff26; color: #ddd; font: 500 12px 'Archivo'; }
+.mreader-stream-error button { flex-shrink: 0; padding: 8px 12px; border: 1px solid #d8a24a; background: #111; color: #d8a24a; cursor: pointer; }
 .mreader-chrome { position: fixed; left: 0; right: 0; z-index: 110; display: flex; align-items: center; gap: 8px; background: #090909ec; backdrop-filter: blur(12px); transition: transform .2s ease, opacity .2s ease; }
 .mreader-top { top: 0; padding: calc(var(--safe-t) + 8px) max(12px, var(--safe-r)) 8px max(12px, var(--safe-l)); border-bottom: 1px solid #ffffff12; }
 .mreader-bottom { bottom: 0; justify-content: center; padding: 11px 16px calc(env(safe-area-inset-bottom, 0px) + 11px); border-top: 1px solid #ffffff12; color: #888; font: 500 11px 'IBM Plex Mono', monospace; }

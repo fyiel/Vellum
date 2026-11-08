@@ -357,3 +357,71 @@ test('retries a failed page from a previously streamed manga chapter', async ({ 
   await expect(failedPage.locator('img')).toHaveAttribute('src', /id=chapter-1.*page=59.*_retry=/)
   await expect(page.locator('#mr-pages .manga-page[data-page="119"] img')).not.toHaveAttribute('src', /_retry=/)
 })
+
+test('a failed next-chapter stream reports the error and can retry in place', async ({ page }) => {
+  const key = 'mf:stream-recovery'
+  const chapters = [1, 2].map(number => ({ id: `chapter-${number}`, number, language: 'en' }))
+  const pagesPerChapter = 12
+  let allowNext = false
+  let failedRequests = 0
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manhwa', title: 'Recovery' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', route => {
+    const id = new URL(route.request().url()).searchParams.get('id')
+    if (id === 'chapter-2' && !allowNext) {
+      failedRequests++
+      return route.fulfill({ status: 503, body: 'Unavailable' })
+    }
+    return route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        key, chapter: chapters.find(chapter => chapter.id === id),
+        pages: Array.from({ length: pagesPerChapter }, (_, index) => ({
+          url: `/read/api/manga/image?key=mf%3Astream-recovery&id=${id}&page=${index}`,
+          width: 900, height: 1200,
+        })),
+      }),
+    })
+  })
+  await page.route('**/read/api/manga/image?**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"/>',
+  }))
+
+  await page.goto(`${app}#/manga/read/mf%3Astream-recovery/chapter-1`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  await page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight)
+    window.dispatchEvent(new Event('scroll'))
+  })
+  const error = page.locator('#mr-stream-error')
+  await expect(error).toContainText('Couldn’t load the next chapter')
+  expect(failedRequests).toBeGreaterThanOrEqual(2)
+  await expect(page).toHaveURL(/chapter-1$/)
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(pagesPerChapter)
+
+  // Once a stream fails, incidental scroll events must not retry a down provider.
+  const attempts = failedRequests
+  await page.evaluate(() => {
+    window.scrollTo(0, document.body.scrollHeight)
+    window.dispatchEvent(new Event('scroll'))
+  })
+  await page.waitForTimeout(350)
+  expect(failedRequests).toBe(attempts)
+  await expect(error).toBeVisible()
+
+  allowNext = true
+  await error.getByRole('button', { name: 'Retry next chapter' }).click()
+  await expect(page.locator('#mr-title')).toContainText('Ch. 2')
+  await expect(error).toHaveCount(0)
+  await expect(page).toHaveURL(/chapter-2$/)
+  await expect(page.locator('#mr-pages .manga-page')).toHaveCount(pagesPerChapter * 2)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+})

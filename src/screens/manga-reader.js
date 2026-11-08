@@ -67,6 +67,7 @@ const state = {
     loadObserver: null,
     pageObserver: null,
     streaming: false,
+    streamFailed: false,
     streamJump: false,
     scrolled: false,
     pagePrimed: false,
@@ -171,6 +172,7 @@ function changeSettings() {
     state.direction = $('#mr-direction').value
     saveMangaReaderSettings(state.key, { mode: state.mode, direction: state.direction, crop: state.crop })
     state.streaming = false
+    state.streamFailed = false
     state.streamJump = false
     applySettings()
     // Changing modes rebuilds the DOM with only the active chapter.
@@ -363,19 +365,23 @@ async function readerChapter(key, id, signal) {
 async function maybeStreamNext(advance = false) {
     if (!state.active || state.mode !== 'scroll' || imageZoom?.active) return
     if (advance) state.streamJump = true
-    if (state.streaming) return
+    if (state.streaming || (state.streamFailed && !advance)) return
     const gen = state.gen
     const key = state.key
+    const id = state.id
     const next = adjacentChapter(1)
     if (!next) { state.streamJump = false; return }
     if (!advance && (!state.scrolled || pageElement(state.content.pages.length - 1)?.getBoundingClientRect().bottom > innerHeight * 1.5)) return
     state.streaming = true
+    state.streamFailed = false
+    $('#mr-stream-error')?.remove()
     let localCopy = null
     let attached = false
     try {
         localCopy = await loadDownloadedMangaChapter(key, next.id, { signal: state.ctrl.signal })
         const content = localCopy?.content || (state.chaptersFromDownloads ? null : await readerChapter(key, next.id, state.ctrl.signal))
-        if (!state.active || state.mode !== 'scroll' || state.gen !== gen || !content?.pages.length) return
+        if (!state.active || state.mode !== 'scroll' || state.gen !== gen) return
+        if (!content?.pages.length) throw new Error('Chapter pages are unavailable')
         trackLocalPages(content)
         attached = true
         // the finished chapter is marked read and parked at its end (setCurrent pattern, reader.js:427-446)
@@ -401,7 +407,15 @@ async function maybeStreamNext(advance = false) {
         setPage(0)
         if (state.streamJump) pageElement(0)?.scrollIntoView({ block: 'start' })
         updateLibrary()
-    } catch {} finally {
+    } catch (error) {
+        if (state.active && state.mode === 'scroll' && state.gen === gen && state.key === key
+            && state.id === id && !state.ctrl.signal.aborted) {
+            state.streamFailed = true
+            const message = mangaErrorMessage(error, 'Chapter unavailable')
+            $('#mr-step').insertAdjacentHTML('afterbegin', `<div id="mr-stream-error" class="mreader-stream-error" role="alert"><span>Couldn’t load the next chapter: ${esc(message)}</span><button type="button" id="mr-stream-retry">Retry next chapter</button></div>`)
+            $('#mr-stream-retry').onclick = () => maybeStreamNext(true)
+        }
+    } finally {
         if (localCopy && !attached) releaseLocalPages(localCopy.content)
         if (state.gen === gen) {
             state.streaming = false
@@ -770,7 +784,7 @@ export async function showMangaReader(key, id) {
     const gen = ++state.gen
     Object.assign(state, {
         active: true, key, id, ctrl, series: null, chapters: [], chaptersFromDownloads: false, chapter: null, content: null,
-        page: 0, streaming: false, streamJump: false, firstImageMeasured: false,
+        page: 0, streaming: false, streamFailed: false, streamJump: false, firstImageMeasured: false,
     })
     beginMeasure()
     reader.classList.add('active')
