@@ -31,9 +31,9 @@ async function fetchBytes(url, signal, byteRange) {
     if (byteRange) {
         const contentRange = response.headers.get('content-range')
         const match = contentRange && /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/i.exec(contentRange)
-        if (bytes.length !== byteRange.length || (contentRange && (!match
+        if (bytes.length !== byteRange.length || !match
             || Number(match[1]) !== byteRange.offset
-            || Number(match[2]) !== byteRange.offset + byteRange.length - 1))) {
+            || Number(match[2]) !== byteRange.offset + byteRange.length - 1) {
             throw new Error('invalid HLS byte range response')
         }
     }
@@ -59,7 +59,8 @@ async function downloadFile(url, writer, progress, signal) {
         arm()
         const response = await raceAbort(rawFetch(url, { signal: ctrl.signal }), ctrl.signal)
         if (!response.ok || !response.body) throw new Error(`http ${response.status}`)
-        progress.total = Number(response.headers.get('content-length')) || 0
+        const declaredSize = Number(response.headers.get('content-length')) || 0
+        progress.total = declaredSize
         reader = response.body.getReader()
         let size = 0
         for (;;) {
@@ -72,6 +73,13 @@ async function downloadFile(url, writer, progress, signal) {
             size += value.byteLength
             progress.done = size
             notify()
+        }
+        // A cleanly closed stream can still be short. Do not register a broken
+        // offline episode when the server declared how many bytes it would send.
+        const encoding = response.headers.get('content-encoding')?.toLowerCase()
+        if (Number.isSafeInteger(declaredSize) && declaredSize > 0
+            && (!encoding || encoding === 'identity') && size !== declaredSize) {
+            throw new Error('incomplete video download')
         }
         return size
     } finally {

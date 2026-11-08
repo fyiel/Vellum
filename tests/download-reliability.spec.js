@@ -164,6 +164,42 @@ test('a failed video writer releases its job and permits retry', async ({ page }
     expect(result).toEqual({ error: 'Disk full', activeAfterFailure: false, activeAfterRetry: false, saved: true })
 })
 
+test('direct video downloads reject a truncated response and discard its bytes', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:truncated-direct', id = '1'
+        setTransport(async url => String(url).includes('/playback?')
+            ? Response.json({ key, episodeId: id, providerLabel: 'Test', sources: [{ kind: 'direct', url: '/video.mp4', type: 'video/mp4' }] })
+            : new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-length': '8' } }))
+        let error
+        try { await video.downloadVideoEpisode(key, id) } catch (cause) { error = cause.message }
+        return {
+            error, saved: !!video.videoDlEntry(key, id),
+            bytes: !!await dlRead(dlPath.video(key, id)), active: !!video.videoDlActive(key, id),
+        }
+    })
+    expect(result).toEqual({ error: 'incomplete video download', saved: false, bytes: false, active: false })
+})
+
+test('direct video downloads with a complete declared length remain playable offline', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:complete-direct', id = '1'
+        setTransport(async url => String(url).includes('/playback?')
+            ? Response.json({ key, episodeId: id, providerLabel: 'Test', sources: [{ kind: 'direct', url: '/video.mp4', type: 'video/mp4' }] })
+            : new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-length': '3' } }))
+        await video.downloadVideoEpisode(key, id)
+        return { savedSize: video.videoDlEntry(key, id)?.size, bytes: (await dlRead(dlPath.video(key, id)))?.size }
+    })
+    expect(result).toEqual({ savedSize: 3, bytes: 3 })
+})
+
 for (const playlist of ['master', 'variant']) {
     test(`video downloads report an HTTP failure from the ${playlist} HLS playlist`, async ({ page }) => {
         await page.goto(app)
@@ -375,6 +411,33 @@ test('HLS byte-range downloads reject servers that return whole resources', asyn
     expect(result.error).toMatch(/byte range/i)
     expect(result.saved).toBe(false)
     expect(result.bytes).toBe(false)
+})
+
+test('HLS byte-range downloads reject 206 responses without a Content-Range', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:missing-content-range', id = '1'
+        setTransport(async (url, init) => {
+            const path = String(url)
+            if (path.includes('/playback?')) return Response.json({
+                key, episodeId: id, providerLabel: 'Test',
+                sources: [{ kind: 'direct', url: '/range.m3u8', type: 'application/x-mpegURL' }],
+            })
+            if (path.endsWith('/range.m3u8')) return new Response('#EXTM3U\n#EXT-X-MAP:URI="shared.m4s",BYTERANGE="4@0"\n#EXTINF:4,\n#EXT-X-BYTERANGE:5@4\nshared.m4s\n#EXT-X-ENDLIST\n')
+            if (path.endsWith('/shared.m4s')) {
+                const range = new Headers(init?.headers).get('range')
+                return new Response(range === 'bytes=0-3' ? 'INIT' : 'part1', { status: 206 })
+            }
+            throw new Error(`unexpected request ${path}`)
+        })
+        let error
+        try { await video.downloadVideoEpisode(key, id) } catch (cause) { error = cause.message }
+        return { error, saved: !!video.videoDlEntry(key, id), bytes: !!await dlRead(dlPath.video(key, id)) }
+    })
+    expect(result).toEqual({ error: 'invalid HLS byte range response', saved: false, bytes: false })
 })
 
 test('downloaded WebM episodes retain their format and play from offline storage', async ({ page }) => {
