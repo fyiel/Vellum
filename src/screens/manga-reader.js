@@ -772,6 +772,9 @@ export async function showMangaReader(key, id) {
             $('#mr-title').textContent = `${local.entry.title} · ${chapterLabel(local.content.chapter)}`
             renderPages(local.content, entry ? (entry.last ? local.content.pages.length - 1 : 0) : undefined)
             setReaderState('ready')
+            const read = readSet(key)
+            if (!read.has(id)) { read.add(id); saveRead(key, read) }
+            updateLibrary(false)
             return
         }
         showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))

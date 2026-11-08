@@ -147,9 +147,13 @@ test('offline manga progress preserves known chapter counts when provider metada
         return {
             total: entry.total, chapterIds: entry.chapterIds.length, lastPage: entry.lastPage,
             pageCount: entry.pageCount, tracked: tracked.seenIds.length,
+            readCount: entry.readCount, readIds: JSON.parse(localStorage.getItem(`vellum:read:${k}`) || '[]'),
         }
     }, key)
-    expect(stored).toEqual({ total: 600, chapterIds: 600, lastPage: 2, pageCount: 3, tracked: 600 })
+    expect(stored).toEqual({
+        total: 600, chapterIds: 600, lastPage: 2, pageCount: 3,
+        tracked: 600, readCount: 1, readIds: [id],
+    })
 })
 
 test('leaving a saved manga chapter during a disk read releases its image URLs', async ({ page }) => {
