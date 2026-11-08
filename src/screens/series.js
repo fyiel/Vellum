@@ -15,10 +15,12 @@ let wired = false
 let cur = null
 let req = 0
 let detailController = null
+let filterTimer = 0
 
 export function cancelSeriesLoad() {
     detailController?.abort()
     detailController = null
+    clearTimeout(filterTimer)
 }
 
 const followed = slug => library().some(e => e.slug === slug)
@@ -317,14 +319,13 @@ function wire() {
         if (row) launchChapter(row.dataset.n)
     })
 
-    let t
     $('#schapters').addEventListener('input', e => {
         if (e.target.id !== 'chsearch') return
-        clearTimeout(t)
+        clearTimeout(filterTimer)
         const v = e.target.value
         if (!filterLastQ && v.trim()) { const sc = activeScroller(); filterTop = sc?.scrollTop ?? 0 }
         filterLastQ = v
-        t = setTimeout(() => filterChapters(v, filterTop), 150)
+        filterTimer = setTimeout(() => filterChapters(v, filterTop), 150)
     })
 
     window.addEventListener('resize', checkSynOverflow)

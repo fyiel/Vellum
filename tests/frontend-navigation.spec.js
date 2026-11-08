@@ -161,6 +161,31 @@ test('a failed manga detail load clears the chapter spinner and retries cleanly'
 })
 
 for (const kind of ['novel', 'manga']) {
+    test(`a pending ${kind} chapter filter cannot hide the next title's chapters`, async ({ page }) => {
+        const errors = await fixtures(page)
+        if (kind === 'novel') await page.route('**/read/api/series/**', route => {
+            const other = route.request().url().includes('other')
+            return reply(route, { title: other ? 'Second novel' : 'First novel', nfSlug: other ? 'other' : 'fixture', cover })
+        })
+        const mangaView = kind === 'manga'
+        const prefix = mangaView ? '#/manga/series/mf%3A' : '#/series/nf%3A'
+        const input = mangaView ? '#mchsearch' : '#chsearch'
+        const rows = mangaView ? '#mchapter-list .mchrow' : '#chlist .chrow'
+        await navigate(page, `${prefix}${mangaView ? 'first' : 'fixture'}`)
+        await expect(page.locator(rows)).toHaveCount(3)
+        await page.clock.install()
+        await page.locator(input).fill('no-such-chapter')
+        await navigate(page, `${prefix}${mangaView ? 'second' : 'other'}`)
+        await expect(page.locator('#sinfo .dtitle')).toHaveText(mangaView ? 'mf:second' : 'Second novel')
+        await expect(page.locator(rows)).toHaveCount(3)
+        await page.clock.runFor(200)
+        await expect(page.locator(`${rows}:visible`)).toHaveCount(3)
+        await expect(page.locator(input)).toHaveValue('')
+        expect(errors).toEqual([])
+    })
+}
+
+for (const kind of ['novel', 'manga']) {
     test(`downloads only the active ${kind} after visiting both shared detail screens`, async ({ page }) => {
         const errors = await fixtures(page)
         const order = kind === 'novel' ? ['#/manga/series/mf%3Afirst', '#/series/nf%3Afixture'] : ['#/series/nf%3Afixture', '#/manga/series/mf%3Afirst']

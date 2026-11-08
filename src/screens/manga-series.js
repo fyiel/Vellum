@@ -14,6 +14,7 @@ const CHAPTER_BATCH = 250
 const REVEAL_RADIUS = 800
 let request = 0
 let detailController = null
+let filterTimer = 0
 let current = null
 let wired = false
 let chapterQuery = ''
@@ -25,6 +26,7 @@ let batch = null
 export function cancelMangaSeriesLoad() {
     detailController?.abort()
     detailController = null
+    clearTimeout(filterTimer)
 }
 
 // batch buttons sit in .chtool; "next" counts from the continue chapter, skipping
@@ -216,14 +218,13 @@ function wire() {
         const row = event.target.closest('.mchrow')
         if (row && current) go(chapterRoute(current.key, row.dataset.id))
     })
-    let t
     $('#schapters').addEventListener('input', event => {
         if (event.target.id !== 'mchsearch') return
-        clearTimeout(t)
+        clearTimeout(filterTimer)
         const v = event.target.value
         if (!filterLastQ && v.trim()) { const sc = activeScroller(); filterTop = sc?.scrollTop ?? 0 }
         filterLastQ = v
-        t = setTimeout(() => {
+        filterTimer = setTimeout(() => {
             chapterQuery = v.trim()
             chapterLimit = CHAPTER_BATCH
             renderChapterList()
