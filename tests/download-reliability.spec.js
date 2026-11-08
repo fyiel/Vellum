@@ -850,3 +850,146 @@ for (const imageAvailable of [false, true]) {
         } else expect(result.html).toContain('https://images.example/missing.png')
     })
 }
+
+for (const stalled of ['request', 'body']) {
+    test(`non-cooperative novel illustration ${stalled} falls back to its proxy after timeout`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async stalled => {
+            const realTimeout = window.setTimeout.bind(window)
+            AbortSignal.timeout = ms => {
+                const ctrl = new AbortController()
+                realTimeout(() => ctrl.abort(new DOMException('Timed out', 'TimeoutError')), ms === 15_000 ? 70 : ms)
+                return ctrl.signal
+            }
+            const dl = await import('/src/lib/downloads.js')
+            const novel = await import('/src/lib/dl-novel.js')
+            const { setTransport } = await import('/src/lib/http.js')
+            const key = `novel-fallback-${stalled}`
+            await dl.dlWrite(dl.dlPath.novelChapter(key, 1), JSON.stringify({
+                html: '<p>Saved chapter</p><img src="dlimg:0"><img src="https://images.example/missing.png">',
+            }))
+            await dl.dlWrite(dl.dlPath.novelImage(key, 1, 0), 'Existing illustration')
+            dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved' })
+            let direct = 0, proxy = 0
+            setTransport(async url => {
+                if (String(url).includes('/read/api/image?')) {
+                    proxy++
+                    return new Response('Proxied illustration', { headers: { 'content-type': 'image/png' } })
+                }
+                direct++
+                return stalled === 'request' ? new Promise(() => {}) : { ok: true, blob: () => new Promise(() => {}) }
+            })
+            const task = novel.downloadNovelChapter(key, 1, 'Saved', { force: true }).then(() => 'saved', e => e.message)
+            const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+            const chapter = JSON.parse(await (await dl.dlRead(dl.dlPath.novelChapter(key, 1))).text())
+            return {
+                outcome, direct, proxy, active: !!novel.novelDlActive(key, 1),
+                html: chapter.html,
+                oldImage: await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)))?.text(),
+                newImage: await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 1)))?.text(),
+            }
+        }, stalled)
+        expect(result).toMatchObject({ outcome: 'saved', direct: 1, proxy: 1, active: false, oldImage: 'Existing illustration', newImage: 'Proxied illustration' })
+        expect(result.html).toContain('Saved chapter')
+        expect(result.html).toContain('src="dlimg:0"')
+        expect(result.html).toContain('src="dlimg:1"')
+    })
+
+    test(`non-cooperative novel proxy ${stalled} times out while preserving the saved chapter`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async stalled => {
+            const realTimeout = window.setTimeout.bind(window)
+            AbortSignal.timeout = ms => {
+                const ctrl = new AbortController()
+                realTimeout(() => ctrl.abort(new DOMException('Timed out', 'TimeoutError')), ms === 15_000 ? 70 : ms)
+                return ctrl.signal
+            }
+            const dl = await import('/src/lib/downloads.js')
+            const novel = await import('/src/lib/dl-novel.js')
+            const { setTransport } = await import('/src/lib/http.js')
+            const key = `novel-proxy-${stalled}`
+            const html = '<p>Saved chapter</p><img src="dlimg:0"><img src="https://images.example/missing.png">'
+            await dl.dlWrite(dl.dlPath.novelChapter(key, 1), JSON.stringify({ html }))
+            await dl.dlWrite(dl.dlPath.novelImage(key, 1, 0), 'Existing illustration')
+            dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved' })
+            let proxy = 0
+            setTransport(async url => {
+                if (!String(url).includes('/read/api/image?')) return new Response('unavailable', { status: 503 })
+                proxy++
+                return stalled === 'request' ? new Promise(() => {}) : { ok: true, blob: () => new Promise(() => {}) }
+            })
+            const task = novel.downloadNovelChapter(key, 1, 'Saved', { force: true }).then(() => 'saved', e => e.message)
+            const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+            const chapter = JSON.parse(await (await dl.dlRead(dl.dlPath.novelChapter(key, 1))).text())
+            return {
+                outcome, proxy, active: !!novel.novelDlActive(key, 1),
+                html: chapter.html, saved: !!novel.novelDlEntry(key, 1),
+                oldImage: await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)))?.text(),
+                newImage: !!await dl.dlRead(dl.dlPath.novelImage(key, 1, 1)),
+            }
+        }, stalled)
+        expect(result).toMatchObject({ outcome: 'saved', proxy: 1, active: false, saved: true, oldImage: 'Existing illustration', newImage: false })
+        expect(result.html).toContain('src="dlimg:0"')
+        expect(result.html).toContain('https://images.example/missing.png')
+    })
+
+    test(`cancelling a non-cooperative novel illustration ${stalled} releases the job`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async stalled => {
+            const realTimeout = window.setTimeout.bind(window)
+            const dl = await import('/src/lib/downloads.js')
+            const novel = await import('/src/lib/dl-novel.js')
+            const { setTransport } = await import('/src/lib/http.js')
+            const key = `novel-cancel-${stalled}`
+            let entered
+            const fetching = new Promise(resolve => { entered = resolve })
+            setTransport(async url => {
+                if (String(url).includes('/chapter?')) return Response.json({ html: '<p>New chapter</p><img src="https://images.example/new.png">' })
+                entered()
+                return stalled === 'request' ? new Promise(() => {}) : { ok: true, blob: () => new Promise(() => {}) }
+            })
+            const task = novel.downloadNovelChapter(key, 1, 'New').then(() => 'saved', e => e.message)
+            const started = await Promise.race([fetching.then(() => true), new Promise(resolve => realTimeout(() => resolve(false), 500))])
+            novel.cancelNovelDownload(key, 1)
+            const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+            return {
+                started, outcome, active: !!novel.novelDlActive(key, 1), saved: !!novel.novelDlEntry(key, 1),
+                chapter: !!await dl.dlRead(dl.dlPath.novelChapter(key, 1)),
+                image: !!await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)),
+            }
+        }, stalled)
+        expect(result).toEqual({ started: true, outcome: 'download cancelled', active: false, saved: false, chapter: false, image: false })
+    })
+
+    test(`deleting a saved novel during non-cooperative image ${stalled} finishes cleanup`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async stalled => {
+            const realTimeout = window.setTimeout.bind(window)
+            const dl = await import('/src/lib/downloads.js')
+            const novel = await import('/src/lib/dl-novel.js')
+            const { setTransport } = await import('/src/lib/http.js')
+            const key = `novel-delete-${stalled}`
+            await dl.dlWrite(dl.dlPath.novelChapter(key, 1), JSON.stringify({
+                html: '<p>Saved chapter</p><img src="dlimg:0"><img src="https://images.example/new.png">',
+            }))
+            await dl.dlWrite(dl.dlPath.novelImage(key, 1, 0), 'Existing illustration')
+            dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved' })
+            let entered
+            const fetching = new Promise(resolve => { entered = resolve })
+            setTransport(async () => {
+                entered()
+                return stalled === 'request' ? new Promise(() => {}) : { ok: true, blob: () => new Promise(() => {}) }
+            })
+            const repair = novel.downloadNovelChapter(key, 1, 'Saved', { force: true }).then(() => 'saved', e => e.message)
+            const started = await Promise.race([fetching.then(() => true), new Promise(resolve => realTimeout(() => resolve(false), 500))])
+            const deletion = novel.deleteNovelDownload(key, 1).then(() => 'deleted', e => e.message)
+            const outcome = await Promise.race([Promise.all([repair, deletion]), new Promise(resolve => realTimeout(() => resolve(['pending', 'pending']), 600))])
+            return {
+                started, outcome, active: !!novel.novelDlActive(key, 1), saved: !!novel.novelDlEntry(key, 1),
+                chapter: !!await dl.dlRead(dl.dlPath.novelChapter(key, 1)),
+                image: !!await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)),
+            }
+        }, stalled)
+        expect(result).toEqual({ started: true, outcome: ['download cancelled', 'deleted'], active: false, saved: false, chapter: false, image: false })
+    })
+}

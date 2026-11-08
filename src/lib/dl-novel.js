@@ -1,5 +1,5 @@
 import { getChapter } from './api.js'
-import { apiUrl, rawFetch } from './http.js'
+import { apiUrl, raceAbort, rawFetch } from './http.js'
 import { dlEntries, dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
 
 // in-flight downloads: `${key}:${n}` -> { ctrl }
@@ -13,9 +13,20 @@ export const novelDlEntry = (key, n) => dlEntry('novel', key, String(n))
 // some image hosts send no CORS headers (noveldex), which only matters for fetch() in
 // the web build — the backend proxy carries those images instead
 const fetchImage = async (url, signal) => {
-    const direct = await rawFetch(url, { signal }).catch(() => null)
-    if (direct?.ok) return direct
-    return rawFetch(apiUrl(`/read/api/image?url=${encodeURIComponent(url)}`), { signal })
+    const fetchBlob = async source => {
+        // An image host may ignore abort on either the request or its body.
+        const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15_000)])
+        const response = await raceAbort(rawFetch(source, { signal: requestSignal }), requestSignal)
+        if (!response.ok) return null
+        const blob = await raceAbort(response.blob(), requestSignal)
+        return blob.size ? blob : null
+    }
+    try {
+        const direct = await fetchBlob(url)
+        if (direct) return direct
+    } catch (error) { if (signal.aborted) throw error }
+    if (signal.aborted) throw new Error('download cancelled')
+    return fetchBlob(apiUrl(`/read/api/image?url=${encodeURIComponent(url)}`))
 }
 
 // some chapters carry illustrations (<figure class="illust"><img src="https://…">);
@@ -34,10 +45,8 @@ async function downloadImages(key, n, html, signal, written) {
         if (signal.aborted) throw new Error('download cancelled')
         let path
         try {
-            const response = await fetchImage(new URL(img.getAttribute('src'), location.href).href, signal)
-            if (!response.ok) continue
-            const blob = await response.blob()
-            if (!blob.size) continue
+            const blob = await fetchImage(new URL(img.getAttribute('src'), location.href).href, signal)
+            if (!blob) continue
             const i = next++
             path = dlPath.novelImage(key, n, i)
             written.push(path)
