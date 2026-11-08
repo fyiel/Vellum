@@ -205,6 +205,57 @@ for (const kind of ['novel', 'manga']) {
 }
 
 for (const kind of ['novel', 'manga']) {
+    test(`returning to a ${kind} detail never shows the other format's stale content`, async ({ page }) => {
+        const errors = await fixtures(page)
+        const mangaView = kind === 'manga'
+        const key = mangaView ? 'mf:first' : 'nf:fixture'
+        const first = mangaView ? '#/manga/series/mf%3Afirst' : '#/series/nf%3Afixture'
+        const other = mangaView ? '#/series/nf%3Afixture' : '#/manga/series/mf%3Afirst'
+        const title = mangaView ? 'mf:first' : 'Novel fixture'
+        const otherTitle = mangaView ? 'Novel fixture' : 'mf:first'
+        await navigate(page, first)
+        await expect(page.locator('#sinfo .dtitle')).toHaveText(title)
+        await navigate(page, other)
+        await expect(page.locator('#sinfo .dtitle')).toHaveText(otherTitle)
+
+        // Force a cache miss while retaining the previous screen state, so the loading
+        // view remains inspectable until the next response is released.
+        await page.evaluate(async ({ kind, key }) => {
+            const api = kind === 'manga' ? await import('/src/lib/manga-api.js') : await import('/src/lib/api.js')
+            const cached = await (kind === 'manga' ? api.getMangaSeries(key) : api.getSeries(key))
+            cached.title = ''
+            const db = await new Promise((resolve, reject) => {
+                const request = indexedDB.open('vellum', 2)
+                request.onsuccess = () => resolve(request.result)
+                request.onerror = () => reject(request.error)
+            })
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('cache', 'readwrite')
+                tx.objectStore('cache').clear()
+                tx.oncomplete = resolve
+                tx.onerror = () => reject(tx.error)
+            })
+        }, { kind, key })
+
+        const started = deferred()
+        const release = deferred()
+        await page.route(mangaView ? '**/read/api/manga/series/**' : '**/read/api/series/**', async route => {
+            started.resolve()
+            await release.promise
+            return reply(route, mangaView ? manga('mf:first') : { title: 'Novel fixture', nfSlug: 'fixture', cover })
+        })
+        await navigate(page, first)
+        await started.promise
+        try {
+            await expect(page.locator('#sinfo')).not.toContainText(otherTitle)
+            await expect(page.locator('#sinfo')).toContainText(mangaView ? 'Loading manga' : 'loading')
+        } finally { release.resolve() }
+        await expect(page.locator('#sinfo .dtitle')).toHaveText(title)
+        expect(errors).toEqual([])
+    })
+}
+
+for (const kind of ['novel', 'manga']) {
     test(`downloads only the active ${kind} after visiting both shared detail screens`, async ({ page }) => {
         const errors = await fixtures(page)
         const order = kind === 'novel' ? ['#/manga/series/mf%3Afirst', '#/series/nf%3Afixture'] : ['#/series/nf%3Afixture', '#/manga/series/mf%3Afirst']

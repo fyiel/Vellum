@@ -393,7 +393,7 @@ export async function showSeries(key, origin) {
     filterTop = 0
     // re-showing the same series: keep the rendered content (and the scroll position) until the
     // fresh fetch lands; blanking first collapses the scroller and loses the user's place
-    const same = !!cur && cur.key === key
+    const same = !!cur && cur.key === key && !!$('#chlist')
     if (!same) {
         dlFailed.clear()
         info.innerHTML = `<div class="void">loading&hellip;</div>`

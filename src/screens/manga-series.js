@@ -258,7 +258,7 @@ export async function showMangaSeries(key, origin = 'manga') {
     const controller = new AbortController()
     detailController = controller
     const mine = ++request
-    const same = !!current && current.key === key
+    const same = !!current && current.key === key && !!$('#mchapter-list')
     current = null
     chapterQuery = ''
     chapterLimit = CHAPTER_BATCH
