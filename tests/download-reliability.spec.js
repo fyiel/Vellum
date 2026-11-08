@@ -200,6 +200,35 @@ test('direct video downloads with a complete declared length remain playable off
     expect(result).toEqual({ savedSize: 3, bytes: 3 })
 })
 
+for (const kind of ['direct', 'hls']) {
+    test(`${kind} downloads reject an empty successful response instead of registering an unplayable file`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async kind => {
+            const { setTransport } = await import('/src/lib/http.js')
+            const video = await import('/src/lib/dl-video.js')
+            const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+            const key = `mock:empty-${kind}`, id = '1'
+            setTransport(async url => {
+                const path = String(url)
+                if (path.includes('/playback?')) return Response.json({
+                    key, episodeId: id, providerLabel: 'Test',
+                    sources: [{ kind: 'direct', url: kind === 'hls' ? '/empty.m3u8' : '/empty.mp4',
+                        type: kind === 'hls' ? 'application/x-mpegURL' : 'video/mp4' }],
+                })
+                if (path.endsWith('/empty.m3u8')) return new Response('#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\npart.m4s\n#EXT-X-ENDLIST\n')
+                return new Response(new Uint8Array(0))
+            })
+            const error = await video.downloadVideoEpisode(key, id).then(() => null, cause => cause.message)
+            return {
+                error, saved: !!video.videoDlEntry(key, id),
+                bytes: (await dlRead(dlPath.video(key, id)))?.size ?? null,
+                active: !!video.videoDlActive(key, id),
+            }
+        }, kind)
+        expect(result).toEqual({ error: 'empty video download', saved: false, bytes: null, active: false })
+    })
+}
+
 for (const playlist of ['master', 'variant']) {
     test(`video downloads report an HTTP failure from the ${playlist} HLS playlist`, async ({ page }) => {
         await page.goto(app)

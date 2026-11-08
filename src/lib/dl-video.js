@@ -229,6 +229,9 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
         else if (hls) size = await downloadHls(absolute(videoAssetUrl(hls.url)), writer, progress, ctrl.signal)
         else throw new Error('this provider has no downloadable stream')
         if (ctrl.signal.aborted) throw new Error('download cancelled')
+        // A successful HTTP response can contain no media. Do not register a
+        // file that the offline player will immediately reject as empty.
+        if (!size) throw new Error('empty video download')
         await writer.close()
         if (ctrl.signal.aborted) throw new Error('download cancelled')
         dlRegister({ kind: 'video', key, id, title: meta.title, label: meta.label, mediaKind: meta.mediaKind, mime: file?.type || 'video/mp4', size })
