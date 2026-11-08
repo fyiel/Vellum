@@ -133,6 +133,40 @@ test('novel progress only checks newly crossed chapters in a large catalog', asy
     } finally { await otherTab.close() }
 })
 
+test('novel download updates avoid unrelated DOM mutations in a large catalog', async ({ page }) => {
+    const slug = 'download-buttons-perf'
+    const count = 3000
+    const chapterList = Array.from({ length: count }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    await page.route('**/read/api/series/**', route => reply(route, { title: 'Large novel', nfSlug: slug }))
+    await page.route('**/read/api/chapters?slug=download-buttons-perf', route => reply(route, { chapters: chapterList }))
+    await page.route('**/read/api/chapter?slug=download-buttons-perf&n=*', route => reply(route, {
+        title: 'Saved chapter', html: '<p>Offline text.</p>',
+    }))
+    await page.goto(`${app}#/series/nf%3Adownload-buttons-perf`)
+    await expect(page.locator('#chlist .chdl')).toHaveCount(count)
+
+    const result = await page.evaluate(async slug => {
+        const list = document.querySelector('#chlist')
+        const buttons = [...list.querySelectorAll('.chdl')]
+        const untouched = buttons[0]
+        let mutations = 0
+        const observer = new MutationObserver(records => { mutations += records.length })
+        observer.observe(list, { attributes: true, characterData: true, childList: true, subtree: true })
+        const { downloadNovelChapter } = await import('/src/lib/dl-novel.js')
+        await downloadNovelChapter(slug, 1, 'Large novel')
+        mutations += observer.takeRecords().length
+        observer.disconnect()
+        return {
+            mutations,
+            unchangedLabel: untouched.textContent,
+            changedLabel: buttons.at(-1).textContent,
+        }
+    }, slug)
+    console.log(`Novel ${count} rows, one download: ${result.mutations} DOM mutations`)
+    expect(result).toMatchObject({ unchangedLabel: '↓', changedLabel: '✓' })
+    expect(result.mutations).toBeLessThan(20)
+})
+
 test('manga page turns reuse the chapter order of a large catalog', async ({ page }) => {
     const key = 'mf:page-order'
     const chapters = [

@@ -149,10 +149,11 @@ function paintDl() {
     if (!cur) return
     $$('#chlist .chdl').forEach(btn => {
         const { state, label, hint } = dlState(cur.slug, Number(btn.dataset.dl))
-        btn.className = `chdl${state ? ` ${state}` : ''}`
-        btn.textContent = label
-        btn.title = hint
-        btn.setAttribute('aria-label', hint)
+        const cls = `chdl${state ? ` ${state}` : ''}`
+        if (btn.className !== cls) btn.className = cls
+        if (btn.textContent !== label) btn.textContent = label
+        if (btn.title !== hint) btn.title = hint
+        if (btn.getAttribute('aria-label') !== hint) btn.setAttribute('aria-label', hint)
     })
 }
 
