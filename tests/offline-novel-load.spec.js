@@ -23,6 +23,42 @@ test('saved novel chapter keeps the known series total when the catalog fails', 
     }, key)).toEqual({ total: 600, lastN: 1, readCount: 1 })
 })
 
+test('recovers the full novel chapter list when the catalog becomes available again', async ({ page }) => {
+    const slug = 'novel-catalog-recovery'
+    let catalogRequests = 0
+    await page.route(`**/read/api/chapters?slug=${slug}`, route => {
+        // The HTTP client retries transient errors once before using saved chapters.
+        if (++catalogRequests <= 2) return route.fulfill({ status: 503, json: { error: 'offline' } })
+        return route.fulfill({ json: { chapters: [1, 2, 3].map(n => ({ n, t: `Chapter ${n}` })) } })
+    })
+    await page.route(`**/read/api/chapter?slug=${slug}&n=*`, route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return route.fulfill({ json: { html: `<p>Online chapter ${n}</p>` } })
+    })
+    await page.route('**/read/api/series/**', route => route.fulfill({
+        json: { title: 'Recovery novel', nfSlug: slug, key: `nf:${slug}` },
+    }))
+
+    await page.goto(app)
+    await page.evaluate(async slug => {
+        const dl = await import('/src/lib/downloads.js')
+        await dl.dlWrite(dl.dlPath.novelChapter(slug, 1), JSON.stringify({ html: '<p>Saved chapter one</p>' }))
+        dl.dlRegister({ kind: 'novel', key: slug, id: '1', title: 'Recovery novel' })
+        location.hash = `#/read/${slug}/1`
+    }, slug)
+    await expect(page.locator('#reader-prose')).toContainText('Saved chapter one')
+    expect(catalogRequests).toBe(2)
+
+    await page.evaluate(slug => { location.hash = `#/read/${slug}/2` }, slug)
+    await expect(page.locator('#reader-prose')).toContainText('Online chapter 2')
+    await expect(page.locator('#r-pos')).toContainText('2 / 3')
+    expect(catalogRequests).toBe(3)
+
+    await page.evaluate(slug => { location.hash = `#/read/${slug}/1` }, slug)
+    await expect(page.locator('#reader-prose')).toContainText('Saved chapter one')
+    expect(catalogRequests).toBe(3)
+})
+
 test('missing, empty, or invalid saved novel chapters allow a fresh download', async ({ page }) => {
     await page.goto(app)
     const results = await page.evaluate(async () => {

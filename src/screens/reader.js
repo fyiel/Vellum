@@ -158,7 +158,7 @@ export async function showReader(slug, n) {
   };
   if (navigator.onLine === false) useDownloads();
 
-  if (state.slug !== slug || !state.chapters.length) {
+  if (state.slug !== slug || !state.chapters.length || (state.chaptersFromDownloads && navigator.onLine !== false)) {
     // Fetch the requested text alongside the list without replacing a saved copy
     if (navigator.onLine !== false && !novelDlEntry(slug, n)) {
       prefetchChapter(slug, n, { signal: ctrl.signal });
