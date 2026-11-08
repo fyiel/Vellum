@@ -47,6 +47,20 @@ b.ts
     assert.equal(segments[1].key, null)
 })
 
+test('init maps keep the encryption context active when the map was declared', () => {
+    const text = `#EXTM3U
+#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x7
+#EXT-X-MAP:URI="init.mp4"
+#EXT-X-KEY:METHOD=NONE
+#EXTINF:4.0,
+segment.m4s
+`
+    const { init, initKey, segments } = parseMedia(text)
+    assert.equal(init, 'init.mp4')
+    assert.deepEqual(initKey, { method: 'AES-128', uri: 'key.bin', iv: '0x7' })
+    assert.equal(segments[0].key, null)
+})
+
 test('segmentIv falls back to the big-endian media sequence', () => {
     const explicit = segmentIv({ iv: '0x0000000000000000000000000000000a' }, 3)
     assert.equal(explicit[15], 10)

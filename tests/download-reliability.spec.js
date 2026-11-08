@@ -121,6 +121,43 @@ for (const playlist of ['master', 'variant']) {
     })
 }
 
+for (const encryptedSegment of [true, false]) {
+    test(`AES-128 HLS initialization data is decrypted when segments are ${encryptedSegment ? 'encrypted' : 'clear'}`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async encryptedSegment => {
+            const { setTransport } = await import('/src/lib/http.js')
+            const { downloadVideoEpisode } = await import('/src/lib/dl-video.js')
+            const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+            const key = `mock:encrypted-init-${encryptedSegment}`, id = '1'
+            const keyBytes = new Uint8Array(16).map((_, i) => i + 1)
+            const iv = new Uint8Array(16)
+            iv[15] = 7
+            const aes = await crypto.subtle.importKey('raw', keyBytes, 'AES-CBC', false, ['encrypt'])
+            const init = new TextEncoder().encode('Initialization data')
+            const segment = new TextEncoder().encode('Media segment payload')
+            const encryptedInit = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aes, init))
+            const encryptedMedia = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aes, segment))
+            const playlist = `#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:7\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x7\n#EXT-X-MAP:URI="init.mp4"\n${encryptedSegment ? '' : '#EXT-X-KEY:METHOD=NONE\n'}#EXTINF:4,\npart.m4s\n#EXT-X-ENDLIST\n`
+            setTransport(async url => {
+                const path = String(url)
+                if (path.includes('/playback?')) return Response.json({
+                    key, episodeId: id, providerLabel: 'Test',
+                    sources: [{ kind: 'direct', url: '/encrypted.m3u8', type: 'application/x-mpegURL' }],
+                })
+                if (path.endsWith('/encrypted.m3u8')) return new Response(playlist)
+                if (path.endsWith('/key.bin')) return new Response(keyBytes)
+                if (path.endsWith('/init.mp4')) return new Response(encryptedInit)
+                if (path.endsWith('/part.m4s')) return new Response(encryptedSegment ? encryptedMedia : segment)
+                throw new Error(`unexpected request ${path}`)
+            })
+            await downloadVideoEpisode(key, id)
+            const stored = await dlRead(dlPath.video(key, id))
+            return { stored: [...new Uint8Array(await stored.arrayBuffer())], expected: [...init, ...segment] }
+        }, encryptedSegment)
+        expect(result.stored).toEqual(result.expected)
+    })
+}
+
 test('downloaded WebM episodes retain their format and play from offline storage', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async bytes => {

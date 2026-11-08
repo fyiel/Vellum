@@ -31,6 +31,7 @@ export function parseMedia(text) {
     const lines = String(text).split(/\r?\n/)
     const segments = []
     let init = null
+    let initKey = null
     let key = null
     let sequence = 0
     for (const raw of lines) {
@@ -38,7 +39,10 @@ export function parseMedia(text) {
         if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) sequence = Number(line.slice('#EXT-X-MEDIA-SEQUENCE:'.length)) || 0
         else if (line.startsWith('#EXT-X-MAP:')) {
             const attrs = parseAttrs(line.slice('#EXT-X-MAP:'.length))
-            if (attrs.URI) init = attrs.URI
+            if (attrs.URI) {
+                init = attrs.URI
+                initKey = key ? { ...key } : null
+            }
         } else if (line.startsWith('#EXT-X-KEY:')) {
             const attrs = parseAttrs(line.slice('#EXT-X-KEY:'.length))
             key = !attrs.METHOD || attrs.METHOD === 'NONE' ? null : { method: attrs.METHOD, uri: attrs.URI, iv: attrs.IV || null }
@@ -46,7 +50,7 @@ export function parseMedia(text) {
             segments.push({ uri: line, key: key ? { ...key } : null, sequence: sequence + segments.length })
         }
     }
-    return { init, segments }
+    return { init, initKey, segments }
 }
 
 export const resolveUri = (base, uri) => new URL(uri, base).href

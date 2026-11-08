@@ -91,7 +91,7 @@ async function downloadHls(url, writer, progress, signal) {
         playlistUrl = resolveUri(url, variant.uri)
         text = await playlistText(playlistUrl)
     }
-    const { init, segments } = parseMedia(text)
+    const { init, initKey, segments } = parseMedia(text)
     if (!segments.length) throw new Error('stream playlist is empty')
     const encrypted = segments[0].key
     if (encrypted && encrypted.method !== 'AES-128') throw new Error(`${encrypted.method} encrypted streams can't be downloaded`)
@@ -118,7 +118,13 @@ async function downloadHls(url, writer, progress, signal) {
     progress.total = segments.length
     const keyCache = new Map()
     if (init) {
-        const bytes = await fetchBytes(resolveUri(playlistUrl, init), signal)
+        let bytes = await fetchBytes(resolveUri(playlistUrl, init), signal)
+        if (initKey) {
+            if (initKey.method !== 'AES-128') throw new Error(`${initKey.method} encrypted streams can't be downloaded`)
+            if (!initKey.iv) throw new Error('encrypted HLS initialization section requires an IV')
+            const key = await aesKey(initKey.uri, playlistUrl, signal, keyCache)
+            bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(initKey, 0) }, key, bytes))
+        }
         await writer.write(bytes)
         size += bytes.byteLength
     }
