@@ -1,5 +1,5 @@
 import { getVideoPlayback, videoAssetUrl } from './video-api.js'
-import { rawFetch } from './http.js'
+import { raceAbort, rawFetch } from './http.js'
 import { dlEntry, dlPath, dlRead, dlRegister, dlUnregister, dlWriter } from './downloads.js'
 import { isMaster, looksFragmentedMp4, parseMaster, parseMedia, pickVariant, resolveUri, segmentIv } from './hls-dl.js'
 
@@ -22,10 +22,11 @@ const withTimeout = signal => AbortSignal.any([signal, AbortSignal.timeout(30_00
 
 async function fetchBytes(url, signal, byteRange) {
     const headers = byteRange ? { Range: `bytes=${byteRange.offset}-${byteRange.offset + byteRange.length - 1}` } : undefined
-    const response = await rawFetch(url, { signal: withTimeout(signal), headers })
+    const requestSignal = withTimeout(signal)
+    const response = await raceAbort(rawFetch(url, { signal: requestSignal, headers }), requestSignal)
     if (!response.ok) throw new Error(`http ${response.status}`)
     if (byteRange && response.status !== 206) throw new Error('HLS byte range request was ignored')
-    const bytes = new Uint8Array(await response.arrayBuffer())
+    const bytes = new Uint8Array(await raceAbort(response.arrayBuffer(), requestSignal))
     if (byteRange) {
         const contentRange = response.headers.get('content-range')
         const match = contentRange && /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/i.exec(contentRange)
@@ -55,7 +56,7 @@ async function downloadFile(url, writer, progress, signal) {
     let completed = false
     try {
         arm()
-        const response = await rawFetch(url, { signal: ctrl.signal })
+        const response = await raceAbort(rawFetch(url, { signal: ctrl.signal }), ctrl.signal)
         if (!response.ok || !response.body) throw new Error(`http ${response.status}`)
         progress.total = Number(response.headers.get('content-length')) || 0
         reader = response.body.getReader()
@@ -63,7 +64,7 @@ async function downloadFile(url, writer, progress, signal) {
         for (;;) {
             if (signal.aborted) throw new Error('download cancelled')
             arm()
-            const { done, value } = await reader.read()
+            const { done, value } = await raceAbort(reader.read(), ctrl.signal)
             clearTimeout(timer)
             if (done) { completed = true; break }
             await writer.write(value)
@@ -75,7 +76,8 @@ async function downloadFile(url, writer, progress, signal) {
     } finally {
         clearTimeout(timer)
         signal.removeEventListener('abort', onAbort)
-        if (!completed) await reader?.cancel().catch(() => {})
+        // Cancellation itself may never settle for a non-cooperative stream.
+        if (!completed) reader?.cancel().catch(() => {})
         reader?.releaseLock()
     }
 }
@@ -91,9 +93,10 @@ async function aesKey(uri, playlistUrl, signal, cache) {
 
 async function downloadHls(url, writer, progress, signal) {
     const playlistText = async playlistUrl => {
-        const response = await rawFetch(playlistUrl, { signal: withTimeout(signal) })
+        const requestSignal = withTimeout(signal)
+        const response = await raceAbort(rawFetch(playlistUrl, { signal: requestSignal }), requestSignal)
         if (!response.ok) throw new Error(`http ${response.status}`)
-        return response.text()
+        return raceAbort(response.text(), requestSignal)
     }
     let playlistUrl = url
     let text = await playlistText(playlistUrl)

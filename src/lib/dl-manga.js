@@ -1,5 +1,5 @@
 import { getMangaChapter, getMangaSeries, mangaPageUrl } from './manga-api.js'
-import { rawFetch } from './http.js'
+import { raceAbort, rawFetch } from './http.js'
 import { dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
 
 // in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
@@ -32,9 +32,10 @@ export async function downloadMangaChapter(key, id) {
         let size = 0
         for (let index = 0; index < content.pages.length; index++) {
             if (ctrl.signal.aborted) throw new Error('download cancelled')
-            const response = await rawFetch(mangaPageUrl(content.pages[index]), { signal: ctrl.signal })
+            const requestSignal = AbortSignal.any([ctrl.signal, AbortSignal.timeout(60_000)])
+            const response = await raceAbort(rawFetch(mangaPageUrl(content.pages[index]), { signal: requestSignal }), requestSignal)
             if (!response.ok) throw new Error(`page ${index + 1} failed (http ${response.status})`)
-            const blob = await response.blob()
+            const blob = await raceAbort(response.blob(), requestSignal)
             if (!blob.size) throw new Error(`page ${index + 1} failed (empty)`)
             if (ctrl.signal.aborted) throw new Error('download cancelled')
             await dlWrite(dlPath.mangaPage(key, id, index), blob)

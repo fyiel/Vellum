@@ -13,6 +13,21 @@ export const setTransport = fn => { transport = fn }
 // binary fetches (downloads) go through the same transport so Tauri stays CORS-free
 export const rawFetch = (url, init) => transport(url, init)
 
+// Some native transports and response bodies never reject when their signal is
+// aborted. Let callers stop waiting even when the underlying operation ignores it.
+export const raceAbort = (pending, signal) => {
+    if (!signal) return pending
+    let onAbort
+    const interrupted = new Promise((_, reject) => {
+        onAbort = () => reject(signal.reason?.name === 'TimeoutError' ? new Error('download timed out')
+            : signal.reason?.name === 'AbortError' ? new Error('download cancelled')
+                : signal.reason || new Error('download cancelled'))
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+    })
+    return Promise.race([pending, interrupted]).finally(() => signal.removeEventListener('abort', onAbort))
+}
+
 const TIMEOUT_MS = 15_000
 const aborted = () => Object.assign(new Error('request aborted'), { name: 'AbortError' })
 const wait = (ms, signal) => new Promise((resolve, reject) => {

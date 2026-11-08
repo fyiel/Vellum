@@ -643,6 +643,136 @@ for (const mode of ['steady', 'stalled', 'cancelled']) {
     })
 }
 
+for (const stalled of ['request', 'stream']) {
+    for (const reason of ['timeout', 'cancel']) {
+        test(`non-cooperative direct video ${stalled} settles on ${reason}`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async ({ stalled, reason }) => {
+            const realTimeout = window.setTimeout.bind(window)
+            window.setTimeout = (fn, ms, ...args) => realTimeout(fn, ms === 30_000 ? 80 : ms, ...args)
+            const { setTransport } = await import('/src/lib/http.js')
+            const video = await import('/src/lib/dl-video.js')
+            const key = `mock:unresponsive-direct-${stalled}-${reason}`, id = '1'
+            setTransport(url => {
+                if (String(url).includes('/playback?')) return Response.json({
+                    key, episodeId: id, providerLabel: 'Fixture', sources: [{ kind: 'direct', url: '/stalled.mp4', type: 'video/mp4' }],
+                })
+                if (stalled === 'request') return new Promise(() => {})
+                return new Response(new ReadableStream({
+                    start() {},
+                    cancel() { return new Promise(() => {}) },
+                }))
+            })
+            const task = video.downloadVideoEpisode(key, id).then(() => 'saved', error => error.message)
+            if (reason === 'cancel') realTimeout(() => video.cancelVideoDownload(key, id), 25)
+            const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+            return { outcome, saved: !!video.videoDlEntry(key, id), active: !!video.videoDlActive(key, id) }
+        }, { stalled, reason })
+        expect(result).toEqual({ outcome: reason === 'cancel' ? 'download cancelled' : 'download timed out', saved: false, active: false })
+        })
+    }
+}
+
+for (const stalled of ['playlist request', 'playlist body', 'segment request', 'segment body']) {
+    test(`non-cooperative HLS ${stalled} times out and releases the download`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async stalled => {
+            const realTimeout = window.setTimeout.bind(window)
+            AbortSignal.timeout = ms => {
+                const ctrl = new AbortController()
+                realTimeout(() => ctrl.abort(new DOMException('Timed out', 'TimeoutError')), ms === 30_000 ? 80 : ms)
+                return ctrl.signal
+            }
+            const { setTransport } = await import('/src/lib/http.js')
+            const video = await import('/src/lib/dl-video.js')
+            const key = `mock:unresponsive-hls-${stalled.replace(' ', '-')}`, id = '1'
+            setTransport(url => {
+                const path = String(url)
+                if (path.includes('/playback?')) return Response.json({
+                    key, episodeId: id, providerLabel: 'Fixture', sources: [{ kind: 'direct', url: '/stalled.m3u8', type: 'application/x-mpegURL' }],
+                })
+                if (path.endsWith('/stalled.m3u8')) {
+                    if (stalled === 'playlist request') return new Promise(() => {})
+                    if (stalled === 'playlist body') return { ok: true, text: () => new Promise(() => {}) }
+                    return new Response('#EXTM3U\n#EXT-X-MAP:URI="init.mp4"\n#EXTINF:4,\npart.m4s\n#EXT-X-ENDLIST\n')
+                }
+                if (path.endsWith('/init.mp4')) return new Response(new Uint8Array([1, 2]))
+                if (path.endsWith('/part.m4s')) {
+                    if (stalled === 'segment request') return new Promise(() => {})
+                    if (stalled === 'segment body') return { ok: true, status: 200, arrayBuffer: () => new Promise(() => {}) }
+                }
+                throw new Error(`unexpected request ${path}`)
+            })
+            const task = video.downloadVideoEpisode(key, id).then(() => 'saved', error => error.message)
+            const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+            return { outcome, saved: !!video.videoDlEntry(key, id), active: !!video.videoDlActive(key, id) }
+        }, stalled)
+        expect(result).toEqual({ outcome: 'download timed out', saved: false, active: false })
+    })
+}
+
+for (const stalled of ['request', 'body']) {
+    test(`cancelling a non-cooperative manga page ${stalled} releases its download`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async stalled => {
+            const realTimeout = window.setTimeout.bind(window)
+            const { setTransport } = await import('/src/lib/http.js')
+            const manga = await import('/src/lib/dl-manga.js')
+            const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+            const key = `mf:unresponsive-${stalled}`, id = 'c1'
+            let pageRequested
+            const requested = new Promise(resolve => { pageRequested = resolve })
+            setTransport(url => {
+                const path = String(url)
+                if (path.includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Fixture', format: 'manga' })
+                if (path.includes('/manga/chapter?')) return Response.json({
+                    key, chapter: { id, number: 1 },
+                    pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=0` }],
+                })
+                if (path.includes('/manga/image?')) {
+                    pageRequested()
+                    return stalled === 'request' ? new Promise(() => {}) : { ok: true, blob: () => new Promise(() => {}) }
+                }
+                throw new Error(`unexpected request ${path}`)
+            })
+            const task = manga.downloadMangaChapter(key, id).then(() => 'saved', error => error.message)
+            const started = await Promise.race([requested.then(() => true), new Promise(resolve => realTimeout(() => resolve(false), 400))])
+            manga.cancelMangaDownload(key, id)
+            const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+            return { started, outcome, saved: !!manga.mangaDlEntry(key, id), active: !!manga.mangaDlActive(key, id), bytes: !!await dlRead(dlPath.mangaPage(key, id, 0)) }
+        }, stalled)
+        expect(result).toEqual({ started: true, outcome: 'download cancelled', saved: false, active: false, bytes: false })
+    })
+}
+
+test('a non-cooperative manga page request times out and releases its download', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const realTimeout = window.setTimeout.bind(window)
+        AbortSignal.timeout = ms => {
+            const ctrl = new AbortController()
+            realTimeout(() => ctrl.abort(new DOMException('Timed out', 'TimeoutError')), ms === 60_000 ? 80 : ms)
+            return ctrl.signal
+        }
+        const { setTransport } = await import('/src/lib/http.js')
+        const manga = await import('/src/lib/dl-manga.js')
+        const key = 'mf:unresponsive-timeout', id = 'c1'
+        setTransport(url => {
+            const path = String(url)
+            if (path.includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Fixture', format: 'manga' })
+            if (path.includes('/manga/chapter?')) return Response.json({
+                key, chapter: { id, number: 1 },
+                pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=0` }],
+            })
+            return new Promise(() => {})
+        })
+        const task = manga.downloadMangaChapter(key, id).then(() => 'saved', error => error.message)
+        const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 600))])
+        return { outcome, saved: !!manga.mangaDlEntry(key, id), active: !!manga.mangaDlActive(key, id) }
+    })
+    expect(result).toEqual({ outcome: 'download timed out', saved: false, active: false })
+})
+
 for (const policy of ['csp', 'devCsp']) {
     test(`desktop ${policy} permits offline art, media, embeds and HLS workers`, async ({ page }) => {
         await page.route(app, async route => {
