@@ -70,6 +70,9 @@ const rd = {
   end: false,
   failed: false,
   ctrl: null,
+  coveredCatalog: null,
+  coveredSlug: null,
+  coveredThrough: -1,
 };
 
 const chapterIndex = (n) => state.chapters.findIndex((c) => c.n === n);
@@ -213,6 +216,9 @@ export const closeReader = () => {
   document.body.style.background = "";
   state.slug = null;
   state.chapters = [];
+  rd.coveredCatalog = null;
+  rd.coveredSlug = null;
+  rd.coveredThrough = -1;
   if ("scrollRestoration" in history) history.scrollRestoration = "auto";
   if (state.view === "reader") state.view = "home";
 };
@@ -503,29 +509,35 @@ function setCurrent(idx) {
   $("#r-title").textContent = c.t;
   history.replaceState(null, "", `#/read/${hashSlug(rd.slug)}/${c.n}`);
 
-  // jumping past chapters marks them read, opening 300 implies the rest are behind you
-  const crossed = [];
-  for (let i = 0; i < idx; i++) crossed.push(state.chapters[i].n);
-  // the chapter you land on is being read right now, do not wait for the 98% idle mark
-  crossed.push(state.chapters[idx].n);
-  let readSize = null;
-  if (crossed.length) {
+  // A deep link still marks every preceding chapter read. Once that prefix has
+  // been checked, successive chapter changes need only examine new chapters.
+  if (rd.coveredCatalog !== state.chapters || rd.coveredSlug !== rd.slug) {
+    rd.coveredCatalog = state.chapters;
+    rd.coveredSlug = rd.slug;
+    rd.coveredThrough = -1;
+  }
+  if (idx > rd.coveredThrough) {
     const set = readSet(rd.slug);
     let changed = false;
-    for (const n of crossed) {
+    for (let i = rd.coveredThrough + 1; i <= idx; i++) {
+      const n = state.chapters[i].n;
       if (!set.has(n)) {
         set.add(n);
         changed = true;
       }
     }
+    rd.coveredThrough = idx;
     if (changed) {
       saveRead(rd.slug, set);
-      readSize = set.size;
+      updateLibrary(idx, set.size);
     }
   }
-  // a revisit that marks nothing must not rewind lastN or bump recency
-  if (readSize != null) updateLibrary(idx, readSize);
 }
+
+// Another tab may reset a book's progress while this reader is open.
+window.addEventListener('storage', event => {
+  if (event.key === null || event.key === `vellum:read:${rd.slug}`) rd.coveredThrough = -1;
+});
 
 const topChapterIdx = () => {
   const y = scrollY() + 90;

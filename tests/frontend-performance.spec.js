@@ -80,6 +80,59 @@ test('closing a cold reader discards both pending responses', async ({ page }) =
     } finally { listGate.resolve(); textGate.resolve() }
 })
 
+test('novel progress only checks newly crossed chapters in a large catalog', async ({ page }) => {
+    const slug = 'progress-perf'
+    const chapterList = Array.from({ length: 4000 }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    await page.route('**/read/api/chapters?slug=progress-perf', route => reply(route, { chapters: chapterList }))
+    await page.route('**/read/api/chapter?slug=progress-perf&n=*', route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return reply(route, { n, title: `Chapter ${n}`, html: `<p>Reading chapter ${n}</p>` })
+    })
+    await page.route('**/read/api/series/nf%3Aprogress-perf', route => reply(route, {
+        key: 'nf:progress-perf', nfSlug: slug, title: 'Progress performance',
+    }))
+
+    await page.goto(`${app}#/read/${slug}/3000`)
+    await expect(page.locator('#r-title')).toHaveText('Chapter 3000')
+    const readCount = () => page.evaluate(slug => JSON.parse(localStorage.getItem(`vellum:read:${slug}`) || '[]').length, slug)
+    await expect.poll(readCount).toBe(3000)
+    await page.evaluate(() => {
+        window.numericReadChecks = 0
+        const original = Set.prototype.has
+        Set.prototype.has = function (value) {
+            if (typeof value === 'number') window.numericReadChecks++
+            return original.call(this, value)
+        }
+    })
+
+    await page.keyboard.press('ArrowRight')
+    await expect(page.locator('#r-title')).toHaveText('Chapter 3001')
+    await expect.poll(readCount).toBe(3001)
+    await page.keyboard.press('ArrowLeft')
+    await expect(page.locator('#r-title')).toHaveText('Chapter 3000')
+    expect(await readCount()).toBe(3001)
+    const checks = await page.evaluate(() => window.numericReadChecks)
+    console.log(`Novel two chapter changes after deep link: ${checks} numeric Set.has checks`)
+    expect(checks).toBeLessThan(30)
+
+    // A reset in another tab invalidates the in-memory frontier.
+    await page.evaluate(slug => {
+        window.readResetSeen = false
+        window.addEventListener('storage', event => {
+            if (event.key === `vellum:read:${slug}`) window.readResetSeen = true
+        }, { once: true })
+    }, slug)
+    const otherTab = await page.context().newPage()
+    try {
+        await otherTab.goto(app)
+        await otherTab.evaluate(slug => localStorage.removeItem(`vellum:read:${slug}`), slug)
+        await expect.poll(() => page.evaluate(() => window.readResetSeen)).toBe(true)
+        await page.keyboard.press('ArrowRight')
+        await expect(page.locator('#r-title')).toHaveText('Chapter 3001')
+        await expect.poll(readCount).toBe(3001)
+    } finally { await otherTab.close() }
+})
+
 test('manga page turns reuse the chapter order of a large catalog', async ({ page }) => {
     const key = 'mf:page-order'
     const chapters = [
