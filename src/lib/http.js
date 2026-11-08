@@ -29,10 +29,16 @@ async function request(path, signal, timeoutMs) {
     const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     const onAbort = () => ctrl.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
+    let rejectOnAbort
+    const cancelled = new Promise((_, reject) => {
+        rejectOnAbort = () => reject(aborted())
+        ctrl.signal.addEventListener('abort', rejectOnAbort, { once: true })
+    })
     try {
-        const res = await transport(apiUrl(path), { headers: { accept: 'application/json' }, signal: ctrl.signal })
+        // A transport or response body that ignores AbortSignal must not hold callers forever.
+        const res = await Promise.race([transport(apiUrl(path), { headers: { accept: 'application/json' }, signal: ctrl.signal }), cancelled])
         if (signal?.aborted) throw aborted()
-        const data = await res.json().catch(() => null)
+        const data = await Promise.race([res.json().catch(() => null), cancelled])
         if (signal?.aborted) throw aborted()
         if (ctrl.signal.aborted) throw new Error('request timed out')
         if (!res.ok) {
@@ -55,6 +61,7 @@ async function request(path, signal, timeoutMs) {
         throw error
     } finally {
         clearTimeout(timer)
+        ctrl.signal.removeEventListener('abort', rejectOnAbort)
         signal?.removeEventListener('abort', onAbort)
     }
 }
