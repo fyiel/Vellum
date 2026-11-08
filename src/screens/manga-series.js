@@ -156,8 +156,13 @@ function chapterRows(chapters, activeId) {
 const filteredChapters = () => {
     if (!current) return []
     const query = chapterQuery.toLowerCase()
-    return current.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
+    if (!query) return current.chapters
+    return current.chapters.filter(chapter => `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
 }
+
+const moreButton = (shown, total) => shown < total
+    ? `<button type="button" class="manga-chapter-more" id="mchapter-more">Show ${Math.min(CHAPTER_BATCH, total - shown)} more <span>${shown} of ${total}</span></button>`
+    : ''
 
 function renderChapterList() {
     if (!current || !currentRouteIs(current.key) || !$('#mchapter-list')) return
@@ -166,7 +171,7 @@ function renderChapterList() {
     const filtered = filteredChapters()
     const shown = filtered.slice(0, chapterLimit)
     $('#mchapter-list').innerHTML = shown.length
-        ? `${chapterRows(shown, current.saved)}${shown.length < filtered.length ? `<button type="button" class="manga-chapter-more" id="mchapter-more">Show ${Math.min(CHAPTER_BATCH, filtered.length - shown.length)} more <span>${shown.length} of ${filtered.length}</span></button>` : ''}`
+        ? `${chapterRows(shown, current.saved)}${moreButton(shown.length, filtered.length)}`
         : '<div class="manga-chapter-empty" role="status">No matching chapters</div>'
     const status = $('#mchapter-status')
     if (status) status.textContent = shown.length ? `Showing ${shown.length} of ${filtered.length} chapters` : ''
@@ -175,10 +180,19 @@ function renderChapterList() {
 }
 
 function revealMore() {
+    if (!current || !currentRouteIs(current.key)) return null
+    const list = $('#mchapter-list')
+    if (!list) return null
     const filtered = filteredChapters()
-    if (chapterLimit >= filtered.length) return
+    const before = Math.min(chapterLimit, filtered.length)
+    if (before >= filtered.length) return null
     chapterLimit += CHAPTER_BATCH
-    renderChapterList()
+    const added = filtered.slice(before, chapterLimit)
+    list.querySelector('#mchapter-more')?.remove()
+    list.insertAdjacentHTML('beforeend', chapterRows(added, current.saved) + moreButton(before + added.length, filtered.length))
+    const status = $('#mchapter-status')
+    if (status) status.textContent = `Showing ${before + added.length} of ${filtered.length} chapters`
+    return list.children[before]?.querySelector('.mchrow')
 }
 
 function wire() {
@@ -240,10 +254,7 @@ function wire() {
             return
         }
         if (event.target.closest('#mchapter-more')) {
-            const before = $('#mchapter-list').querySelectorAll('.mchrow').length
-            chapterLimit += CHAPTER_BATCH
-            renderChapterList()
-            $('#mchapter-list').querySelectorAll('.mchrow')[before]?.focus({ preventScroll: true })
+            revealMore()?.focus({ preventScroll: true })
             return
         }
         const row = event.target.closest('.mchrow')

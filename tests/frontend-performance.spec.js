@@ -232,6 +232,52 @@ test('manga download progress only inspects its chapter button in a large catalo
     expect(result.mutations).toBeLessThan(30)
 })
 
+test('revealing more manga chapters retains existing rows and only appends new ones', async ({ page }) => {
+    const key = 'mf:reveal-perf'
+    const chapters = Array.from({ length: 2000 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1 }))
+    await page.route('**/read/api/manga/series/**', route => reply(route, { key, kind: 'manga', format: 'manga', title: 'Large manga' }))
+    await page.route('**/read/api/manga/chapters?**', route => reply(route, { key, chapters }))
+    await page.goto(`${app}#/manga/series/${encodeURIComponent(key)}`)
+    await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
+
+    const result = await page.evaluate(() => {
+        const list = document.querySelector('#mchapter-list')
+        const first = list.querySelector('.chline')
+        let added = 0, removed = 0
+        const observer = new MutationObserver(records => {
+            for (const record of records) {
+                for (const node of record.addedNodes) if (node.matches?.('.chline')) added++
+                for (const node of record.removedNodes) if (node.matches?.('.chline')) removed++
+            }
+        })
+        observer.observe(list, { childList: true })
+        const start = performance.now()
+        list.querySelector('#mchapter-more').click()
+        list.querySelector('#mchapter-more').click()
+        const elapsedMs = performance.now() - start
+        observer.takeRecords().forEach(record => {
+            for (const node of record.addedNodes) if (node.matches?.('.chline')) added++
+            for (const node of record.removedNodes) if (node.matches?.('.chline')) removed++
+        })
+        observer.disconnect()
+        return {
+            added, removed, elapsedMs, before: 250,
+            after: list.querySelectorAll('.mchrow').length,
+            firstPreserved: list.querySelector('.chline') === first,
+            focusedId: document.activeElement?.dataset.id,
+            more: list.querySelector('#mchapter-more')?.textContent,
+        }
+    })
+    console.log(`Manga reveal to ${result.after} rows: ${result.elapsedMs.toFixed(1)}ms, ${result.added} rows added, ${result.removed} removed`)
+    expect(result).toMatchObject({ after: 750, added: 500, removed: 0, firstPreserved: true, focusedId: 'chapter-501' })
+    expect(result.more).toContain('750 of 2000')
+    await page.locator('#mchsearch').fill('Ch. 777')
+    await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(1)
+    await expect(page.locator('#mchapter-list .mchrow')).toHaveAttribute('data-id', 'chapter-777')
+    await page.locator('#mchsearch').fill('')
+    await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
+})
+
 test('refining a novel chapter search avoids repeated DOM ancestor lookups', async ({ page }) => {
     const slug = 'chapter-filter-perf'
     const count = 3000
