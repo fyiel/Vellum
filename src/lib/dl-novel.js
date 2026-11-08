@@ -245,24 +245,52 @@ export async function loadDownloadedNovelChapter(key, n, { signal } = {}) {
     }
 }
 
-// repair pass for chapters saved before in-chapter images were downloaded: any stored
-// chapter whose html still points at remote image urls gets re-downloaded (which now
-// fetches the images too). runs once per launch, online only, sequential in the
-// background — the registry updates itself as each chapter completes
+// Older saved chapters may still reference remote illustrations. Remember which
+// registry revisions were inspected so opening a large offline library doesn't
+// read every chapter file again on each launch. This is a disposable hint:
+// writes/downloads change the registry revision, and failed repairs are retried.
+const imageScanStorageKey = 'vellum:novel-image-scan:v1'
+const imageScanId = entry => JSON.stringify([entry.key, String(entry.id)])
+const imageScanRevision = entry => JSON.stringify([entry.at, entry.size, entry.title])
+
+// Scan once per launch, online only, sequential in the background. Repairs use
+// existing saved text and keep all prior illustration slots intact.
 let upgraded = false
 export async function upgradeNovelDownloads() {
     if (upgraded || !navigator.onLine) return
     upgraded = true
+    let previous = {}
+    try { previous = JSON.parse(localStorage.getItem(imageScanStorageKey)) || {} } catch {}
+    if (!previous || typeof previous !== 'object' || Array.isArray(previous)) previous = {}
+    const checked = new Map()
     for (const entry of dlEntries()) {
         if (entry.kind !== 'novel') continue
+        const id = imageScanId(entry), revision = imageScanRevision(entry)
+        if (previous[id] === revision) { checked.set(id, revision); continue }
         try {
             const blob = await dlRead(dlPath.novelChapter(entry.key, entry.id))
             if (!blob) continue
             const value = JSON.parse(await blob.text())
             if (typeof value?.html !== 'string') continue
+            // Most novel chapters are text-only. Avoid building a full DOM for
+            // each one while still parsing any possible <img> for legacy repair.
+            if (!/<img(?=[\s/>])/i.test(value.html)) { checked.set(id, revision); continue }
             const doc = new DOMParser().parseFromString(value.html, 'text/html')
             const stale = [...doc.querySelectorAll('img[src]')].some(img => /^(https?:)?\/\//i.test(img.getAttribute('src')))
             if (stale) await downloadNovelChapter(entry.key, entry.id, entry.title, { force: true })
+            else checked.set(id, revision)
         } catch {}
     }
+    // Recheck revisions: the reader or another tab may have replaced a chapter
+    // while the scan was awaiting filesystem or network operations.
+    const current = Object.create(null)
+    for (const entry of dlEntries()) {
+        if (entry.kind !== 'novel') continue
+        const id = imageScanId(entry), revision = imageScanRevision(entry)
+        if (checked.get(id) === revision) current[id] = revision
+    }
+    try {
+        const next = JSON.stringify(current)
+        if (localStorage.getItem(imageScanStorageKey) !== next) localStorage.setItem(imageScanStorageKey, next)
+    } catch {} // A failed hint write must never affect saved chapters.
 }
