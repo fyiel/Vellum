@@ -252,7 +252,8 @@ function filterChapters(q, restoreTop = 0) {
     q = q.trim().toLowerCase()
     for (const r of chRows) {
         const hit = !q || r.t.includes(q) || String(r.n).includes(q)
-        r.el.closest('.chline').style.display = hit ? '' : 'none'
+        const display = hit ? '' : 'none'
+        if (r.line.style.display !== display) r.line.style.display = display
     }
     // hiding rows clamps scrollTop; put the reader back where they were when the filter clears
     if (!q) {
@@ -361,7 +362,7 @@ async function loadChapters(slug, mine, signal) {
 
     $('#schapters').innerHTML = chaptersHtml(slug, chapters, count)
     batchPaint()
-    chRows = [...$$('#chlist .chrow')].map(el => ({ el, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
+    chRows = [...$$('#chlist .chrow')].map(el => ({ line: el.parentElement, t: el.querySelector('.cht').textContent.toLowerCase(), n: el.dataset.n }))
 
     const stat = $('#chstat')
     if (stat) {

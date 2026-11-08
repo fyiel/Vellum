@@ -167,6 +167,52 @@ test('novel download updates avoid unrelated DOM mutations in a large catalog', 
     expect(result.mutations).toBeLessThan(20)
 })
 
+test('refining a novel chapter search avoids repeated DOM ancestor lookups', async ({ page }) => {
+    const slug = 'chapter-filter-perf'
+    const count = 3000
+    await page.route('**/read/api/series/**', route => reply(route, { title: 'Large novel', nfSlug: slug }))
+    await page.route('**/read/api/chapters?slug=chapter-filter-perf', route => reply(route, {
+        chapters: Array.from({ length: count }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` })),
+    }))
+    await page.goto(`${app}#/series/nf%3Achapter-filter-perf`)
+    await expect(page.locator('#chlist .chline')).toHaveCount(count)
+
+    await page.locator('#chsearch').fill('299')
+    await expect(page.locator('#chlist .chline:visible')).toHaveCount(13)
+    await page.evaluate(() => {
+        window.chapterFilterMutations = 0
+        window.chapterFilterObserver = new MutationObserver(records => { window.chapterFilterMutations += records.length })
+        window.chapterFilterObserver.observe(document.querySelector('#chlist'), {
+            attributes: true, attributeFilter: ['style'], subtree: true,
+        })
+        window.chapterFilterClosestCalls = 0
+        window.chapterFilterOriginalClosest = Element.prototype.closest
+        Element.prototype.closest = function (selector) {
+            if (selector === '.chline') window.chapterFilterClosestCalls++
+            return window.chapterFilterOriginalClosest.call(this, selector)
+        }
+    })
+    await page.locator('#chsearch').fill('2999')
+    await expect(page.locator('#chlist .chline:visible')).toHaveCount(1)
+    const result = await page.evaluate(() => {
+        const mutations = window.chapterFilterMutations + window.chapterFilterObserver.takeRecords().length
+        const closestCalls = window.chapterFilterClosestCalls
+        Element.prototype.closest = window.chapterFilterOriginalClosest
+        window.chapterFilterObserver.disconnect()
+        delete window.chapterFilterOriginalClosest
+        delete window.chapterFilterClosestCalls
+        delete window.chapterFilterObserver
+        delete window.chapterFilterMutations
+        return { mutations, closestCalls }
+    })
+    console.log(`Novel 3000 rows, narrow chapter search: ${result.closestCalls} ancestor lookups, ${result.mutations} style mutations`)
+    expect(result.closestCalls).toBeLessThan(30)
+    expect(result.mutations).toBeLessThan(30)
+
+    await page.locator('#chsearch').fill('')
+    await expect(page.locator('#chlist .chline:visible')).toHaveCount(count)
+})
+
 test('manga page turns reuse the chapter order of a large catalog', async ({ page }) => {
     const key = 'mf:page-order'
     const chapters = [
