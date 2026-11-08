@@ -79,6 +79,35 @@ second.m4s
     ])
 })
 
+test('parses HLS initialization and consecutive media byte ranges', () => {
+    const playlist = `#EXTM3U
+#EXT-X-MAP:URI="shared.m4s",BYTERANGE="4@0"
+#EXTINF:4,
+#EXT-X-BYTERANGE:5@4
+shared.m4s
+#EXTINF:4,
+#EXT-X-BYTERANGE:5
+shared.m4s
+`
+    const { maps, segments } = parseMedia(playlist)
+    assert.deepEqual(maps[0].byteRange, { offset: 0, length: 4 })
+    assert.deepEqual(segments.map(segment => segment.byteRange), [
+        { offset: 4, length: 5 }, { offset: 9, length: 5 },
+    ])
+})
+
+test('rejects undefined HLS byte ranges before any download starts', () => {
+    for (const lines of [
+        '#EXT-X-BYTERANGE:5\na.m4s',
+        '#EXT-X-BYTERANGE:5@0\na.m4s\n#EXT-X-BYTERANGE:5\nb.m4s',
+        '#EXT-X-BYTERANGE:5@0\na.m4s\nb.m4s\n#EXT-X-BYTERANGE:5\nb.m4s',
+        '#EXT-X-BYTERANGE:0@0\na.m4s',
+        '#EXT-X-BYTERANGE:3@9007199254740991\na.m4s',
+    ]) {
+        assert.throws(() => parseMedia(`#EXTM3U\n${lines}\n`), /byte range/i)
+    }
+})
+
 test('segmentIv falls back to the big-endian media sequence', () => {
     const explicit = segmentIv({ iv: '0x0000000000000000000000000000000a' }, 3)
     assert.equal(explicit[15], 10)

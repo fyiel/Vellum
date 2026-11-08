@@ -20,10 +20,22 @@ const absolute = url => new URL(url, location.href).href
 // a hung segment fetch must fail, not stall the download forever
 const withTimeout = signal => AbortSignal.any([signal, AbortSignal.timeout(30_000)])
 
-async function fetchBytes(url, signal) {
-    const response = await rawFetch(url, { signal: withTimeout(signal) })
+async function fetchBytes(url, signal, byteRange) {
+    const headers = byteRange ? { Range: `bytes=${byteRange.offset}-${byteRange.offset + byteRange.length - 1}` } : undefined
+    const response = await rawFetch(url, { signal: withTimeout(signal), headers })
     if (!response.ok) throw new Error(`http ${response.status}`)
-    return new Uint8Array(await response.arrayBuffer())
+    if (byteRange && response.status !== 206) throw new Error('HLS byte range request was ignored')
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (byteRange) {
+        const contentRange = response.headers.get('content-range')
+        const match = contentRange && /^bytes (\d+)-(\d+)\/(?:\d+|\*)$/i.exec(contentRange)
+        if (bytes.length !== byteRange.length || (contentRange && (!match
+            || Number(match[1]) !== byteRange.offset
+            || Number(match[2]) !== byteRange.offset + byteRange.length - 1))) {
+            throw new Error('invalid HLS byte range response')
+        }
+    }
+    return bytes
 }
 
 // straight file download with byte-level progress
@@ -129,7 +141,7 @@ async function downloadHls(url, writer, progress, signal) {
         // segment that uses them; a playlist can change maps mid-stream.
         if (maps[nextMap]?.at === index) {
             const map = maps[nextMap++]
-            let bytes = await fetchBytes(resolveUri(playlistUrl, map.uri), signal)
+            let bytes = await fetchBytes(resolveUri(playlistUrl, map.uri), signal, map.byteRange)
             if (map.key) {
                 if (map.key.method !== 'AES-128') throw new Error(`${map.key.method} encrypted streams can't be downloaded`)
                 if (!map.key.iv) throw new Error('encrypted HLS initialization section requires an IV')
@@ -139,7 +151,7 @@ async function downloadHls(url, writer, progress, signal) {
             await writer.write(bytes)
             size += bytes.byteLength
         }
-        let bytes = await fetchBytes(resolveUri(playlistUrl, segment.uri), signal)
+        let bytes = await fetchBytes(resolveUri(playlistUrl, segment.uri), signal, segment.byteRange)
         if (segment.key) {
             const key = await aesKey(segment.key.uri, playlistUrl, signal, keyCache)
             bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(segment.key, segment.sequence) }, key, bytes))

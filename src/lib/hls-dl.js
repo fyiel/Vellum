@@ -27,6 +27,21 @@ export function parseMaster(text) {
 export const pickVariant = variants =>
     variants.reduce((best, variant) => (variant.bandwidth > (best?.bandwidth ?? -1) ? variant : best), null)
 
+function parseByteRange(value, uri, previousSegment) {
+    const match = /^(\d+)(?:@(\d+))?$/.exec(value)
+    const length = Number(match?.[1])
+    const offset = match?.[2] == null
+        ? previousSegment?.uri === uri && previousSegment.byteRange
+            ? previousSegment.byteRange.offset + previousSegment.byteRange.length
+            : NaN
+        : Number(match[2])
+    if (!Number.isSafeInteger(length) || length <= 0 || !Number.isSafeInteger(offset)
+        || offset < 0 || !Number.isSafeInteger(offset + length - 1)) {
+        throw new Error('invalid HLS byte range')
+    }
+    return { offset, length }
+}
+
 export function parseMedia(text) {
     const lines = String(text).split(/\r?\n/)
     const segments = []
@@ -35,6 +50,7 @@ export function parseMedia(text) {
     let initKey = null
     let key = null
     let sequence = 0
+    let pendingByteRange = null
     for (const raw of lines) {
         const line = raw.trim()
         if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) sequence = Number(line.slice('#EXT-X-MEDIA-SEQUENCE:'.length)) || 0
@@ -44,16 +60,22 @@ export function parseMedia(text) {
                 init = attrs.URI
                 initKey = key ? { ...key } : null
                 const map = { at: segments.length, uri: init, key: initKey }
+                if (attrs.BYTERANGE != null) map.byteRange = parseByteRange(attrs.BYTERANGE, init, segments.at(-1))
                 // A later map declaration supersedes an earlier one when no
                 // media segment has appeared between them.
                 if (maps.at(-1)?.at === map.at) maps[maps.length - 1] = map
                 else maps.push(map)
             }
+        } else if (line.startsWith('#EXT-X-BYTERANGE:')) {
+            pendingByteRange = line.slice('#EXT-X-BYTERANGE:'.length)
         } else if (line.startsWith('#EXT-X-KEY:')) {
             const attrs = parseAttrs(line.slice('#EXT-X-KEY:'.length))
             key = !attrs.METHOD || attrs.METHOD === 'NONE' ? null : { method: attrs.METHOD, uri: attrs.URI, iv: attrs.IV || null }
         } else if (line && !line.startsWith('#')) {
-            segments.push({ uri: line, key: key ? { ...key } : null, sequence: sequence + segments.length })
+            const segment = { uri: line, key: key ? { ...key } : null, sequence: sequence + segments.length }
+            if (pendingByteRange != null) segment.byteRange = parseByteRange(pendingByteRange, line, segments.at(-1))
+            segments.push(segment)
+            pendingByteRange = null
         }
     }
     return { init, initKey, segments, maps }

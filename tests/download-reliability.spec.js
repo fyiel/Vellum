@@ -313,6 +313,70 @@ test('HLS downloads write replacement initialization maps in media order', async
     expect(result.actual).toEqual(result.expected)
 })
 
+test('HLS downloads fetch only the declared byte ranges of a shared media resource', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const { downloadVideoEpisode } = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:byte-ranges', id = '1'
+        const original = new TextEncoder().encode('INITpart1part2')
+        const playlist = '#EXTM3U\n#EXT-X-MAP:URI="shared.m4s",BYTERANGE="4@0"\n#EXTINF:4,\n#EXT-X-BYTERANGE:5@4\nshared.m4s\n#EXTINF:4,\n#EXT-X-BYTERANGE:5\nshared.m4s\n#EXT-X-ENDLIST\n'
+        const requestedRanges = []
+        setTransport(async (url, init) => {
+            const path = String(url)
+            if (path.includes('/playback?')) return Response.json({
+                key, episodeId: id, providerLabel: 'Test',
+                sources: [{ kind: 'direct', url: '/range.m3u8', type: 'application/x-mpegURL' }],
+            })
+            if (path.endsWith('/range.m3u8')) return new Response(playlist)
+            if (path.endsWith('/shared.m4s')) {
+                const header = new Headers(init?.headers).get('range')
+                requestedRanges.push(header)
+                if (!header) return new Response(original)
+                const match = /^bytes=(\d+)-(\d+)$/.exec(header)
+                if (!match) throw Error(`bad range ${header}`)
+                const start = Number(match[1]), end = Number(match[2])
+                return new Response(original.slice(start, end + 1), {
+                    status: 206, headers: { 'Content-Range': `bytes ${start}-${end}/${original.length}` },
+                })
+            }
+            throw new Error(`unexpected request ${path}`)
+        })
+        await downloadVideoEpisode(key, id)
+        const bytes = await dlRead(dlPath.video(key, id))
+        return { requestedRanges, actual: [...new Uint8Array(await bytes.arrayBuffer())], expected: [...original] }
+    })
+    expect(result.requestedRanges).toEqual(['bytes=0-3', 'bytes=4-8', 'bytes=9-13'])
+    expect(result.actual).toEqual(result.expected)
+})
+
+test('HLS byte-range downloads reject servers that return whole resources', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:range-ignored', id = '1'
+        setTransport(async url => {
+            const path = String(url)
+            if (path.includes('/playback?')) return Response.json({
+                key, episodeId: id, providerLabel: 'Test',
+                sources: [{ kind: 'direct', url: '/range.m3u8', type: 'application/x-mpegURL' }],
+            })
+            if (path.endsWith('/range.m3u8')) return new Response('#EXTM3U\n#EXT-X-MAP:URI="shared.m4s",BYTERANGE="4@0"\n#EXTINF:4,\n#EXT-X-BYTERANGE:5@4\nshared.m4s\n#EXT-X-ENDLIST\n')
+            if (path.endsWith('/shared.m4s')) return new Response('INITpart1') // ignores Range: 200 OK
+            throw new Error(`unexpected request ${path}`)
+        })
+        let error = null
+        try { await video.downloadVideoEpisode(key, id) } catch (cause) { error = cause.message }
+        return { error, saved: !!video.videoDlEntry(key, id), bytes: !!await dlRead(dlPath.video(key, id)) }
+    })
+    expect(result.error).toMatch(/byte range/i)
+    expect(result.saved).toBe(false)
+    expect(result.bytes).toBe(false)
+})
+
 test('downloaded WebM episodes retain their format and play from offline storage', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async bytes => {
