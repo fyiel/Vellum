@@ -24,6 +24,16 @@ test('rejects garbage without throwing', async () => {
     assert.equal(await kissSubToVtt('not a subtitle file', URL_TXT1), 'WEBVTT\n')
 })
 
+test('keeps subtitle cue order across a long encrypted track', async () => {
+    const cue = 'HNiyEmkqtBWbIF4DbMxZ8TXkPcEb3U/WQ2o1d5Jav1o='
+    const timing = i => `00:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')},000`
+    const body = Array.from({ length: 70 }, (_, i) => `${i + 1}\n${timing(i)} --> ${timing(i + 1)}\n${cue}`).join('\n\n')
+    const vtt = await kissSubToVtt(body, URL_TXT1)
+    assert.equal((vtt.match(/\[The White Olive Tree\]/g) || []).length, 70)
+    assert.deepEqual([...vtt.matchAll(/(\d\d:\d\d:\d\d)\.000 -->/g)].map(match => match[1]),
+        Array.from({ length: 70 }, (_, i) => timing(i).slice(0, -4)))
+})
+
 for (const stalled of ['request', 'body']) {
     test(`abandoning a stalled subtitle ${stalled} settles even when its transport ignores abort`, async () => {
         const ctrl = new AbortController()
