@@ -123,6 +123,35 @@ test('manga reader fetches metadata while opening its saved image files', async 
     expect(await page.evaluate(() => window.metadataOverlapped())).toBe(true)
 })
 
+test('offline manga progress preserves known chapter counts when provider metadata fails', async ({ page }) => {
+    await page.goto(app)
+    const key = 'mf:offline-total', id = 'chapter-1'
+    await page.evaluate(async ({ key, id }) => {
+        const dl = await import('/src/lib/downloads.js')
+        const { touchLibrary } = await import('/src/lib/store.js')
+        const chapters = Array.from({ length: 600 }, (_, i) => `chapter-${i + 1}`)
+        touchLibrary({ slug: key, key, kind: 'manga', title: 'Saved Manga', total: 600, chapterIds: chapters })
+        const image = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"/>'], { type: 'image/svg+xml' })
+        for (let i = 0; i < 3; i++) await dl.dlWrite(dl.dlPath.mangaPage(key, id, i), image)
+        dl.dlRegister({ kind: 'manga', key, id, pages: 3, number: 1, title: 'Saved Manga', format: 'manga' })
+        const { setTransport } = await import('/src/lib/http.js')
+        setTransport(async () => { throw new Error('provider metadata unavailable') })
+        location.hash = `#/manga/read/${encodeURIComponent(key)}/${id}`
+    }, { key, id })
+
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+    await page.locator('#mr-next').click()
+    const stored = await page.evaluate(k => {
+        const entry = JSON.parse(localStorage.getItem('vellum:lib')).find(item => item.slug === k)
+        const tracked = JSON.parse(localStorage.getItem('vellum:updates'))[k]
+        return {
+            total: entry.total, chapterIds: entry.chapterIds.length, lastPage: entry.lastPage,
+            pageCount: entry.pageCount, tracked: tracked.seenIds.length,
+        }
+    }, key)
+    expect(stored).toEqual({ total: 600, chapterIds: 600, lastPage: 2, pageCount: 3, tracked: 600 })
+})
+
 test('leaving a saved manga chapter during a disk read releases its image URLs', async ({ page }) => {
     await page.goto(app)
     const key = 'mf:close-offline', id = 'c1'

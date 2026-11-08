@@ -410,7 +410,8 @@ function updateLibrary(includeChapters = true) {
         author: state.series.authors?.[0] || state.series.artists?.[0],
         source: SOURCE[provider] || 'Manga',
         format: state.series.format,
-        total: state.chapters.length,
+        // Offline copies can open without provider chapter metadata; keep the known total.
+        total: state.chapters.length || undefined,
         chapterIds: includeChapters ? state.chapters.map(chapter => chapter.id) : undefined,
         readCount: readSet(state.key).size,
         lastId: state.id,
