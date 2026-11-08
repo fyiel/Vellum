@@ -58,7 +58,9 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
     const saved = dlEntry('novel', key, id)
     if (active.has(tag) || (!force && saved)) return
     const ctrl = new AbortController()
-    active.set(tag, { ctrl })
+    let finish
+    const finished = new Promise(resolve => { finish = resolve })
+    active.set(tag, { ctrl, finished })
     notify()
     const written = []
     const chapterPath = dlPath.novelChapter(key, n)
@@ -101,6 +103,7 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
         throw error
     } finally {
         active.delete(tag)
+        finish()
         notify()
     }
 }
@@ -110,7 +113,11 @@ export function cancelNovelDownload(key, n) {
 }
 
 export async function deleteNovelDownload(key, n) {
+    const pending = novelDlActive(key, n)?.finished
     cancelNovelDownload(key, n)
+    // A force repair may be writing this chapter. Let its cancellation and
+    // rollback finish before deleting, so it cannot restore an orphan afterward.
+    if (pending) await pending
     await dlUnregister('novel', key, String(n), dlPath.novelChapter(key, n))
     await dlRemove(dlPath.novelImages(key, n))
 }

@@ -231,6 +231,44 @@ test('cancelling a novel download during its final file write never registers it
     expect(result).toEqual({ interrupted: true, outcome: 'download cancelled', saved: false, bytes: false })
 })
 
+test('deleting a chapter during background repair leaves no restored orphan files', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'delete-during-repair'
+        await dl.dlWrite(dl.dlPath.novelChapter(key, 1), JSON.stringify({ html: '<p>Keep offline</p><img src="https://images.example/new.png">' }))
+        dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved' })
+        setTransport(async () => new Response('New image', { headers: { 'content-type': 'image/png' } }))
+        const write = FileSystemWritableFileStream.prototype.write
+        let enterWrite, releaseWrite
+        const entered = new Promise(resolve => { enterWrite = resolve })
+        const released = new Promise(resolve => { releaseWrite = resolve })
+        FileSystemWritableFileStream.prototype.write = async function (data) {
+            await write.call(this, data)
+            if (typeof data === 'string' && data.includes('dlimg:0')) {
+                enterWrite()
+                await released
+            }
+        }
+        const repair = novel.downloadNovelChapter(key, 1, 'Saved', { force: true }).catch(e => e.message)
+        await entered
+        const deletion = novel.deleteNovelDownload(key, 1)
+        // Give the removal a chance to run while the repair's final write is held.
+        await Promise.race([deletion, new Promise(resolve => setTimeout(resolve, 50))])
+        releaseWrite()
+        await Promise.all([repair, deletion])
+        FileSystemWritableFileStream.prototype.write = write
+        return {
+            registered: !!dl.dlEntry('novel', key, '1'),
+            chapter: !!await dl.dlRead(dl.dlPath.novelChapter(key, 1)),
+            illustration: !!await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)),
+        }
+    })
+    expect(result).toEqual({ registered: false, chapter: false, illustration: false })
+})
+
 test('native chapter text is sent to the filesystem as UTF-8 bytes', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
