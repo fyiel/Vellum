@@ -141,6 +141,25 @@ test('cancels an abandoned AniList detail lookup while video episodes reload', a
     expect(errors).toEqual([])
 })
 
+test('a failed manga detail load clears the chapter spinner and retries cleanly', async ({ page }) => {
+    const errors = await fixtures(page)
+    let tries = 0
+    await page.route('**/read/api/manga/series/**', route => {
+        if (tries++ === 0) return route.fulfill({
+            status: 404, contentType: 'application/json',
+            body: JSON.stringify({ error: { message: 'Manga unavailable', retryable: false } }),
+        })
+        return reply(route, manga('mf:first'))
+    })
+    await navigate(page, '#/manga/series/mf%3Afirst')
+    await expect(page.locator('#mseries-retry')).toBeVisible()
+    await expect(page.locator('#schapters')).not.toContainText('Finding chapters…')
+    await expect(page.locator('#schapters')).toHaveAttribute('aria-busy', 'false')
+    await page.locator('#mseries-retry').click()
+    await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(3)
+    expect(errors).toEqual([])
+})
+
 for (const kind of ['novel', 'manga']) {
     test(`downloads only the active ${kind} after visiting both shared detail screens`, async ({ page }) => {
         const errors = await fixtures(page)

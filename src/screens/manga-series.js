@@ -283,6 +283,8 @@ export async function showMangaSeries(key, origin = 'manga') {
             $('#sinfo').innerHTML = `<div class="void" role="status">${esc(message)}<button class="manga-inline-retry" id="mseries-retry" type="button">Try again</button></div>`
             $('#mseries-retry').onclick = () => showMangaSeries(key, origin)
             $('#sinfo').setAttribute('aria-busy', 'false')
+            $('#schapters').innerHTML = '<div class="void" role="status">Chapter list unavailable</div>'
+            $('#schapters').setAttribute('aria-busy', 'false')
         }
         return
     }
