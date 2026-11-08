@@ -705,6 +705,7 @@ test('an older stale-while-revalidate writer cannot overwrite a newer foreground
   const result = await page.evaluate(async () => {
     const { cached } = await import('/src/lib/cache.js')
     const key = `swr-race-${Date.now()}`
+    const refreshed = []
     await cached(key, 1, async () => 'seed')
     await new Promise(resolve => setTimeout(resolve, 30))
 
@@ -716,23 +717,25 @@ test('an older stale-while-revalidate writer cannot overwrite a newer foreground
       markBackgroundStarted()
       await backgroundGate
       return 'background-old'
-    })
+    }, { onFresh: value => refreshed.push(value) })
     await backgroundStarted
 
     const fresh = await cached(key, 60_000, async () => 'fresh', { swr: false })
     releaseBackground()
     await new Promise(resolve => setTimeout(resolve, 0))
     const final = await cached(key, 60_000, async () => 'unexpected-loader')
-    return { stale, fresh, final }
+    return { stale, fresh, final, refreshed }
   })
 
-  expect(result).toEqual({ stale: 'seed', fresh: 'fresh', final: 'fresh' })
+  expect(result).toEqual({ stale: 'seed', fresh: 'fresh', final: 'fresh', refreshed: [] })
 })
 
 test('a second stale caller keeps the active background refresh alive', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const { cached } = await import('/src/lib/cache.js')
     const key = `swr-join-${Date.now()}`
+    const firstNotified = []
+    const secondNotified = []
     await cached(key, 1, async () => 'seed')
     await new Promise(resolve => setTimeout(resolve, 30))
 
@@ -745,16 +748,23 @@ test('a second stale caller keeps the active background refresh alive', async ({
       await backgroundGate
       return 'background-new'
     }
-    const firstStale = await cached(key, 60_000, loader)
+    const firstCtrl = new AbortController()
+    const firstStale = await cached(key, 60_000, loader, {
+      signal: firstCtrl.signal, onFresh: value => firstNotified.push(value),
+    })
     await backgroundStarted
-    const secondStale = await cached(key, 60_000, async () => 'unexpected-second-loader')
+    firstCtrl.abort()
+    const secondCtrl = new AbortController()
+    const secondStale = await cached(key, 60_000, async () => 'unexpected-second-loader', {
+      signal: secondCtrl.signal, onFresh: value => secondNotified.push(value),
+    })
     releaseBackground()
     await new Promise(resolve => setTimeout(resolve, 10))
     const final = await cached(key, 60_000, async () => 'unexpected-final-loader')
-    return { firstStale, secondStale, final }
+    return { firstStale, secondStale, final, firstNotified, secondNotified }
   })
 
-  expect(result).toEqual({ firstStale: 'seed', secondStale: 'seed', final: 'background-new' })
+  expect(result).toEqual({ firstStale: 'seed', secondStale: 'seed', final: 'background-new', firstNotified: [], secondNotified: ['background-new'] })
 })
 
 test('a pre-aborted cache caller rejects even when the value is hot', async ({ page }) => {

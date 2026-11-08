@@ -9,7 +9,7 @@ const aborted = () => Object.assign(new Error('request aborted'), { name: 'Abort
 const mem = new Map()
 const inflight = new Map()
 const writers = new Map()
-const refreshing = new Set()
+const refreshing = new Map()
 
 let dbp
 function db() {
@@ -133,12 +133,21 @@ async function load(key, ttlMs, loader, negTtlMs, accept, canStore = () => true)
 }
 
 function background(key, ttlMs, loader, negTtlMs, accept, onFresh) {
-    if (refreshing.has(key)) return
-    refreshing.add(key)
+    const active = refreshing.get(key)
+    if (active) {
+        if (onFresh) active.push(onFresh)
+        return
+    }
+    const subscribers = onFresh ? [onFresh] : []
+    refreshing.set(key, subscribers)
     const token = {}
     writers.set(key, token)
     load(key, ttlMs, loader, negTtlMs, accept, () => writers.get(key) === token)
-        .then(v => { if (accept(v)) onFresh?.(v) })
+        .then(v => {
+            if (writers.get(key) === token && accept(v)) {
+                for (const notify of subscribers) notify(v)
+            }
+        })
         .catch(() => {})
         .finally(() => {
             refreshing.delete(key)
@@ -187,7 +196,7 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
         if (writers.get(key) === entry) writers.delete(key)
         cancel?.(aborted())
     }
-    const notifyFresh = value => { if (!signal?.aborted) onFresh?.(value) }
+    const notifyFresh = onFresh && (value => { if (!signal?.aborted) onFresh(value) })
     const work = resolve(key, ttlMs, loader, swr, negTtlMs, accept,
         () => writers.get(key) === entry, claimStore, notifyFresh, () => signal?.aborted)
     // Reject the caller as soon as it aborts, even if its provider ignores cancellation.
