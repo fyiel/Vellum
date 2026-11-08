@@ -5,6 +5,7 @@ import { dlEntries, dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister,
 // in-flight downloads: `${key}:${n}` -> { ctrl }
 const active = new Map()
 const listeners = new Set()
+const IMAGE_FETCHES = 4
 const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
 export const onNovelDl = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export const novelDlActive = (key, n) => active.get(`${key}:${n}`) || null
@@ -41,21 +42,34 @@ async function downloadImages(key, n, html, signal, written) {
     let next = kept.length ? Math.max(...kept) + 1 : 0
     let size = 0
     for (const i of kept) size += (await dlRead(dlPath.novelImage(key, n, i)))?.size || 0
-    for (const img of imgs) {
+    for (let start = 0; start < imgs.length; start += IMAGE_FETCHES) {
         if (signal.aborted) throw new Error('download cancelled')
-        let path
-        try {
-            const blob = await fetchImage(new URL(img.getAttribute('src'), location.href).href, signal)
+        const batch = imgs.slice(start, start + IMAGE_FETCHES)
+        // Fetch a small batch together, then persist it in document order so
+        // dlimg slots stay stable even if network requests finish out of order.
+        const blobs = await Promise.all(batch.map(async img => {
+            try { return await fetchImage(new URL(img.getAttribute('src'), location.href).href, signal) }
+            catch (error) {
+                if (signal.aborted) throw error
+                return null
+            }
+        }))
+        for (let i = 0; i < batch.length; i++) {
+            if (signal.aborted) throw new Error('download cancelled')
+            const blob = blobs[i]
             if (!blob) continue
-            const i = next++
-            path = dlPath.novelImage(key, n, i)
-            written.push(path)
-            await dlWrite(path, blob)
-            img.setAttribute('src', `dlimg:${i}`)
-            size += blob.size
-        } catch (error) {
-            if (path) await dlRemove(path)
-            if (signal.aborted) throw error
+            let path
+            try {
+                const slot = next++
+                path = dlPath.novelImage(key, n, slot)
+                written.push(path)
+                await dlWrite(path, blob)
+                batch[i].setAttribute('src', `dlimg:${slot}`)
+                size += blob.size
+            } catch (error) {
+                if (path) await dlRemove(path)
+                if (signal.aborted) throw error
+            }
         }
     }
     return { html: doc.body.innerHTML, size }
