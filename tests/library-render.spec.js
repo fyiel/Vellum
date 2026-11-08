@@ -181,6 +181,91 @@ test('resorting the Library preserves focus on an unchanged title', async ({ pag
     })
 })
 
+test('revisiting the Library retains unchanged Continue tiles and their focus', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { showLibrary } = await import('/src/screens/library.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        setTransport(() => Promise.resolve(Response.json({ chapters: [{ n: 1 }] })))
+        const entries = Array.from({ length: 4 }, (_, i) => ({
+            slug: `nf:continue-${i}`, kind: 'novel', title: `Continue title ${i}`,
+            readCount: 1, lastN: 2, total: 10, updatedAt: 1000 - i,
+        }))
+        localStorage.setItem('vellum:lib', JSON.stringify(entries))
+        showLibrary()
+        const cont = document.querySelector('#continue')
+        const tile = cont.querySelector('.ctile')
+        tile.focus()
+        let removed = 0
+        const observer = new MutationObserver(records => {
+            for (const record of records) removed += [...record.removedNodes].filter(node => node.matches?.('.ctile')).length
+        })
+        observer.observe(cont, { childList: true })
+        showLibrary()
+        await Promise.resolve()
+        observer.disconnect()
+        const unchanged = {
+            sameTile: tile === cont.querySelector('.ctile'),
+            focused: document.activeElement === tile,
+            removed,
+            count: cont.querySelectorAll('.ctile').length,
+        }
+        entries[0].lastN = 4
+        localStorage.setItem('vellum:lib', JSON.stringify(entries))
+        showLibrary()
+        return {
+            ...unchanged,
+            updated: cont.querySelector('.ctile').textContent.includes('Ch. 4'),
+            changedTileFocused: document.activeElement === cont.querySelector('.ctile'),
+        }
+    })
+    expect(result).toEqual({
+        sameTile: true, focused: true, removed: 0, count: 4,
+        updated: true, changedTileFocused: true,
+    })
+})
+
+test('following and removing titles in another tab updates an open Library', async ({ page }) => {
+    await page.goto(app)
+    await page.evaluate(async () => {
+        const { touchLibrary } = await import('/src/lib/store.js')
+        const { showLibrary } = await import('/src/screens/library.js')
+        touchLibrary({ slug: 'nf:tab-first', kind: 'novel', title: 'First title', total: 10 })
+        showLibrary()
+    })
+    await expect(page.locator('#libtable .trow')).toHaveCount(1)
+
+    const otherTab = await page.context().newPage()
+    try {
+        await otherTab.goto(app)
+        await page.bringToFront()
+        await page.evaluate(() => {
+            window.originalLibraryRow = document.querySelector('#libtable .trow')
+            window.originalLibraryRow.focus()
+        })
+
+        await otherTab.evaluate(async () => {
+            const { touchLibrary } = await import('/src/lib/store.js')
+            touchLibrary({ slug: 'nf:tab-second', kind: 'novel', title: 'Second title', total: 10 })
+        })
+        await expect(page.locator('#libtable .trow')).toHaveCount(2)
+        expect(await page.evaluate(() => ({
+            retained: [...document.querySelectorAll('#libtable .trow')].includes(window.originalLibraryRow),
+            focused: document.activeElement === window.originalLibraryRow,
+        }))).toEqual({ retained: true, focused: true })
+
+        await otherTab.evaluate(async () => {
+            const { dropLibrary } = await import('/src/lib/store.js')
+            dropLibrary('nf:tab-second')
+        })
+        await expect(page.locator('#libtable .trow')).toHaveCount(1)
+        await otherTab.evaluate(() => localStorage.clear())
+        await expect(page.locator('#libtable .library-empty')).toBeVisible()
+    } finally {
+        await otherTab.close()
+    }
+})
+
 test('saved downloads stay synchronized across tabs while preserving focused rows', async ({ page }) => {
     await page.goto(app)
     await page.evaluate(async () => {

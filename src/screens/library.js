@@ -15,6 +15,7 @@ const CONT_MAX = 4
 
 let filterQ = ''
 let wired = false
+let renderedContinueHtml = null
 const newCounts = new Map()
 let updatesCtrl = null
 
@@ -234,12 +235,18 @@ function render() {
 
     const contLab = $('#cont-lab'), cont = $('#continue')
     const showCont = continueItems.length > 0
-    const scrollLeft = cont.scrollLeft
     contLab.hidden = !showCont
     cont.hidden = !showCont
     $('#cont-count').textContent = String(continueItems.length)
-    cont.innerHTML = showCont ? continueItems.map(contTile).join('') : ''
-    cont.scrollLeft = scrollLeft
+    const nextContinueHtml = showCont ? continueItems.map(contTile).join('') : ''
+    if (nextContinueHtml !== renderedContinueHtml) {
+        const focusedSlug = cont.contains(document.activeElement) ? document.activeElement.closest('.ctile')?.dataset.slug : null
+        const scrollLeft = cont.scrollLeft
+        cont.innerHTML = nextContinueHtml
+        cont.scrollLeft = scrollLeft
+        renderedContinueHtml = nextContinueHtml
+        if (focusedSlug) [...cont.children].find(el => el.dataset.slug === focusedSlug)?.focus({ preventScroll: true })
+    }
     $('#lib-count').textContent = String(rows.length)
     $('#lib-lab').hidden = !all.length
     $('#lib-clear').hidden = !filterQ
@@ -315,6 +322,11 @@ function wire() {
     })
     // Downloads completed on other screens are listed when the library opens.
     dlListen(() => { if (!$('#view-library').hidden) renderDownloads() })
+    // Storage events fire only in other tabs. Keep an open Library in sync when
+    // a title is followed, unfollowed, or all site data is cleared elsewhere.
+    window.addEventListener('storage', event => {
+        if ((event.key === 'vellum:lib' || event.key === null) && !$('#view-library').hidden) render()
+    })
 }
 
 // A series you downloaded is one you expect to open with no network, so keep its cover. This is
