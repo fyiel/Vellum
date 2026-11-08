@@ -301,6 +301,7 @@ async function renderMedia(playback) {
         if (!stillHere(key, id, gen)) return
         if (Hls.isSupported()) renderDirect(playback, hls, Hls)
         else if (direct) renderDirect(playback, direct)
+        else if (embed) renderEmbed(playback, embed)
         else renderUnsupported(playback)
     }
     else if (embed) renderEmbed(playback, embed)

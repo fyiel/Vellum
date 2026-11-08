@@ -557,6 +557,34 @@ test('loads HLS through the lazy fallback when native playback is unavailable', 
   await expect.poll(() => playlistRequests).toBeGreaterThan(0)
 })
 
+test('offers a provider embed when the browser cannot play an HLS source', async ({ page }) => {
+  await page.addInitScript(() => {
+    // Reproduce an older browser without Media Source Extensions, so hls.js cannot attach.
+    const UnsupportedMediaSource = class {}
+    UnsupportedMediaSource.isTypeSupported = () => false
+    Object.defineProperty(window, 'MediaSource', { configurable: true, value: UnsupportedMediaSource })
+    delete window.ManagedMediaSource
+    const canPlayType = HTMLMediaElement.prototype.canPlayType
+    HTMLMediaElement.prototype.canPlayType = function (type) {
+      return /mpegurl/i.test(type) ? '' : canPlayType.call(this, type)
+    }
+  })
+  await page.reload()
+  const state = { episodes: [episode(1)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock HLS or Embed',
+    sources: [
+      { kind: 'direct', url: '/read/api/video/media/playlist.m3u8', type: 'application/x-mpegURL' },
+      { kind: 'embed', url: `https://embed.example/watch?v=${id}` },
+    ],
+  }))
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('.video-embed-load')).toBeVisible()
+  await expect(page.locator('#vplayer video')).toHaveCount(0)
+})
+
 test('bounds and searches a large provider-neutral episode list', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const state = { episodes: Array.from({ length: 501 }, (_, index) => episode(index + 1)) }
