@@ -242,6 +242,105 @@ for (const section of ['manga', 'watch', 'discover']) {
     })
 }
 
+for (const section of ['manga', 'watch']) {
+    test(`cancels an abandoned ${section} search and reloads it on return`, async ({ page }) => {
+        const errors = await fixtures(page)
+        if (section === 'manga') {
+            await page.route('**/read/api/manga/search?**', route => reply(route, {
+                page: 1, results: [manga('mf:resumed')], hasMore: false,
+            }))
+        } else {
+            await page.route('**/read/api/video/discover?**', route => reply(route, {
+                page: 1, results: [{ key: 'dc:resumed', kind: 'drama', title: 'Resumed title', poster: cover }],
+                hasMore: false, partial: false, errors: [],
+            }))
+        }
+
+        await navigate(page, `#/${section}`)
+        if (section === 'watch') await page.locator('#vkind [data-kind="drama"]').click()
+        const input = section === 'manga' ? '#msearch' : '#vsearch'
+        const path = section === 'manga' ? '/read/api/manga/search' : '/read/api/video/discover'
+        // Keep the first request pending until its signal is aborted; the next one uses the fixture.
+        await page.evaluate(path => {
+            const originalFetch = window.fetch
+            window.heldBrowseRequest = false
+            window.abandonedBrowseRequest = false
+            window.fetch = (url, options) => {
+                const target = new URL(url, location.href)
+                if (!window.heldBrowseRequest && target.pathname === path && target.searchParams.get('q') === 'resumed') {
+                    window.heldBrowseRequest = true
+                    return new Promise((_, reject) => {
+                        options.signal.addEventListener('abort', () => {
+                            window.abandonedBrowseRequest = true
+                            reject(new DOMException('Cancelled', 'AbortError'))
+                        }, { once: true })
+                    })
+                }
+                return originalFetch(url, options)
+            }
+        }, path)
+
+        await page.locator(input).fill('resumed')
+        await expect.poll(() => page.evaluate(() => window.heldBrowseRequest)).toBe(true)
+        await navigate(page, '#/')
+        await expect.poll(() => page.evaluate(() => window.abandonedBrowseRequest)).toBe(true)
+        await navigate(page, `#/${section}`)
+        await expect(page.locator(section === 'manga' ? '#mlist' : '#vlist')).toContainText(section === 'manga' ? 'mf:resumed' : 'Resumed title')
+        expect(errors).toEqual([])
+    })
+}
+
+for (const section of ['manga', 'watch']) {
+    test(`keeps ${section} pagination usable after leaving during load more`, async ({ page }) => {
+        const errors = await fixtures(page)
+        const path = section === 'manga' ? '/read/api/manga/discover' : '/read/api/video/discover'
+        const cards = section === 'manga' ? '#mlist .manga-card' : '#vlist .watch-card'
+        const more = section === 'manga' ? '#mmore' : '#vmore'
+        await page.route(`**${path}?**`, route => {
+            const n = Number(new URL(route.request().url()).searchParams.get('page'))
+            const results = n === 1
+                ? Array.from({ length: 30 }, (_, i) => section === 'manga'
+                    ? manga(`mf:browse-${i}`)
+                    : { key: `dc:browse-${i}`, kind: 'drama', title: `Browse ${i}`, poster: cover })
+                : [section === 'manga' ? manga('mf:final') : { key: 'dc:final', kind: 'drama', title: 'Final title', poster: cover }]
+            return reply(route, { page: n, results, hasMore: n === 1, partial: false, errors: [] })
+        })
+        await page.route('https://graphql.anilist.co', route => reply(route, { data: { Page: { pageInfo: { hasNextPage: false }, media: [] } } }))
+        await navigate(page, `#/${section}`)
+        if (section === 'watch') await page.locator('#vkind [data-kind="drama"]').click()
+        await expect(page.locator(cards)).toHaveCount(30)
+
+        await page.evaluate(path => {
+            const originalFetch = window.fetch
+            window.heldBrowsePage = false
+            window.abandonedBrowsePage = false
+            window.fetch = (url, options) => {
+                const target = new URL(url, location.href)
+                if (!window.heldBrowsePage && target.pathname === path && target.searchParams.get('page') === '2') {
+                    window.heldBrowsePage = true
+                    return new Promise((_, reject) => {
+                        options.signal.addEventListener('abort', () => {
+                            window.abandonedBrowsePage = true
+                            reject(new DOMException('Cancelled', 'AbortError'))
+                        }, { once: true })
+                    })
+                }
+                return originalFetch(url, options)
+            }
+        }, path)
+        await page.locator(more).dispatchEvent('click')
+        await expect.poll(() => page.evaluate(() => window.heldBrowsePage)).toBe(true)
+        await navigate(page, '#/')
+        await expect.poll(() => page.evaluate(() => window.abandonedBrowsePage)).toBe(true)
+        await navigate(page, `#/${section}`)
+        await expect(page.locator(cards)).toHaveCount(30)
+        await expect(page.locator(more)).toBeEnabled()
+        await page.locator(more).dispatchEvent('click')
+        await expect(page.locator(cards)).toHaveCount(31)
+        expect(errors).toEqual([])
+    })
+}
+
 test('novel image object URLs are released and refreshed when reopening a chapter', async ({ page }) => {
     const errors = await fixtures(page)
     await page.evaluate(async () => {

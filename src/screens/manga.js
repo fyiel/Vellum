@@ -205,5 +205,23 @@ export function showManga() {
         query = pending
         inited = true
         start()
-    } else setControls()
+    } else {
+        ctrl ??= new AbortController()
+        setControls()
+    }
+}
+
+export function cancelMangaBrowse() {
+    clearTimeout(searchTimer)
+    if (!ctrl) return
+    ctrl.abort()
+    ctrl = null
+    ++gen // also discard stale-while-revalidate callbacks
+    if (loading && page === 0) inited = false
+    if (loading) {
+        loading = false
+        $('#mlist').setAttribute('aria-busy', 'false')
+        $('#mmore').disabled = false
+        $('#mmore').textContent = pageError ? 'Try again' : 'Load more'
+    }
 }

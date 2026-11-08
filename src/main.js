@@ -20,9 +20,9 @@ import { cancelLibraryUpdates, showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
 import { cancelUpdates, showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
-import { showManga } from './screens/manga.js'
+import { cancelMangaBrowse, showManga } from './screens/manga.js'
 import { showMangaSeries } from './screens/manga-series.js'
-import { showVideo } from './screens/video.js'
+import { cancelVideoBrowse, showVideo } from './screens/video.js'
 import { showVideoSeries } from './screens/video-series.js'
 import { installCoverFallback } from './lib/cover.js'
 import { isStandalone, preserveOfflineStorage } from './lib/persistence.js'
@@ -217,6 +217,8 @@ startRouter(async route => {
     const mine = ++routeRequest
     if (route.name !== 'updates') cancelUpdates()
     if (route.name !== 'home') cancelLibraryUpdates()
+    if (route.name !== 'manga') cancelMangaBrowse()
+    if (route.name !== 'video') cancelVideoBrowse()
     mountShell()
     await closeInactiveReaders(route)
     if (mine !== routeRequest) return

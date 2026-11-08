@@ -207,5 +207,21 @@ export function showVideo() {
     paintContinue()
     const pending = $('#vsearch').value.trim()
     if (!inited || pending !== query) { query = pending; inited = true; start() }
-    else paintControls()
+    else { ctrl ??= new AbortController(); paintControls() }
+}
+
+export function cancelVideoBrowse() {
+    clearTimeout(timer)
+    if (!ctrl) return
+    ctrl.abort()
+    ctrl = null
+    ++gen // also discard stale-while-revalidate callbacks
+    if (loading && page === 0) inited = false
+    if (loading) {
+        loading = false
+        provisional = false
+        $('#vlist').setAttribute('aria-busy', 'false')
+        $('#vmore').disabled = false
+        $('#vmore').textContent = moreFailed ? 'Try again' : 'Load more'
+    }
 }
