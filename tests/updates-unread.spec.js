@@ -42,10 +42,13 @@ for (const kind of ['manga', 'anime', 'drama']) {
         const acknowledged = await page.evaluate(key => JSON.parse(localStorage.getItem('vellum:updates'))[key], key)
         expect(acknowledged.seenIds).toEqual(['episode-2', 'episode-1'])
         expect(acknowledged[kind === 'manga' ? 'newChapters' : 'newEpisodes']).toEqual([])
+        expect(acknowledged.latestIds).toBeUndefined()
 
         await row.locator('.umark').click()
         await expect(row).toHaveClass(/unread/)
         await expect(page.locator('#count-updates')).toHaveText('1')
+        expect(await page.evaluate(key => JSON.parse(localStorage.getItem('vellum:updates'))[key].latestIds, key))
+            .toEqual(['episode-2', 'episode-1'])
         await page.reload()
         await expect(page.locator('#ufeed .urow')).toHaveCount(1)
         await expect(page.locator('#ufeed .urow')).toHaveClass(/unread/)
@@ -58,3 +61,37 @@ for (const kind of ['manga', 'anime', 'drama']) {
         await expect(page.locator('#count-updates')).toHaveText('')
     })
 }
+
+test('a reopened manga alert can be acknowledged while the provider is offline', async ({ page }) => {
+    const key = 'mf:offline-ack'
+    const pattern = '**/read/api/manga/chapters?**'
+    const chapters = [{ id: 'new', number: 2 }, { id: 'old', number: 1 }]
+    await page.route(pattern, route => route.fulfill({ json: { key, chapters } }))
+    await page.goto(app)
+    await page.evaluate(key => {
+        localStorage.setItem('vellum:lib', JSON.stringify([{
+            slug: key, key, kind: 'manga', title: 'Offline updates', total: 1, chapterIds: ['old'],
+        }]))
+        localStorage.setItem('vellum:updates', JSON.stringify({
+            [key]: { firstSeen: Date.now(), read: true, seenIds: ['old'] },
+        }))
+        location.hash = '#/updates'
+    }, key)
+    await expect(page.locator('#ufeed .urow')).toHaveCount(1)
+    await page.locator('#ufeed .umark').click() // acknowledge, removing the duplicate full-ID list
+    await page.locator('#ufeed .umark').click() // reopen, restoring the offline snapshot
+
+    await page.unroute(pattern)
+    await page.route(pattern, route => route.abort('failed'))
+    await page.reload()
+    await expect(page.locator('#ufeed .urow.unread')).toHaveCount(1)
+    await page.locator('#umarkall').click()
+    const acknowledged = await page.evaluate(key => JSON.parse(localStorage.getItem('vellum:updates'))[key], key)
+    expect(acknowledged).toMatchObject({ read: true, seenIds: ['new', 'old'], newChapters: [] })
+    expect(acknowledged.latestIds).toBeUndefined()
+
+    await page.unroute(pattern)
+    await page.route(pattern, route => route.fulfill({ json: { key, chapters } }))
+    await page.reload()
+    await expect(page.locator('#ufeed .urow')).toHaveCount(0)
+})

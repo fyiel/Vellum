@@ -59,7 +59,7 @@ export async function buildFeed({ signal, fresh = false } = {}) {
             const latestIds = chapters.map(episode => episode.id)
             const baseline = led?.seenIds || e.episodeIds
             if (!Array.isArray(baseline)) {
-                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newEpisodes: [], latest: chapters.length, latestIds }
+                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newEpisodes: [], latest: chapters.length }
                 dirty = true
                 continue
             }
@@ -90,7 +90,7 @@ export async function buildFeed({ signal, fresh = false } = {}) {
             const latestIds = chapters.map(chapter => chapter.id)
             const baseline = led?.seenIds || e.chapterIds
             if (!Array.isArray(baseline)) {
-                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newChapters: [], latest: chapters.length, latestIds }
+                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newChapters: [], latest: chapters.length }
                 dirty = true
                 continue
             }
@@ -121,7 +121,7 @@ export async function buildFeed({ signal, fresh = false } = {}) {
             const latestIds = chapters.map(episode => episode.id)
             const baseline = led?.seenIds || e.episodeIds
             if (!Array.isArray(baseline)) {
-                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newEpisodes: [], latest: chapters.length, latestIds }
+                ledger[e.slug] = { firstSeen: now, read: true, seenIds: latestIds, newEpisodes: [], latest: chapters.length }
                 dirty = true
                 continue
             }
@@ -182,7 +182,7 @@ export function setRead(slug, read, upTo, latestIds, update) {
             ledger[slug].seenIds = latestIds
             ledger[slug].newChapters = []
             ledger[slug].newEpisodes = []
-            ledger[slug].latestIds = latestIds
+            delete ledger[slug].latestIds
             saveUpdLedger(ledger)
             return
         }
@@ -195,6 +195,8 @@ export function setRead(slug, read, upTo, latestIds, update) {
             const ids = new Set(reopened.map(chapter => chapter.id))
             const seen = Array.isArray(ledger[slug].seenIds) ? ledger[slug].seenIds : latestIds || []
             ledger[slug].seenIds = seen.filter(id => !ids.has(id))
+            // Reopening a row needs its full snapshot again for an offline acknowledgement.
+            if (Array.isArray(latestIds)) ledger[slug].latestIds = latestIds
             if (update.kind === 'manga') ledger[slug].newChapters = reopened
             else ledger[slug].newEpisodes = reopened
         }
@@ -212,6 +214,7 @@ export function markAll(feed) {
         ledger[u.slug].read = true
         if (u.kind === 'manga' || isVideo(u)) {
             ledger[u.slug].seenIds = u.latestIds
+            delete ledger[u.slug].latestIds
             if (u.kind === 'manga') ledger[u.slug].newChapters = []
             else ledger[u.slug].newEpisodes = []
         } else {

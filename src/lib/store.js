@@ -2,17 +2,33 @@ const NS = 'vellum'
 const lsGet = (k, fb) => { try { return JSON.parse(localStorage.getItem(k)) ?? fb } catch { return fb } }
 const lsSet = (k, v) => {
     try { localStorage.setItem(k, JSON.stringify(v)) } catch {
-        // quota is full, shed the recomputable update snapshots and retry once
+        // Under quota pressure, reclaim duplicate acknowledged ID lists before
+        // shedding unread alert snapshots (which are useful while offline).
         try {
-            const ledger = JSON.parse(localStorage.getItem(`${NS}:updates`) || '{}') || {}
+            const updateKey = `${NS}:updates`
+            const ledger = k === updateKey ? v : JSON.parse(localStorage.getItem(updateKey) || '{}')
+            if (!ledger || typeof ledger !== 'object' || Array.isArray(ledger)) return
+            const retry = () => {
+                localStorage.setItem(updateKey, JSON.stringify(ledger))
+                if (k !== updateKey) localStorage.setItem(k, JSON.stringify(v))
+            }
             let changed = false
+            for (const e of Object.values(ledger)) {
+                if (e?.read && Array.isArray(e.seenIds) && Array.isArray(e.latestIds)
+                    && e.seenIds.length === e.latestIds.length
+                    && e.seenIds.every((id, i) => id === e.latestIds[i])) {
+                    delete e.latestIds
+                    changed = true
+                }
+            }
+            if (changed) { try { retry(); return } catch {} }
+            changed = false
             for (const e of Object.values(ledger)) {
                 if (e.newNums?.length) { e.newNums = []; changed = true }
                 if (e.newChapters?.length) { e.newChapters = []; changed = true }
                 if (e.newEpisodes?.length) { e.newEpisodes = []; changed = true }
             }
-            if (changed) localStorage.setItem(`${NS}:updates`, JSON.stringify(ledger))
-            localStorage.setItem(k, JSON.stringify(v))
+            if (changed) retry()
         } catch {}
     }
 }
@@ -41,14 +57,14 @@ export const touchLibrary = entry => {
     if (entry.kind === 'manga' && Array.isArray(entry.chapterIds)) {
         const ledger = loadUpdLedger()
         if (!ledger[entry.slug]) {
-            ledger[entry.slug] = { firstSeen: Date.now(), read: true, seenIds: entry.chapterIds, newChapters: [], latest: entry.chapterIds.length, latestIds: entry.chapterIds }
+            ledger[entry.slug] = { firstSeen: Date.now(), read: true, seenIds: entry.chapterIds, newChapters: [], latest: entry.chapterIds.length }
             saveUpdLedger(ledger)
         }
     }
     if ((entry.kind === 'anime' || entry.kind === 'drama') && Array.isArray(entry.episodeIds)) {
         const ledger = loadUpdLedger()
         if (!ledger[entry.slug]) {
-            ledger[entry.slug] = { firstSeen: Date.now(), read: true, seenIds: entry.episodeIds, newEpisodes: [], latest: entry.episodeIds.length, latestIds: entry.episodeIds }
+            ledger[entry.slug] = { firstSeen: Date.now(), read: true, seenIds: entry.episodeIds, newEpisodes: [], latest: entry.episodeIds.length }
             saveUpdLedger(ledger)
         }
     }
