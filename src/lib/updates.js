@@ -30,7 +30,6 @@ async function mapPool(list, n, fn, signal) {
 
 export async function buildFeed({ signal } = {}) {
     const lib = library()
-    const ledger = loadUpdLedger()
     const now = Date.now()
     const feed = []
     let dirty = false
@@ -44,6 +43,9 @@ export async function buildFeed({ signal } = {}) {
     }, signal)
     // A superseded visit must not write its stale ledger snapshot.
     if (signal?.aborted) throw new DOMException('updates check cancelled', 'AbortError')
+    // Read the latest acknowledgements after network I/O, just before computing
+    // and persisting alerts, so a check cannot undo a concurrent mark-as-read.
+    const ledger = loadUpdLedger()
     const failed = entries.some(({ e, chapters }) => !Array.isArray(chapters) || (e.total > 0 && chapters.length === 0))
 
     for (const { e, chapters } of entries) {

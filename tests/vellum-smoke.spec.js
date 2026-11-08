@@ -1148,6 +1148,36 @@ test('switching between Updates and Library cancels old checks and preserves the
   expect(result).toEqual({ aborted: [true, true], titles: ['Current series'], beforeKeys: [secondKey], ledgerKeys: [secondKey] })
 })
 
+test('an update check does not undo an acknowledgement made while chapters are loading', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const { buildFeed, setRead } = await import('/src/lib/updates.js')
+    const { setTransport } = await import('/src/lib/http.js')
+    const { loadUpdLedger, saveUpdLedger } = await import('/src/lib/store.js')
+    const key = 'mf:updates-ack-race'
+    const ids = ['new', 'seen']
+    localStorage.setItem('vellum:lib', JSON.stringify([{
+      slug: key, key, kind: 'manga', title: 'Acknowledged series',
+      chapterIds: ['seen'], total: 1, updatedAt: Date.now(),
+    }]))
+    saveUpdLedger({ [key]: {
+      firstSeen: Date.now(), read: false, seenIds: ['seen'],
+      latest: 2, latestIds: ids, newChapters: [{ id: 'new', label: 'Ch. 2' }],
+    } })
+    let started, release
+    const pending = new Promise(resolve => { started = resolve })
+    setTransport(() => new Promise(resolve => { release = resolve; started() }))
+
+    const checking = buildFeed()
+    await pending
+    setRead(key, true, 2, ids)
+    release(Response.json({ key, chapters: [{ id: 'new', number: 2 }, { id: 'seen', number: 1 }] }))
+    const { feed } = await checking
+    const saved = loadUpdLedger()[key]
+    return { read: saved.read, seenIds: saved.seenIds, newChapters: saved.newChapters, feed: feed.map(row => row.title) }
+  })
+  expect(result).toEqual({ read: true, seenIds: ['new', 'seen'], newChapters: [], feed: [] })
+})
+
 test('sorts trending without applying staged filters', async ({ page }) => {
   await mockNovelCatalogue(page)
   await page.locator('[data-nav="discover"]').click()
