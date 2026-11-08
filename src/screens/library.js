@@ -86,6 +86,54 @@ const row = e => {
     </a>`
 }
 
+// Reuse followed-title rows across visits and filter changes. Replacing the entire
+// table needlessly rebuilds hundreds of covers and drops keyboard focus even
+// when a title's rendered content hasn't changed.
+const libraryRowHtml = new WeakMap()
+
+function renderLibraryRows(rows) {
+    const table = $('#libtable')
+    const html = rows.map(row)
+    if (!table.firstElementChild?.classList.contains('trow')) {
+        table.innerHTML = html.join('')
+        let i = 0
+        for (const el of table.children) libraryRowHtml.set(el, html[i++])
+        return
+    }
+
+    const focused = table.contains(document.activeElement) ? document.activeElement : null
+    let replacementFocus = null
+    const oldRows = new Map()
+    for (const el of table.children) {
+        const key = el.dataset.slug
+        if (!oldRows.has(key)) oldRows.set(key, [])
+        oldRows.get(key).push(el)
+    }
+    const template = document.createElement('template')
+    let cursor = table.firstElementChild
+    rows.forEach((entry, i) => {
+        let el = oldRows.get(entry.slug)?.shift()
+        let replacingFocusedRow = false
+        if (el && libraryRowHtml.get(el) !== html[i]) {
+            replacingFocusedRow = el.contains(focused)
+            if (el === cursor) cursor = el.nextElementSibling
+            el.remove()
+            el = null
+        }
+        if (!el) {
+            template.innerHTML = html[i]
+            el = template.content.firstElementChild
+            libraryRowHtml.set(el, html[i])
+            if (replacingFocusedRow) replacementFocus = el
+        }
+        if (el !== cursor) table.insertBefore(el, cursor)
+        else cursor = cursor.nextElementSibling
+    })
+    for (const remaining of oldRows.values()) for (const el of remaining) el.remove()
+    if (replacementFocus) replacementFocus.focus({ preventScroll: true })
+    else if (focused?.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true })
+}
+
 const fmtSize = bytes => {
     const n = Number(bytes) || 0
     return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1e3))} KB`
@@ -200,7 +248,7 @@ function render() {
     const table = $('#libtable')
     if (!all.length) table.innerHTML = '<div class="library-empty"><h2>Your next story starts here</h2><p>Nothing in your library yet. Follow something to read or watch and it shows up here.</p><div class="library-empty-actions"><a href="#/discover">Find a novel</a><a href="#/manga">Browse manga</a><a href="#/watch">Find something to watch</a></div></div>'
     else if (!rows.length) table.innerHTML = `<div class="library-empty"><h2>No matches</h2><p>No titles match “${esc(filterQ)}”. Try another title, author, or source.</p><button type="button" id="lib-reset">Clear search</button></div>`
-    else table.innerHTML = rows.map(row).join('')
+    else renderLibraryRows(rows)
 }
 
 async function checkUpdates(signal) {
@@ -221,7 +269,16 @@ async function checkUpdates(signal) {
             const slug = rowEl.dataset.slug
             if ((previous.get(slug) || 0) === (newCounts.get(slug) || 0)) continue
             const entry = entries.get(slug)
-            if (entry) rowEl.querySelector('.upd').outerHTML = updCell(entry)
+            if (!entry) continue
+            const badge = rowEl.querySelector('.upd')
+            const before = badge.outerHTML
+            const after = updCell(entry)
+            badge.outerHTML = after
+            // Keep the row's cached HTML in sync with this targeted mutation.
+            // If it was changed elsewhere, let the next render replace it.
+            const cached = libraryRowHtml.get(rowEl)
+            if (cached?.includes(before)) libraryRowHtml.set(rowEl, cached.replace(before, after))
+            else libraryRowHtml.delete(rowEl)
         }
     } catch (error) {
         if (!signal.aborted) console.error('Library update check failed', error)
