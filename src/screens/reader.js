@@ -307,19 +307,20 @@ const CLEAN = {
 // is not a raster image after sanitizing (its serializer quotes attrs with ")
 const scrubDataUri = s => s.replace(/\s(?:src|href)="data:(?!image\/(?:png|jpe?g|gif|webp|avif|bmp))[^"]*"/gi, "");
 
-// chapters are immutable for their cache ttl, memoize the clean so re entries
-// and prev hints do not re sanitize the same body
+// Reuse sanitization for an unchanged body, but a saved chapter can be replaced
+// while the reader stays open (and the network cache can refresh after its TTL).
 const cleanCache = new Map();
 const CLEAN_MAX = 20;
 const cleanBody = (slug, n, html) => {
   const key = `${slug}:${n}`;
   const temporary = html.includes("blob:");
-  let body = temporary ? undefined : cleanCache.get(key);
+  const cached = temporary ? undefined : cleanCache.get(key);
+  let body = cached?.html === html ? cached.body : undefined;
   if (body === undefined) {
     body = scrubDataUri(DOMPurify.sanitize(html, CLEAN))
       .replace(/<img\b/g, '<img loading="lazy" decoding="async"');
     if (!temporary) {
-      cleanCache.set(key, body);
+      cleanCache.set(key, { html, body });
       if (cleanCache.size > CLEAN_MAX) cleanCache.delete(cleanCache.keys().next().value);
     }
   }
