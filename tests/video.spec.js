@@ -320,6 +320,37 @@ test('leaving embed playback aborts its outstanding liveness probe', async ({ pa
   await expect.poll(() => page.evaluate(() => window.__embedProbe.aborted), { timeout: 1500 }).toBe(true)
 })
 
+test('ignores a late embed probe success after its timeout', async ({ page }) => {
+  const state = { episodes: [episode(1)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Embed',
+    sources: [{ kind: 'embed', url: `https://embed.example/watch?v=${id}` }],
+  }))
+  await page.route('https://embed.example/watch?**', route => route.fulfill({
+    contentType: 'text/html', body: '<!doctype html><title>Mock player</title>',
+  }))
+  await page.evaluate(() => {
+    const originalFetch = window.fetch.bind(window)
+    const originalTimeout = window.setTimeout.bind(window)
+    window.__lateEmbedProbe = { started: false, aborted: false }
+    window.setTimeout = (fn, ms, ...args) => originalTimeout(fn, ms === 8000 ? 50 : ms === 12000 ? 180 : ms, ...args)
+    window.fetch = (url, options) => {
+      if (!String(url).startsWith('https://embed.example/watch?')) return originalFetch(url, options)
+      window.__lateEmbedProbe.started = true
+      options?.signal?.addEventListener('abort', () => { window.__lateEmbedProbe.aborted = true }, { once: true })
+      // Simulate a native transport that delivers success despite its aborted signal.
+      return new Promise(resolve => originalTimeout(() => resolve(new Response('', { status: 200 })), 100))
+    }
+  })
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await page.locator('.video-embed-load').click()
+  await expect.poll(() => page.evaluate(() => window.__lateEmbedProbe.started)).toBe(true)
+  await expect.poll(() => page.evaluate(() => window.__lateEmbedProbe.aborted)).toBe(true)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'blocked', { timeout: 2000 })
+  await expect(page.locator('.video-embed-shell [role="alert"]')).toBeVisible()
+})
+
 test('reports an organic embed failure as blocked after the unavailable timer', async ({ page }) => {
   const state = { episodes: [episode(1)] }
   await mockVideo(page, state, id => ({

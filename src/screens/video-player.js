@@ -251,6 +251,7 @@ function renderEmbed(playback, source) {
             const timer = embedProbeTimer = setTimeout(() => probe.abort(), 8000)
             fetch(source.url, { mode: 'no-cors', credentials: 'omit', signal: probe.signal })
                 .then(() => {
+                    if (probe.signal.aborted) return // late success from a transport that ignored the timeout
                     if (!stillHere(key, id, gen)) return
                     if (shell.dataset.state !== 'loading') return // blocked meanwhile — do not flip back
                     playbackSignal.removeEventListener('abort', stopProbe)
