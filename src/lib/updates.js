@@ -69,7 +69,12 @@ export async function buildFeed({ signal, fresh = false } = {}) {
                 label: episode.season && episode.number != null ? `S${episode.season} · E${episode.number}`
                     : episode.number != null ? `Episode ${episode.number}` : episode.title || 'Special',
             }))
-            if (!fresh.length) continue
+            // Providers can temporarily return an older or truncated episode list.
+            // Keep an existing unread alert until the user acknowledges it.
+            if (!fresh.length) {
+                if (led && !led.read && led.newEpisodes?.length) feed.push(rowOf(e, led))
+                continue
+            }
             if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenIds: baseline, newEpisodes: [], latest: 0, latestIds: [] }
             const cur = ledger[e.slug]
             if (cur.read) { cur.read = false; cur.firstSeen = now }
@@ -100,7 +105,10 @@ export async function buildFeed({ signal, fresh = false } = {}) {
                 id: chapter.id,
                 label: chapter.number == null ? (chapter.title || 'Special') : `Ch. ${chapter.number}`,
             }))
-            if (!fresh.length) continue
+            if (!fresh.length) {
+                if (led && !led.read && led.newChapters?.length) feed.push(rowOf(e, led))
+                continue
+            }
 
             if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenIds: baseline, newChapters: [], latest: 0, latestIds: [] }
             const cur = ledger[e.slug]
@@ -150,7 +158,10 @@ export async function buildFeed({ signal, fresh = false } = {}) {
         const latest = chapters.length
         const upTo = led ? (led.seenUpTo ?? base) : base
         // nothing new since the follow or since the last ack, keep the entry so the watermark survives
-        if (latest <= upTo) continue
+        if (latest <= upTo) {
+            if (led && !led.read && led.newNums?.length) feed.push(rowOf(e, led))
+            continue
+        }
 
         if (!led) {
             ledger[e.slug] = { firstSeen: now, read: false, seenUpTo: base, newNums: [], latest: 0 }

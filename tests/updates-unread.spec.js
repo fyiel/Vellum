@@ -95,3 +95,47 @@ test('a reopened manga alert can be acknowledged while the provider is offline',
     await page.reload()
     await expect(page.locator('#ufeed .urow')).toHaveCount(0)
 })
+
+for (const kind of ['novel', 'manga', 'anime', 'drama']) {
+    test(`a temporarily shortened ${kind} list keeps previously discovered updates visible`, async ({ page }) => {
+        await page.goto(app)
+        await page.evaluate(async kind => {
+            const { setTransport } = await import('/src/lib/http.js')
+            const key = kind === 'manga' ? 'mf:short-list'
+                : kind === 'novel' ? 'nf:short-list' : `mock:${kind}-short-list`
+            const old = kind === 'novel' ? { n: 1 } : { id: 'old', number: 1 }
+            const recent = kind === 'novel' ? { n: 2 } : { id: 'new', number: 2 }
+            window.shortenedUpdates = false
+            setTransport(url => {
+                const entries = window.shortenedUpdates ? [old] : [old, recent]
+                return Promise.resolve(Response.json(kind === 'manga' ? { key, chapters: entries }
+                    : kind === 'novel' ? { key, chapters: entries }
+                        : { key, kind, title: 'Short list', episodes: entries }))
+            })
+            localStorage.setItem('vellum:lib', JSON.stringify([{
+                slug: key, key, kind, title: 'Short list', total: 1,
+                ...(kind === 'manga' ? { chapterIds: ['old'] }
+                    : kind === 'novel' ? {} : { episodeIds: ['old'] }),
+            }]))
+            localStorage.setItem('vellum:updates', JSON.stringify({
+                [key]: kind === 'novel'
+                    ? { firstSeen: Date.now(), read: true, seenUpTo: 1 }
+                    : { firstSeen: Date.now(), read: true, seenIds: ['old'] },
+            }))
+            location.hash = '#/updates'
+        }, kind)
+
+        await expect(page.locator('#ufeed .urow.unread')).toHaveCount(1)
+        await expect(page.locator('#count-updates')).toHaveText('1')
+        const first = await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:updates')))
+
+        const after = await page.evaluate(async () => {
+            window.shortenedUpdates = true
+            const { buildFeed } = await import('/src/lib/updates.js')
+            return buildFeed({ fresh: true })
+        })
+        expect(after.feed).toHaveLength(1)
+        expect(after.feed[0]).toMatchObject({ read: false, title: 'Short list', newCount: 1 })
+        expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:updates')))).toEqual(first)
+    })
+}
