@@ -95,13 +95,14 @@ function info(series) {
 }
 
 const dlFailed = new Map()
-let batch = null
+const batches = new Map()
 
 // batch buttons sit in .video-episode-tool; "next" counts from the continue episode,
 // skipping episodes that are already downloaded or in flight
 const batchPaint = () => {
     const next = $('#vdl-next'), all = $('#vdl-all')
     if (!next || !all) return
+    const batch = batches.get(current?.series.key)
     next.disabled = all.disabled = !!batch
     next.textContent = batch ? `↓ ${batch.done}/${batch.total}` : '↓ next 10'
     all.textContent = '↓ all'
@@ -116,7 +117,7 @@ const batchCandidates = count => {
 }
 
 async function runBatch(count) {
-    if (batch || !current) return
+    if (!current || batches.has(current.series.key)) return
     const { series, episodes } = current
     const ids = batchCandidates(count).map(episode => episode.id)
     if (!ids.length) {
@@ -125,15 +126,19 @@ async function runBatch(count) {
         return
     }
     if (count == null && !confirm(`Download all ${ids.length} episodes of ${current.series.title}? Episodes can be hundreds of MB each.`)) return
-    batch = { done: 0, total: ids.length }
+    const batch = { done: 0, total: ids.length }
+    batches.set(series.key, batch)
     batchPaint()
     const labelFor = id => episodeLabel(episodes.find(item => item.id === id) || { id })
-    await dlBatch(ids, id => downloadVideoEpisode(series.key, id, { title: series.title, label: labelFor(id), mediaKind: series.kind }), {
-        onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (id, error) => { if (current?.series.key === series.key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl() } },
-    })
-    batch = null
-    batchPaint()
+    try {
+        await dlBatch(ids, id => downloadVideoEpisode(series.key, id, { title: series.title, label: labelFor(id), mediaKind: series.kind }), {
+            onStep: done => { batch.done = done; if (current?.series.key === series.key) batchPaint() },
+            onError: (id, error) => { if (current?.series.key === series.key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl() } },
+        })
+    } finally {
+        batches.delete(series.key)
+        batchPaint()
+    }
 }
 const dlState = (key, id) => {
     const active = videoDlActive(key, id)

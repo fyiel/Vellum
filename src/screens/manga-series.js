@@ -21,7 +21,7 @@ let chapterQuery = ''
 let chapterLimit = CHAPTER_BATCH
 let filterLastQ = '', filterTop = 0
 const dlFailed = new Map()
-let batch = null
+const batches = new Map()
 
 export function cancelMangaSeriesLoad() {
     detailController?.abort()
@@ -34,6 +34,7 @@ export function cancelMangaSeriesLoad() {
 const batchPaint = () => {
     const next = $('#mdl-next'), all = $('#mdl-all')
     if (!next || !all) return
+    const batch = batches.get(current?.key)
     next.disabled = all.disabled = !!batch
     next.textContent = batch ? `↓ ${batch.done}/${batch.total}` : '↓ next 10'
     all.textContent = '↓ all'
@@ -48,7 +49,7 @@ const batchCandidates = count => {
 }
 
 async function runBatch(count) {
-    if (batch || !current) return
+    if (!current || batches.has(current.key)) return
     const { key } = current
     const ids = batchCandidates(count).map(chapter => chapter.id)
     if (!ids.length) {
@@ -57,14 +58,18 @@ async function runBatch(count) {
         return
     }
     if (count == null && !confirm(`Download all ${ids.length} chapters of ${current.series.title}?`)) return
-    batch = { done: 0, total: ids.length }
+    const batch = { done: 0, total: ids.length }
+    batches.set(key, batch)
     batchPaint()
-    await dlBatch(ids, id => downloadMangaChapter(key, id), {
-        onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (id, error) => { if (current?.key === key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl() } },
-    })
-    batch = null
-    batchPaint()
+    try {
+        await dlBatch(ids, id => downloadMangaChapter(key, id), {
+            onStep: done => { batch.done = done; if (current?.key === key) batchPaint() },
+            onError: (id, error) => { if (current?.key === key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl() } },
+        })
+    } finally {
+        batches.delete(key)
+        batchPaint()
+    }
 }
 
 const dlState = (key, id) => {

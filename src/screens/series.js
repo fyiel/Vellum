@@ -95,13 +95,14 @@ function infoHtml(s, slug, count) {
 }
 
 const dlFailed = new Map()
-let batch = null
+const batches = new Map()
 
 // batch buttons sit in .chtool; "next" counts from the continue chapter, skipping
 // chapters that are already downloaded or in flight
 const batchPaint = () => {
     const next = $('#dl-next'), all = $('#dl-all')
     if (!next || !all) return
+    const batch = batches.get(cur?.slug)
     next.disabled = all.disabled = !!batch
     next.textContent = batch ? `↓ ${batch.done}/${batch.total}` : '↓ next 10'
     all.textContent = '↓ all'
@@ -115,7 +116,7 @@ const batchCandidates = count => {
 }
 
 async function runBatch(count) {
-    if (batch || !cur) return
+    if (!cur || batches.has(cur.slug)) return
     const { slug, series } = cur
     const ns = batchCandidates(count).map(c => c.n)
     if (!ns.length) {
@@ -124,14 +125,18 @@ async function runBatch(count) {
         return
     }
     if (count == null && !confirm(`Download all ${ns.length} chapters of ${cur.series.title}?`)) return
-    batch = { done: 0, total: ns.length }
+    const batch = { done: 0, total: ns.length }
+    batches.set(slug, batch)
     batchPaint()
-    await dlBatch(ns, n => downloadNovelChapter(slug, n, series.title), {
-        onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (n, error) => { if (cur?.slug === slug) { dlFailed.set(n, error?.message || 'Download failed'); paintDl() } },
-    })
-    batch = null
-    batchPaint()
+    try {
+        await dlBatch(ns, n => downloadNovelChapter(slug, n, series.title), {
+            onStep: done => { batch.done = done; if (cur?.slug === slug) batchPaint() },
+            onError: (n, error) => { if (cur?.slug === slug) { dlFailed.set(n, error?.message || 'Download failed'); paintDl() } },
+        })
+    } finally {
+        batches.delete(slug)
+        batchPaint()
+    }
 }
 
 const dlState = (slug, n) => {

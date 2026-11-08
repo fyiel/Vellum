@@ -303,6 +303,52 @@ for (const kind of ['manga', 'video']) {
     })
 }
 
+for (const kind of ['novel', 'manga', 'video']) {
+    test(`allows a ${kind} batch on a second title while the first is downloading`, async ({ page }) => {
+        const started = deferred(), release = deferred()
+        const keys = kind === 'novel' ? ['fixture', 'other'] : kind === 'manga' ? ['mf:first', 'mf:second'] : ['mock:first', 'mock:second']
+        const held = kind === 'novel' ? 'chapter' : kind === 'manga' ? 'image' : 'media'
+        const errors = await fixtures(page, { [held]: async url => {
+            if (url.searchParams.get(kind === 'novel' ? 'slug' : 'key') !== keys[0]) return
+            if (url.searchParams.get(kind === 'novel' ? 'n' : 'id') !== '1') return
+            started.resolve()
+            await release.promise
+        } })
+        if (kind === 'novel') await page.route('**/read/api/series/**', route => {
+            const second = route.request().url().includes('other')
+            return reply(route, { title: second ? 'Second novel' : 'First novel', nfSlug: second ? 'other' : 'fixture', cover })
+        })
+        const routeFor = key => kind === 'novel' ? `#/series/nf%3A${key}`
+            : `#/${kind === 'manga' ? 'manga' : 'watch'}/series/${encodeURIComponent(key)}`
+        const rows = kind === 'novel' ? '#chlist .chrow' : kind === 'manga' ? '#mchapter-list .mchrow' : '#video-episode-list .video-episode-row'
+        const next = page.locator(kind === 'novel' ? '#dl-next' : kind === 'manga' ? '#mdl-next' : '#vdl-next')
+        const savedCount = key => page.evaluate(({ kind, key }) => {
+            const entries = JSON.parse(localStorage.getItem('vellum:dl') || '[]')
+            return entries.filter(entry => entry.kind === kind && entry.key === key).length
+        }, { kind, key })
+
+        await navigate(page, routeFor(keys[0]))
+        await expect(page.locator(rows)).toHaveCount(3)
+        try {
+            await next.click()
+            await started.promise
+            await navigate(page, routeFor(keys[1]))
+            await expect(page.locator(rows)).toHaveCount(3)
+            await expect(next).toBeEnabled()
+            await expect(next).toHaveText('↓ next 10')
+            await next.click()
+            await expect.poll(() => savedCount(keys[1])).toBe(3)
+            await navigate(page, routeFor(keys[0]))
+            await expect(page.locator(rows)).toHaveCount(3)
+            await expect(next).toBeDisabled()
+            await expect(next).toHaveText('↓ 0/3')
+        } finally { release.resolve() }
+        await expect.poll(() => savedCount(keys[0])).toBe(3)
+        await expect(next).toBeEnabled()
+        expect(errors).toEqual([])
+    })
+}
+
 for (const kind of ['manga', 'video']) {
     const mangaView = kind === 'manga'
     const key = mangaView ? 'mf:first' : 'mock:first'
