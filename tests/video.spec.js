@@ -102,6 +102,82 @@ test('plays a saved episode removed from the provider catalogue without replacin
   expect(saved.entry).toContain('episode-1')
 })
 
+test('starts a saved video while catalogue metadata is pending and updates without replacing the media', async ({ page }) => {
+  const state = { episodes: [episode(1), episode(2)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Stream',
+    sources: [{ kind: 'direct', url: `/read/api/video/media/${id}.mp4`, type: 'video/mp4' }],
+  }))
+  let releaseSeries
+  const heldSeries = new Promise(resolve => { releaseSeries = resolve })
+  await page.route('**/read/api/video/series/**', async route => {
+    await heldSeries
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(videoSeries(state.episodes)) })
+  })
+  await page.evaluate(async bytes => {
+    const { dlWrite, dlPath, dlRegister } = await import('/src/lib/downloads.js')
+    const key = 'mock:signal-season', id = 'episode-1'
+    await dlWrite(dlPath.video(key, id), new Uint8Array(bytes))
+    dlRegister({ kind: 'video', key, id, mime: 'video/webm', title: 'Saved series', label: 'Saved premiere', mediaKind: 'anime', size: bytes.length })
+  }, offlineClip)
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  // The provider cannot complete yet. A local download must still open.
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready', { timeout: 1000 })
+  await expect(page.locator('#vp-title')).toHaveText('Saved series')
+  await expect(page.locator('#vp-episode')).toHaveText('Saved premiere')
+  await expect(page.locator('#vplayer video.video-media')).toHaveAttribute('src', /^blob:/)
+  await page.evaluate(() => {
+    const video = document.querySelector('#vplayer video')
+    window.__savedMedia = video
+    Object.defineProperty(video, 'currentTime', { configurable: true, value: 42, writable: true })
+    Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
+    video.dispatchEvent(new Event('pause'))
+  })
+
+  releaseSeries()
+  await expect(page.locator('#vp-title')).toHaveText('Signal Season')
+  await expect(page.locator('#vp-episode')).toContainText('S1 · E1 · Signal 1')
+  await expect(page.locator('#vp-step a')).toHaveCount(1)
+  expect(await page.evaluate(() => document.querySelector('#vplayer video') === window.__savedMedia)).toBe(true)
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:lib'))[0])).toMatchObject({
+    total: 2, episodeIds: ['episode-1', 'episode-2'], lastId: 'episode-1', lastPosition: 42, lastDuration: 100,
+  })
+})
+
+test('does not apply saved-video catalogue metadata after leaving the player', async ({ page }) => {
+  const state = { episodes: [episode(1), episode(2)] }
+  await mockVideo(page, state, () => { throw new Error('Saved media should not request remote playback') })
+  let releaseSeries, finishedSeries
+  const heldSeries = new Promise(resolve => { releaseSeries = resolve })
+  const handledSeries = new Promise(resolve => { finishedSeries = resolve })
+  await page.route('**/read/api/video/series/**', async route => {
+    await heldSeries
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(videoSeries(state.episodes)) }).catch(() => {})
+    finishedSeries()
+  })
+  await page.evaluate(async bytes => {
+    const { dlWrite, dlPath, dlRegister } = await import('/src/lib/downloads.js')
+    const key = 'mock:signal-season', id = 'episode-1'
+    await dlWrite(dlPath.video(key, id), new Uint8Array(bytes))
+    dlRegister({ kind: 'video', key, id, mime: 'video/webm', title: 'Saved series', label: 'Saved premiere', mediaKind: 'anime', size: bytes.length })
+  }, offlineClip)
+
+  const requestedSeries = page.waitForRequest(request => request.url().includes('/read/api/video/series/'))
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('#vp-title')).toHaveText('Saved series')
+  await requestedSeries
+  await page.evaluate(() => { location.hash = '#/' })
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'idle')
+  releaseSeries()
+  await handledSeries
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:lib'))[0])).toMatchObject({
+    title: 'Saved series', lastId: 'episode-1',
+  })
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'idle')
+})
+
 async function watchEncryptedSubtitles(page) {
   await page.addInitScript(() => {
     const create = URL.createObjectURL.bind(URL)

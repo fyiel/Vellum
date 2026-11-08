@@ -78,6 +78,25 @@ function recordSelection() {
     else saveEpisodeIntent()
 }
 
+function applySeries(series, id, savedEpisode = null, offlineCatalogue = false) {
+    let episodes = ordered(series.episodes)
+    let episode = episodes.find(item => item.id === id)
+    if (!episode) {
+        if (!savedEpisode) throw new Error('Episode is no longer available')
+        // A removed episode can still play from disk, but its place in the
+        // current catalogue is unknown. Do not offer misleading next/previous links.
+        episode = { id, number: null, title: savedEpisode.label || 'Downloaded episode' }
+        episodes = [episode]
+        offlineCatalogue = true
+    }
+    Object.assign(state, { series: { ...series, episodes }, episodes, episode, offlineCatalogue })
+    $('#vp-title').textContent = series.title
+    $('#vp-episode').textContent = `${episodeLabel(episode)}${episode.title && episode.number != null ? ` · ${episode.title}` : ''}`
+    if (state.video) state.video.setAttribute('aria-label', `${series.title}, ${episodeLabel(episode)}`)
+    recordSelection()
+    renderSteps()
+}
+
 function saveProgress(force = false) {
     const video = state.video
     if (!state.active || !video || !state.series || !state.episode) return
@@ -388,46 +407,36 @@ export async function showVideoPlayer(key, id) {
         const localPlayback = localUrl
             ? { providerLabel: 'Downloaded copy', sources: [{ kind: 'direct', url: localUrl, type: videoDlEntry(key, id)?.mime === 'video/webm' ? 'video/webm' : 'video/mp4' }], subtitles: [] }
             : null
-        let series = null
+        const entry = localPlayback ? videoDlEntry(key, id) : null
+        let series
         let playback = localPlayback
-        try {
+        if (localPlayback && entry) {
+            // Show the downloaded media immediately. Provider metadata can take
+            // multiple timeouts to load, and is optional for an offline copy.
+            const saved = library().find(item => item.slug === key)
+            series = { key, kind: saved?.kind || entry.mediaKind || 'anime', title: entry.title || saved?.title || 'Downloaded episode',
+                poster: saved?.cover, format: saved?.format, episodes: [{ id, number: null, title: entry.label }] }
+        } else {
             ;[series, playback] = await Promise.all([
                 getVideoSeries(key, { signal: ctrl.signal }),
                 localPlayback ? Promise.resolve(localPlayback) : getVideoPlayback(key, id, { signal: ctrl.signal }),
             ])
-        } catch (error) {
-            // offline with a downloaded copy: play it with the registry's metadata for chrome
-            const entry = videoDlEntry(key, id)
-            if (!localPlayback || !entry) throw error
-            const saved = library().find(item => item.slug === key)
-            series = { key, kind: saved?.kind || entry.mediaKind || 'anime', title: entry.title, format: saved?.format, episodes: [{ id, number: null, title: entry.label }] }
-            if (stillHere(key, id, gen)) state.offlineCatalogue = true
-            playback = localPlayback
         }
         if (!stillHere(key, id, gen)) return
-        let episodes = ordered(series.episodes)
-        let episode = episodes.find(item => item.id === id)
-        if (!episode) {
-            const entry = localPlayback && videoDlEntry(key, id)
-            if (!entry) throw new Error('Episode is no longer available')
-            // The provider may remove an episode while its saved copy still exists.
-            // Keep the live series metadata, but don't put this retired episode into
-            // its catalogue or offer navigation based on an unknown episode order.
-            episode = { id, number: null, title: entry.label || 'Downloaded episode' }
-            episodes = [episode]
-            state.offlineCatalogue = true
-        }
-        Object.assign(state, { series: { ...series, episodes }, episodes, episode })
-        $('#vp-title').textContent = series.title
-        $('#vp-episode').textContent = `${episodeLabel(episode)}${episode.title && episode.number != null ? ` · ${episode.title}` : ''}`
+        applySeries(series, id, entry, Boolean(localPlayback && entry))
         measure('vellum:video-player:contract')
-        recordSelection()
         player.dataset.state = 'ready'
         await renderMedia(playback)
         if (!stillHere(key, id, gen)) return
-        renderSteps()
         player.setAttribute('aria-busy', 'false')
         player.focus({ preventScroll: true })
+        if (localPlayback && entry) {
+            // Upgrade title, episode navigation, and library data when available.
+            // The current video element and its playback position must survive.
+            void getVideoSeries(key, { signal: ctrl.signal }).then(liveSeries => {
+                if (stillHere(key, id, gen)) applySeries(liveSeries, id, entry)
+            }).catch(() => {}) // the downloaded copy remains playable without catalogue access
+        }
     } catch (error) {
         if (stillHere(key, id, gen)) showError(error)
     }
