@@ -814,62 +814,69 @@ export async function showMangaReader(key, id) {
     pages.innerHTML = '<div class="mreader-loading" role="status"><div class="spinner" aria-hidden="true"></div><span>Loading chapter…</span></div>'
 
     let local = null
-    // Metadata requests can overlap the offline filesystem reads. When a copy
-    // exists, it still takes precedence over the online chapter payload.
+    // Start metadata alongside the disk read, but let saved pages open without
+    // waiting for a slow or unavailable provider.
+    const metadataRequest = Promise.all([
+        getMangaSeries(key, { signal: ctrl.signal }),
+        getMangaChapters(key, { signal: ctrl.signal }),
+    ])
+    metadataRequest.catch(() => {}) // A disk read may finish after metadata fails.
     const localRequest = loadDownloadedMangaChapter(key, id, { signal: ctrl.signal }).catch(() => null)
-    const contentRequest = localRequest.then(copy => {
-        local = copy
-        return copy ? copy.content : readerChapter(key, id, ctrl.signal)
-    })
-    try {
-        const [series, chapterData, content] = await Promise.all([
-            getMangaSeries(key, { signal: ctrl.signal }),
-            getMangaChapters(key, { signal: ctrl.signal }),
-            contentRequest,
-        ])
-        if (!stillHere(key, id, gen)) return
-        const chapter = chapterData.chapters.find(item => item.id === id)
-        if (!chapter) throw new Error('Chapter is no longer available')
-        Object.assign(state, { series, chapters: chapterData.chapters, chapter, content })
+    const showContent = (series, chapters, chapter, content, chaptersFromDownloads = false) => {
+        Object.assign(state, { series, chapters, chapter, content, chaptersFromDownloads })
         trackLocalPages(content)
         Object.assign(state, loadMangaReaderSettings(key, series.format))
         applySettings()
         $('#mr-title').textContent = `${series.title} · ${chapterLabel(chapter)}`
         renderPages(content, entry ? (entry.last ? content.pages.length - 1 : 0) : undefined)
         setReaderState('ready')
-        measure('vellum:manga-reader:metadata')
         const read = readSet(key)
         if (!read.has(id)) { read.add(id); saveRead(key, read) }
-        const saved = posGet(key)
-        posSet(key, { id, page: saved?.id === id ? saved.page || 0 : 0, at: Date.now() })
-        updateLibrary()
-    } catch (error) {
+        posSet(key, { id, page: state.page, at: Date.now() })
+        updateLibrary(!chaptersFromDownloads)
+    }
+    try {
+        local = await localRequest
         if (!stillHere(key, id, gen)) return
-        // network or provider failure: fall back to the downloaded copy when one exists
-        local ??= await localRequest
-        if (local && stillHere(key, id, gen)) {
+        if (local) {
             const downloaded = dlEntries().filter(entry => entry.kind === 'manga' && entry.key === key
                 && typeof entry.id === 'string' && entry.id.length > 0 && Number.isSafeInteger(entry.pages) && entry.pages > 0)
-            Object.assign(state, {
-                series: { title: local.entry.title, format: local.entry.format || library().find(entry => entry.slug === key)?.format },
-                chapters: downloaded.map(entry => ({
-                    id: entry.id, number: Number.isFinite(entry.number) ? entry.number : null, title: entry.chapterTitle,
-                })),
-                chaptersFromDownloads: true,
-                chapter: local.content.chapter,
-                content: local.content,
-            })
-            trackLocalPages(local.content)
-            Object.assign(state, loadMangaReaderSettings(key, state.series.format))
-            applySettings()
-            $('#mr-title').textContent = `${local.entry.title} · ${chapterLabel(local.content.chapter)}`
-            renderPages(local.content, entry ? (entry.last ? local.content.pages.length - 1 : 0) : undefined)
-            setReaderState('ready')
-            const read = readSet(key)
-            if (!read.has(id)) { read.add(id); saveRead(key, read) }
-            updateLibrary(false)
+            const savedSeries = { title: local.entry.title, format: local.entry.format || library().find(row => row.slug === key)?.format }
+            showContent(savedSeries, downloaded.map(row => ({
+                id: row.id, number: Number.isFinite(row.number) ? row.number : null, title: row.chapterTitle,
+            })), local.content.chapter, local.content, true)
+
+            // Enrich chapter navigation and labels in place. Rebuilding the
+            // pages here would discard the user's scroll, images and progress.
+            metadataRequest.then(([series, chapterData]) => {
+                // Changing reader mode bumps the render generation but does
+                // not leave this chapter. The controller identifies the load.
+                const current = parseHash()
+                if (!state.active || state.ctrl !== ctrl || state.key !== key || state.id !== id
+                    || current.name !== 'manga-read' || current.key !== key || current.id !== id) return
+                const chapter = chapterData.chapters.find(item => item.id === id)
+                if (!chapter) return // The provider may have retired this saved chapter.
+                Object.assign(state, { series, chapters: chapterData.chapters, chapter, chaptersFromDownloads: false })
+                $('#mr-title').textContent = `${series.title} · ${chapterLabel(chapter)}`
+                renderSteps()
+                if (drawer.classList.contains('open')) renderDrawer()
+                setPage(state.page)
+                updateLibrary()
+                measure('vellum:manga-reader:metadata')
+            }).catch(() => {})
             return
         }
+
+        const [[series, chapterData], content] = await Promise.all([
+            metadataRequest, readerChapter(key, id, ctrl.signal),
+        ])
+        if (!stillHere(key, id, gen)) return
+        const chapter = chapterData.chapters.find(item => item.id === id)
+        if (!chapter) throw new Error('Chapter is no longer available')
+        showContent(series, chapterData.chapters, chapter, content)
+        measure('vellum:manga-reader:metadata')
+    } catch (error) {
+        if (!stillHere(key, id, gen)) return
         showError(error.name === 'AbortError' ? 'Chapter request stopped' : mangaErrorMessage(error, 'Couldn’t load this chapter'))
     } finally {
         // Navigation can abandon a downloaded copy before it reaches state.

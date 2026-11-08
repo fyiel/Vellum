@@ -290,6 +290,134 @@ test('offline manga progress preserves known chapter counts when provider metada
     })
 })
 
+async function savedMangaWithPendingMetadata(page, key, { retired = false } = {}) {
+    await page.goto(app)
+    await page.evaluate(async ({ key, retired }) => {
+        const id = 'chapter-1'
+        const dl = await import('/src/lib/downloads.js')
+        const { saveMangaReaderSettings, posSet } = await import('/src/lib/store.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const image = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"/>'], { type: 'image/svg+xml' })
+        for (let i = 0; i < 3; i++) await dl.dlWrite(dl.dlPath.mangaPage(key, id, i), image)
+        dl.dlRegister({ kind: 'manga', key, id, pages: 3, number: 1, title: 'Saved Manga', format: 'manga' })
+        saveMangaReaderSettings(key, { mode: 'paged', direction: 'ltr', crop: true })
+        posSet(key, { id, page: 1, at: Date.now() })
+        const created = [], revoked = [], requests = [], responses = []
+        const create = URL.createObjectURL.bind(URL), revoke = URL.revokeObjectURL.bind(URL)
+        URL.createObjectURL = blob => { const url = create(blob); created.push(url); return url }
+        URL.revokeObjectURL = url => { revoked.push(url); revoke(url) }
+        let releaseSeries, releaseChapters
+        const seriesReady = new Promise(resolve => { releaseSeries = resolve })
+        const chaptersReady = new Promise(resolve => { releaseChapters = resolve })
+        window.pendingManga = { created, revoked, requests, responses, releaseSeries, releaseChapters }
+        setTransport(async url => {
+            requests.push(String(url))
+            if (String(url).includes('/manga/series/')) {
+                await seriesReady
+                responses.push('series')
+                return Response.json({ key, kind: 'manga', title: 'Online Manga', format: 'manga' })
+            }
+            if (String(url).includes('/manga/chapters?')) {
+                await chaptersReady
+                responses.push('chapters')
+                return Response.json({ key, chapters: [
+                    { id: retired ? 'chapter-0' : id, number: 1, title: 'Online First' },
+                    { id: 'chapter-2', number: 2, title: 'Online Second' },
+                ] })
+            }
+            throw new Error(`unexpected request ${url}`)
+        })
+        location.hash = `#/manga/read/${encodeURIComponent(key)}/${id}`
+    }, { key, retired })
+}
+
+test('saved manga renders while metadata is pending and updates without replacing pages or progress', async ({ page }) => {
+    const key = 'mf:slow-saved-metadata'
+    await savedMangaWithPendingMetadata(page, key)
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready', { timeout: 1000 })
+    await expect(page.locator('#mr-title')).toHaveText('Saved Manga · Ch. 1')
+    await expect(page.locator('#mr-pos')).toHaveText('Page 2 / 3')
+    await page.locator('#mr-next').click()
+    await expect(page.locator('#mr-pos')).toHaveText('Page 3 / 3')
+    await expect(page.locator('#mr-next')).toBeDisabled()
+    await page.evaluate(() => { window.pendingManga.image = document.querySelector('#mr-pages img') })
+    await page.evaluate(() => window.pendingManga.releaseSeries())
+    await expect(page.locator('#mr-title')).toHaveText('Saved Manga · Ch. 1')
+    await page.evaluate(() => window.pendingManga.releaseChapters())
+    await expect(page.locator('#mr-title')).toHaveText('Online Manga · Ch. 1')
+    await expect(page.locator('#mr-step a')).toHaveCount(1)
+    await expect(page.locator('#mr-next')).toBeEnabled()
+    const result = await page.evaluate(key => {
+        const probe = window.pendingManga
+        const saved = JSON.parse(localStorage.getItem('vellum:lib')).find(row => row.slug === key)
+        return {
+            keptImage: document.querySelector('#mr-pages img') === probe.image,
+            page: document.querySelector('#mr-pos').textContent,
+            created: probe.created.length, revoked: probe.revoked.length,
+            total: saved.total, chapterIds: saved.chapterIds, lastPage: saved.lastPage,
+        }
+    }, key)
+    expect(result).toEqual({ keptImage: true, page: 'Page 3 / 3', created: 3, revoked: 0,
+        total: 2, chapterIds: ['chapter-1', 'chapter-2'], lastPage: 3 })
+})
+
+test('late manga metadata cannot change the library after leaving a saved chapter', async ({ page }) => {
+    const key = 'mf:leave-saved-metadata'
+    await savedMangaWithPendingMetadata(page, key)
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready', { timeout: 1000 })
+    await page.waitForFunction(() => window.pendingManga.requests.length === 2)
+    await page.evaluate(() => { location.hash = '#/' })
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'idle')
+    await page.evaluate(() => {
+        window.pendingManga.releaseSeries()
+        window.pendingManga.releaseChapters()
+    })
+    await page.waitForFunction(() => window.pendingManga.created.every(url => window.pendingManga.revoked.includes(url)))
+    await page.waitForFunction(() => window.pendingManga.responses.includes('series') && window.pendingManga.responses.includes('chapters'))
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    const result = await page.evaluate(key => {
+        const saved = JSON.parse(localStorage.getItem('vellum:lib')).find(row => row.slug === key)
+        return { title: saved.title, chapterIds: saved.chapterIds, imageUrlsReleased: window.pendingManga.revoked.length }
+    }, key)
+    expect(result).toEqual({ title: 'Saved Manga', chapterIds: undefined, imageUrlsReleased: 3 })
+})
+
+test('saved manga remains readable when the provider no longer lists its chapter', async ({ page }) => {
+    const key = 'mf:retired-saved-chapter'
+    await savedMangaWithPendingMetadata(page, key, { retired: true })
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready', { timeout: 1000 })
+    await page.evaluate(() => {
+        window.pendingManga.releaseSeries()
+        window.pendingManga.releaseChapters()
+    })
+    await page.waitForFunction(() => window.pendingManga.responses.includes('series') && window.pendingManga.responses.includes('chapters'))
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await expect(page.locator('#mr-title')).toHaveText('Saved Manga · Ch. 1')
+    await expect(page.locator('#mr-pos')).toHaveText('Page 2 / 3')
+    await expect(page.locator('#mr-step a')).toHaveCount(0)
+    const result = await page.evaluate(key => {
+        const saved = JSON.parse(localStorage.getItem('vellum:lib')).find(row => row.slug === key)
+        return { state: document.querySelector('#mreader').dataset.state,
+            title: saved.title, chapterIds: saved.chapterIds, revoked: window.pendingManga.revoked.length }
+    }, key)
+    expect(result).toEqual({ state: 'ready', title: 'Saved Manga', chapterIds: undefined, revoked: 0 })
+})
+
+test('saved manga can change reading mode before provider metadata arrives', async ({ page }) => {
+    const key = 'mf:change-mode-pending-metadata'
+    await savedMangaWithPendingMetadata(page, key)
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready', { timeout: 1000 })
+    await page.locator('#mr-mode').selectOption('scroll')
+    await expect(page.locator('#mreader')).toHaveAttribute('data-mode', 'scroll')
+    await page.evaluate(() => {
+        window.pendingManga.releaseSeries()
+        window.pendingManga.releaseChapters()
+    })
+    await expect(page.locator('#mr-title')).toHaveText('Online Manga · Ch. 1')
+    await expect(page.locator('#mr-step a')).toHaveCount(1)
+    expect(await page.locator('#mr-mode').inputValue()).toBe('scroll')
+})
+
 async function savedMangaPair(page, key, format, metadataAvailable = false) {
     await page.goto(app)
     await page.evaluate(async ({ key, format, metadataAvailable }) => {
