@@ -14,6 +14,12 @@ const ORIGIN_ROUTE = { library: '#/', discover: '#/discover', updates: '#/update
 let wired = false
 let cur = null
 let req = 0
+let detailController = null
+
+export function cancelSeriesLoad() {
+    detailController?.abort()
+    detailController = null
+}
 
 const followed = slug => library().some(e => e.slug === slug)
 
@@ -325,10 +331,10 @@ function wire() {
     onNovelDl(paintDl)
 }
 
-async function loadChapters(slug, mine) {
+async function loadChapters(slug, mine, signal) {
     let chapters = []
     try {
-        const d = await getChapters(slug)
+        const d = await getChapters(slug, { signal })
         if (!Array.isArray(d?.chapters)) throw new Error('bad chapter list')
         chapters = d.chapters
     } catch (e) {
@@ -339,7 +345,7 @@ async function loadChapters(slug, mine) {
                 return
             }
             $('#schapters').innerHTML = `<div class="void">couldn't load the chapter list<button class="btn" id="schapters-retry">retry</button></div>`
-            $('#schapters-retry').onclick = () => loadChapters(slug, mine)
+            $('#schapters-retry').onclick = () => loadChapters(slug, mine, signal)
         }
         return
     }
@@ -377,6 +383,9 @@ async function loadChapters(slug, mine) {
 
 export async function showSeries(key, origin) {
     wire()
+    cancelSeriesLoad()
+    const controller = new AbortController()
+    detailController = controller
     const mine = ++req
     const info = $('#sinfo'), chaps = $('#schapters')
     filterLastQ = ''
@@ -391,7 +400,7 @@ export async function showSeries(key, origin) {
     }
 
     let series
-    try { series = await getSeries(seriesKey(key)) }
+    try { series = await getSeries(seriesKey(key), { signal: controller.signal }) }
     catch (e) {
         if (mine === req && parseHash().name === 'series' && parseHash().key === key) info.innerHTML = `<div class="void">${esc(e.message)}</div>`
         return
@@ -416,12 +425,12 @@ export async function showSeries(key, origin) {
     })
 
     const next = posGet(slug)?.n
-    if (next != null) prefetchChapter(slug, next)
+    if (next != null) prefetchChapter(slug, next, { signal: controller.signal })
 
     if (series.readable === false) {
         $('#contbtn').disabled = true
         chaps.innerHTML = '<div class="void">No reading source is available for this title yet.</div>'
         return
     }
-    loadChapters(slug, mine)
+    loadChapters(slug, mine, controller.signal)
 }

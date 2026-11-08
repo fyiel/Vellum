@@ -43,10 +43,16 @@ const episodeLabel = episode => {
 const episodeName = episode => episode.title && episode.title !== episodeLabel(episode) ? episode.title : ''
 
 let request = 0
+let detailController = null
 let current = null
 let wired = false
 let query = ''
 let limit = BATCH
+
+export function cancelVideoSeriesLoad() {
+    detailController?.abort()
+    detailController = null
+}
 
 function entryFor(series) {
     const saved = posGet(series.key)
@@ -237,6 +243,9 @@ function wire() {
 
 export async function showVideoSeries(key, origin = 'watch') {
     wire()
+    cancelVideoSeriesLoad()
+    const controller = new AbortController()
+    detailController = controller
     const mine = ++request
     if (current?.series.key !== key) dlFailed.clear()
     current = null
@@ -246,12 +255,12 @@ export async function showVideoSeries(key, origin = 'watch') {
     $('#vepisodes').setAttribute('aria-busy', 'true')
     $('#vinfo').innerHTML = '<div class="video-state" role="status">Loading series…</div>'
     $('#vepisodes').innerHTML = '<div class="video-state" role="status">Finding episodes…</div>'
-    const seriesRequest = getVideoSeries(key)
+    const seriesRequest = getVideoSeries(key, { signal: controller.signal })
     // miruro: render the info block from AniList (client-side, instant) while episodes load via
     // the proxy; the authoritative proxy response overwrites the interim render when it lands
     const parsed = parseVideoKey(key)
     if (parsed?.provider === 'miruro' && parsed.id) {
-        anilistSeries(parsed.id).then(row => {
+        anilistSeries(parsed.id, { signal: controller.signal }).then(row => {
             if (mine !== request || !currentRouteIs(key) || current?.series?.episodes?.length) return
             current = { series: { ...row, poster: row.cover, source: 'Miruro · pewe (AniDB App)' }, episodes: [] }
             $('#vinfo').innerHTML = info(current.series)

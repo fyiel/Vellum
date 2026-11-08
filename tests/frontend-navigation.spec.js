@@ -54,6 +54,93 @@ async function fixtures(page, { image, media, chapter } = {}) {
     return errors
 }
 
+async function holdFirstFetch(page, prefix) {
+    await page.evaluate(prefix => {
+        const originalFetch = window.fetch
+        const target = new URL(prefix, location.href)
+        window.heldDetailFetch = false
+        window.abortedDetailFetch = false
+        window.fetch = (url, options) => {
+            const requested = new URL(url, location.href)
+            if (!window.heldDetailFetch && requested.origin === target.origin && requested.pathname.startsWith(target.pathname)) {
+                window.heldDetailFetch = true
+                return new Promise((_, reject) => {
+                    options.signal.addEventListener('abort', () => {
+                        window.abortedDetailFetch = true
+                        reject(new DOMException('Cancelled', 'AbortError'))
+                    }, { once: true })
+                })
+            }
+            return originalFetch(url, options)
+        }
+    }, prefix)
+}
+
+for (const { name, route, path, title, selector } of [
+    { name: 'novel', route: '#/series/nf%3Afixture', path: '/read/api/series/', title: 'Novel fixture', selector: '#sinfo .dtitle' },
+    { name: 'manga', route: '#/manga/series/mf%3Afirst', path: '/read/api/manga/series/', title: 'mf:first', selector: '#sinfo .dtitle' },
+    { name: 'video', route: '#/watch/series/mock%3Afirst', path: '/read/api/video/series/', title: 'mock:first', selector: '#vinfo .video-title' },
+]) {
+    test(`cancels an abandoned ${name} detail request and reloads on return`, async ({ page }) => {
+        const errors = await fixtures(page)
+        await holdFirstFetch(page, path)
+        await navigate(page, route)
+        await expect.poll(() => page.evaluate(() => window.heldDetailFetch)).toBe(true)
+        await navigate(page, '#/')
+        await expect.poll(() => page.evaluate(() => window.abortedDetailFetch)).toBe(true)
+        await navigate(page, route)
+        await expect(page.locator(selector)).toHaveText(title)
+        expect(errors).toEqual([])
+    })
+}
+
+for (const { name, first, second, path, title, selector } of [
+    { name: 'novel', first: '#/series/nf%3Afixture', second: '#/series/nf%3Aother', path: '/read/api/series/', title: 'Novel fixture', selector: '#sinfo .dtitle' },
+    { name: 'manga', first: '#/manga/series/mf%3Afirst', second: '#/manga/series/mf%3Asecond', path: '/read/api/manga/series/', title: 'mf:second', selector: '#sinfo .dtitle' },
+    { name: 'video', first: '#/watch/series/mock%3Afirst', second: '#/watch/series/mock%3Asecond', path: '/read/api/video/series/', title: 'mock:second', selector: '#vinfo .video-title' },
+]) {
+    test(`cancels stale ${name} detail requests when switching titles`, async ({ page }) => {
+        const errors = await fixtures(page)
+        await holdFirstFetch(page, path)
+        await navigate(page, first)
+        await expect.poll(() => page.evaluate(() => window.heldDetailFetch)).toBe(true)
+        await navigate(page, second)
+        await expect.poll(() => page.evaluate(() => window.abortedDetailFetch)).toBe(true)
+        await expect(page.locator(selector)).toHaveText(title)
+        expect(errors).toEqual([])
+    })
+}
+
+for (const { name, route, path, selector } of [
+    { name: 'novel', route: '#/series/nf%3Afixture', path: '/read/api/chapters', selector: '#chlist .chrow' },
+    { name: 'manga', route: '#/manga/series/mf%3Afirst', path: '/read/api/manga/chapters', selector: '#mchapter-list .mchrow' },
+]) {
+    test(`cancels an abandoned ${name} chapter list request and retries on return`, async ({ page }) => {
+        const errors = await fixtures(page)
+        await holdFirstFetch(page, path)
+        await navigate(page, route)
+        await expect.poll(() => page.evaluate(() => window.heldDetailFetch)).toBe(true)
+        await navigate(page, '#/')
+        await expect.poll(() => page.evaluate(() => window.abortedDetailFetch)).toBe(true)
+        await navigate(page, route)
+        await expect(page.locator(selector)).toHaveCount(3)
+        expect(errors).toEqual([])
+    })
+}
+
+test('cancels an abandoned AniList detail lookup while video episodes reload', async ({ page }) => {
+    const errors = await fixtures(page)
+    await page.route('https://graphql.anilist.co', route => reply(route, { data: { Media: { id: 123, title: { english: 'Anime fixture' } } } }))
+    await holdFirstFetch(page, 'https://graphql.anilist.co/')
+    await navigate(page, '#/watch/series/miruro%3A123')
+    await expect.poll(() => page.evaluate(() => window.heldDetailFetch)).toBe(true)
+    await navigate(page, '#/')
+    await expect.poll(() => page.evaluate(() => window.abortedDetailFetch)).toBe(true)
+    await navigate(page, '#/watch/series/miruro%3A123')
+    await expect(page.locator('#video-episode-list .video-episode-row')).toHaveCount(3)
+    expect(errors).toEqual([])
+})
+
 for (const kind of ['novel', 'manga']) {
     test(`downloads only the active ${kind} after visiting both shared detail screens`, async ({ page }) => {
         const errors = await fixtures(page)

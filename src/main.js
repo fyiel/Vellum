@@ -19,11 +19,11 @@ import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
 import { cancelLibraryUpdates, showLibrary } from './screens/library.js'
 import { cancelDiscoverBrowse, showDiscover } from './screens/discover.js'
 import { cancelUpdates, showUpdates } from './screens/updates.js'
-import { showSeries } from './screens/series.js'
+import { cancelSeriesLoad, showSeries } from './screens/series.js'
 import { cancelMangaBrowse, showManga } from './screens/manga.js'
-import { showMangaSeries } from './screens/manga-series.js'
+import { cancelMangaSeriesLoad, showMangaSeries } from './screens/manga-series.js'
 import { cancelVideoBrowse, showVideo } from './screens/video.js'
-import { showVideoSeries } from './screens/video-series.js'
+import { cancelVideoSeriesLoad, showVideoSeries } from './screens/video-series.js'
 import { installCoverFallback } from './lib/cover.js'
 import { isStandalone, preserveOfflineStorage } from './lib/persistence.js'
 import { dlEntries } from './lib/downloads.js'
@@ -220,6 +220,9 @@ startRouter(async route => {
     if (route.name !== 'manga') cancelMangaBrowse()
     if (route.name !== 'video') cancelVideoBrowse()
     if (route.name !== 'discover') cancelDiscoverBrowse()
+    if (route.name !== 'series') cancelSeriesLoad()
+    if (route.name !== 'manga-series') cancelMangaSeriesLoad()
+    if (route.name !== 'video-series') cancelVideoSeriesLoad()
     mountShell()
     await closeInactiveReaders(route)
     if (mine !== routeRequest) return

@@ -13,6 +13,7 @@ const ORIGIN_ROUTE = { library: '#/', manga: '#/manga', updates: '#/updates' }
 const CHAPTER_BATCH = 250
 const REVEAL_RADIUS = 800
 let request = 0
+let detailController = null
 let current = null
 let wired = false
 let chapterQuery = ''
@@ -20,6 +21,11 @@ let chapterLimit = CHAPTER_BATCH
 let filterLastQ = '', filterTop = 0
 const dlFailed = new Map()
 let batch = null
+
+export function cancelMangaSeriesLoad() {
+    detailController?.abort()
+    detailController = null
+}
 
 // batch buttons sit in .chtool; "next" counts from the continue chapter, skipping
 // chapters that are already downloaded or in flight
@@ -247,6 +253,9 @@ function wire() {
 
 export async function showMangaSeries(key, origin = 'manga') {
     wire()
+    cancelMangaSeriesLoad()
+    const controller = new AbortController()
+    detailController = controller
     const mine = ++request
     const same = !!current && current.key === key
     current = null
@@ -263,11 +272,12 @@ export async function showMangaSeries(key, origin = 'manga') {
         $('#schapters').innerHTML = '<div class="void" role="status">Finding chapters…</div>'
     }
 
-    const chapterRequest = getMangaChapters(key)
+    const chapterRequest = getMangaChapters(key, { signal: controller.signal })
     chapterRequest.catch(() => {})
     let series
-    try { series = await getMangaSeries(key) }
+    try { series = await getMangaSeries(key, { signal: controller.signal }) }
     catch (error) {
+        controller.abort()
         if (mine === request && currentRouteIs(key)) {
             const message = navigator.onLine ? mangaErrorMessage(error, 'Manga unavailable') : 'You’re offline. Reconnect to load this manga.'
             $('#sinfo').innerHTML = `<div class="void" role="status">${esc(message)}<button class="manga-inline-retry" id="mseries-retry" type="button">Try again</button></div>`
@@ -316,5 +326,5 @@ export async function showMangaSeries(key, origin = 'manga') {
     renderChapterList()
     batchPaint()
     $('#schapters').setAttribute('aria-busy', 'false')
-    prefetchMangaChapter(key, current.first.id)
+    prefetchMangaChapter(key, current.first.id, { signal: controller.signal })
 }
