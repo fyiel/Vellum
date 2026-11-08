@@ -55,9 +55,11 @@ let swept = false
 function sweepStale(d) {
     // one pass per session, drop rows from older app versions the version key no longer serves
     if (swept) return
-    swept = true
     const prefix = `${VER}|`
-    const cur = d.transaction(STORE, 'readwrite').objectStore(STORE).openCursor()
+    let cur
+    try { cur = d.transaction(STORE, 'readwrite').objectStore(STORE).openCursor() }
+    catch { return } // a closing or read-only database must not block network reads
+    swept = true
     cur.onsuccess = e => {
         const c = e.target.result
         if (c) {
@@ -73,7 +75,9 @@ async function idbGet(key) {
     sweepStale(d)
 
     return new Promise(res => {
-        const r = d.transaction(STORE, 'readonly').objectStore(STORE).get(key)
+        let r
+        try { r = d.transaction(STORE, 'readonly').objectStore(STORE).get(key) }
+        catch { res(undefined); return } // a closed connection is a cache miss
         r.onsuccess = () => res(r.result)
         r.onerror = () => res(undefined)
     })
@@ -87,7 +91,9 @@ async function idbSet(key, rec) {
 
 function idbCount(d) {
     return new Promise(res => {
-        const r = d.transaction(STORE, 'readonly').objectStore(STORE).count()
+        let r
+        try { r = d.transaction(STORE, 'readonly').objectStore(STORE).count() }
+        catch { res(0); return } // maintenance is optional while another tab replaces the DB
         r.onsuccess = () => res(r.result)
         r.onerror = () => res(0)
     })
@@ -104,7 +110,9 @@ function maybeEvict() {
         let over = (await idbCount(d)) - DISK_MAX
         if (over <= 0) return
 
-        const cur = d.transaction(STORE, 'readwrite').objectStore(STORE).index('at').openCursor()
+        let cur
+        try { cur = d.transaction(STORE, 'readwrite').objectStore(STORE).index('at').openCursor() }
+        catch { return }
         cur.onsuccess = e => {
             const c = e.target.result
             if (c && over > 0) { c.delete(); over--; c.continue() }

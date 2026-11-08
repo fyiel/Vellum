@@ -24,6 +24,107 @@ test('a cache read falls back to the network after another tab upgrades IndexedD
     expect(result).toBe('network result')
 })
 
+test('a closed IndexedDB connection does not prevent a network cache miss', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { cached } = await import('/src/lib/cache.js')
+        // Open the connection and complete its initial stale-row sweep.
+        await cached('transaction-failure-seed', 60_000, async () => 'seed')
+        const original = IDBDatabase.prototype.transaction
+        let failures = 0
+        let loads = 0
+        IDBDatabase.prototype.transaction = function (store, mode, ...rest) {
+            if (store === 'cache' && mode === 'readonly') {
+                failures++
+                throw new DOMException('Database connection is closing', 'InvalidStateError')
+            }
+            return original.call(this, store, mode, ...rest)
+        }
+        try {
+            const value = await cached('transaction-failure-recover', 60_000, async () => {
+                loads++
+                return 'network fallback'
+            })
+            return { value, loads, failures }
+        } catch (error) {
+            return { error: error.name, loads, failures }
+        } finally {
+            IDBDatabase.prototype.transaction = original
+        }
+    })
+    expect(result).toEqual({ value: 'network fallback', loads: 1, failures: 1 })
+})
+
+test('a closed IndexedDB connection during eviction does not raise a page error', async ({ page }) => {
+    const errors = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { cached } = await import('/src/lib/cache.js')
+        await cached('eviction-closed-connection-seed', 60_000, async () => 'seed')
+        const original = IDBDatabase.prototype.transaction
+        let failures = 0
+        IDBDatabase.prototype.transaction = function (store, mode, ...rest) {
+            if (store === 'cache' && mode === 'readonly') {
+                failures++
+                throw new DOMException('Database connection is closing', 'InvalidStateError')
+            }
+            return original.call(this, store, mode, ...rest)
+        }
+        try {
+            await new Promise(resolve => setTimeout(resolve, 2700))
+            return { failures }
+        } finally {
+            IDBDatabase.prototype.transaction = original
+        }
+    })
+    expect(result.failures).toBeGreaterThanOrEqual(1)
+    expect(errors).toEqual([])
+})
+
+test('a closed IndexedDB connection during eviction writes does not raise a page error', async ({ page }) => {
+    const errors = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { cached } = await import('/src/lib/cache.js')
+        await cached('eviction-write-closed-connection-seed', 60_000, async () => 'seed')
+
+        // Populate the actual store above its limit so eviction reaches the write transaction.
+        const d = await new Promise((resolve, reject) => {
+            const req = indexedDB.open('vellum', 2)
+            req.onsuccess = () => resolve(req.result)
+            req.onerror = () => reject(req.error)
+        })
+        await new Promise((resolve, reject) => {
+            const tx = d.transaction('cache', 'readwrite')
+            const store = tx.objectStore('cache')
+            for (let i = 0; i < 810; i++) store.put({ v: i, at: i, exp: Date.now() + 60_000 }, `eviction-fill-${i}`)
+            tx.oncomplete = resolve
+            tx.onerror = () => reject(tx.error)
+        })
+        d.close()
+
+        const original = IDBDatabase.prototype.transaction
+        let failures = 0
+        IDBDatabase.prototype.transaction = function (store, mode, ...rest) {
+            if (store === 'cache' && mode === 'readwrite') {
+                failures++
+                throw new DOMException('Database connection is closing', 'InvalidStateError')
+            }
+            return original.call(this, store, mode, ...rest)
+        }
+        try {
+            await new Promise(resolve => setTimeout(resolve, 2700))
+            return { failures }
+        } finally {
+            IDBDatabase.prototype.transaction = original
+        }
+    })
+    expect(result.failures).toBeGreaterThanOrEqual(1)
+    expect(errors).toEqual([])
+})
+
 test('disk caching resumes once an older tab releases a blocked upgrade', async ({ page, context }) => {
     const holder = await context.newPage()
     await holder.goto(app)
