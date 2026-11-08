@@ -471,6 +471,16 @@ function imageLoaded(image) {
 
 function saveProgress() {
     if (!state.active || !state.id || !state.content) return
+    // A quick scroll followed by navigation or a mode change can happen before
+    // IntersectionObserver reports the new page. Read the visible page while
+    // its DOM is still mounted so the last position is never saved stale.
+    if (state.mode === 'scroll') {
+        const figure = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.manga-page')
+        const index = Number(figure?.dataset.page) - state.pageBase
+        if (figure && pages.contains(figure) && Number.isInteger(index) && index >= 0 && index < state.content.pages.length) {
+            state.page = index
+        }
+    }
     posSet(state.key, { id: state.id, page: state.page, at: Date.now() })
     updateLibrary(false)
 }

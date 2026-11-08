@@ -88,6 +88,51 @@ test('paged manga progress avoids reparsing the update ledger for every page', a
   expect(result.tracked).toBe(600)
 })
 
+test('switching manga reading modes preserves the page after a rapid scroll', async ({ page }) => {
+  const key = 'mf:scroll-position'
+  const chapter = { id: 'chapter-1', number: 1 }
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manhwa', title: 'Position Manga' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters: [chapter], partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapter, pages: Array.from({ length: 30 }, (_, index) => ({
+      url: `/read/api/manga/image?key=mf%3Ascroll-position&id=chapter-1&page=${index}`,
+      width: 900,
+      height: 1200,
+    })) }),
+  }))
+  await page.route('**/read/api/manga/image?**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"/>',
+  }))
+
+  await page.goto(`${app}#/manga/read/mf%3Ascroll-position/chapter-1`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  const result = await page.evaluate(key => {
+    const target = document.querySelector('.manga-page[data-page="14"]')
+    window.scrollTo(0, target.offsetTop + target.offsetHeight / 2 - innerHeight / 2)
+    const centered = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.manga-page')?.dataset.page
+    const mode = document.querySelector('#mr-mode')
+    mode.value = 'paged'
+    mode.dispatchEvent(new Event('change', { bubbles: true }))
+    return {
+      centered,
+      saved: JSON.parse(localStorage.getItem(`vellum:pos:${key}`)),
+      displayed: document.querySelector('#mr-pos').textContent,
+    }
+  }, key)
+  expect(result.centered).toBe('14')
+  expect(result.saved).toMatchObject({ id: chapter.id, page: 14 })
+  expect(result.displayed).toBe('Page 15 / 30')
+})
+
 test('endlessly scrolls the manga shelf with no load-more button', async ({ page }) => {
   // a full grid keeps the bottom sentinel out of its 800px reveal margin, so the
   // page-2 load is driven by the explicit scroll and cannot auto-fire early
