@@ -61,6 +61,24 @@ segment.m4s
     assert.equal(segments[0].key, null)
 })
 
+test('retains every HLS initialization map at its media segment boundary', () => {
+    const text = `#EXTM3U
+#EXT-X-MAP:URI="first.mp4"
+#EXTINF:4,
+first.m4s
+#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x2
+#EXT-X-MAP:URI="second.mp4"
+#EXT-X-KEY:METHOD=NONE
+#EXTINF:4,
+second.m4s
+`
+    const { maps } = parseMedia(text)
+    assert.deepEqual(maps, [
+        { at: 0, uri: 'first.mp4', key: null },
+        { at: 1, uri: 'second.mp4', key: { method: 'AES-128', uri: 'key.bin', iv: '0x2' } },
+    ])
+})
+
 test('segmentIv falls back to the big-endian media sequence', () => {
     const explicit = segmentIv({ iv: '0x0000000000000000000000000000000a' }, 3)
     assert.equal(explicit[15], 10)

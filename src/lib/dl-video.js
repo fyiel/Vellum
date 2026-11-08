@@ -91,7 +91,7 @@ async function downloadHls(url, writer, progress, signal) {
         playlistUrl = resolveUri(url, variant.uri)
         text = await playlistText(playlistUrl)
     }
-    const { init, initKey, segments } = parseMedia(text)
+    const { init, segments, maps } = parseMedia(text)
     if (!segments.length) throw new Error('stream playlist is empty')
     const encrypted = segments[0].key
     if (encrypted && encrypted.method !== 'AES-128') throw new Error(`${encrypted.method} encrypted streams can't be downloaded`)
@@ -117,19 +117,24 @@ async function downloadHls(url, writer, progress, signal) {
     progress.done = 0
     progress.total = segments.length
     const keyCache = new Map()
-    if (init) {
-        let bytes = await fetchBytes(resolveUri(playlistUrl, init), signal)
-        if (initKey) {
-            if (initKey.method !== 'AES-128') throw new Error(`${initKey.method} encrypted streams can't be downloaded`)
-            if (!initKey.iv) throw new Error('encrypted HLS initialization section requires an IV')
-            const key = await aesKey(initKey.uri, playlistUrl, signal, keyCache)
-            bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(initKey, 0) }, key, bytes))
-        }
-        await writer.write(bytes)
-        size += bytes.byteLength
-    }
-    for (const segment of segments) {
+    let nextMap = 0
+    for (let index = 0; index < segments.length; index++) {
+        const segment = segments[index]
         if (signal.aborted) throw new Error('download cancelled')
+        // Initialization sections belong immediately before the first media
+        // segment that uses them; a playlist can change maps mid-stream.
+        if (maps[nextMap]?.at === index) {
+            const map = maps[nextMap++]
+            let bytes = await fetchBytes(resolveUri(playlistUrl, map.uri), signal)
+            if (map.key) {
+                if (map.key.method !== 'AES-128') throw new Error(`${map.key.method} encrypted streams can't be downloaded`)
+                if (!map.key.iv) throw new Error('encrypted HLS initialization section requires an IV')
+                const key = await aesKey(map.key.uri, playlistUrl, signal, keyCache)
+                bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(map.key, 0) }, key, bytes))
+            }
+            await writer.write(bytes)
+            size += bytes.byteLength
+        }
         let bytes = await fetchBytes(resolveUri(playlistUrl, segment.uri), signal)
         if (segment.key) {
             const key = await aesKey(segment.key.uri, playlistUrl, signal, keyCache)

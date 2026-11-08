@@ -30,6 +30,7 @@ export const pickVariant = variants =>
 export function parseMedia(text) {
     const lines = String(text).split(/\r?\n/)
     const segments = []
+    const maps = []
     let init = null
     let initKey = null
     let key = null
@@ -42,6 +43,11 @@ export function parseMedia(text) {
             if (attrs.URI) {
                 init = attrs.URI
                 initKey = key ? { ...key } : null
+                const map = { at: segments.length, uri: init, key: initKey }
+                // A later map declaration supersedes an earlier one when no
+                // media segment has appeared between them.
+                if (maps.at(-1)?.at === map.at) maps[maps.length - 1] = map
+                else maps.push(map)
             }
         } else if (line.startsWith('#EXT-X-KEY:')) {
             const attrs = parseAttrs(line.slice('#EXT-X-KEY:'.length))
@@ -50,7 +56,7 @@ export function parseMedia(text) {
             segments.push({ uri: line, key: key ? { ...key } : null, sequence: sequence + segments.length })
         }
     }
-    return { init, initKey, segments }
+    return { init, initKey, segments, maps }
 }
 
 export const resolveUri = (base, uri) => new URL(uri, base).href

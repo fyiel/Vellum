@@ -158,6 +158,45 @@ for (const encryptedSegment of [true, false]) {
     })
 }
 
+test('HLS downloads write replacement initialization maps in media order', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const { downloadVideoEpisode } = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:multi-init', id = '1'
+        const cipherKey = new Uint8Array(16).fill(11)
+        const iv = new Uint8Array(16)
+        iv[15] = 2
+        const aes = await crypto.subtle.importKey('raw', cipherKey, 'AES-CBC', false, ['encrypt'])
+        const encoder = new TextEncoder()
+        const firstInit = encoder.encode('first initialization')
+        const firstMedia = encoder.encode('first fragment')
+        const secondInit = encoder.encode('second initialization')
+        const secondMedia = encoder.encode('second fragment')
+        const encryptedInit = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aes, secondInit))
+        const playlist = `#EXTM3U\n#EXT-X-MAP:URI="first.mp4"\n#EXTINF:4,\nfirst.m4s\n#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x2\n#EXT-X-MAP:URI="second.mp4"\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:4,\nsecond.m4s\n#EXT-X-ENDLIST\n`
+        setTransport(async url => {
+            const path = String(url)
+            if (path.includes('/playback?')) return Response.json({
+                key, episodeId: id, providerLabel: 'Test',
+                sources: [{ kind: 'direct', url: '/multi-init.m3u8', type: 'application/x-mpegURL' }],
+            })
+            if (path.endsWith('/multi-init.m3u8')) return new Response(playlist)
+            if (path.endsWith('/key.bin')) return new Response(cipherKey)
+            if (path.endsWith('/first.mp4')) return new Response(firstInit)
+            if (path.endsWith('/second.mp4')) return new Response(encryptedInit)
+            if (path.endsWith('/first.m4s')) return new Response(firstMedia)
+            if (path.endsWith('/second.m4s')) return new Response(secondMedia)
+            throw new Error(`unexpected request ${path}`)
+        })
+        await downloadVideoEpisode(key, id)
+        const blob = await dlRead(dlPath.video(key, id))
+        return { actual: [...new Uint8Array(await blob.arrayBuffer())], expected: [...firstInit, ...firstMedia, ...secondInit, ...secondMedia] }
+    })
+    expect(result.actual).toEqual(result.expected)
+})
+
 test('downloaded WebM episodes retain their format and play from offline storage', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async bytes => {
