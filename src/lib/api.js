@@ -53,9 +53,9 @@ const discoverQuery = params => {
     return sp.toString()
 }
 
-export const discover = params => {
+export const discover = (params, { signal } = {}) => {
     const query = discoverQuery(params)
-    return cached(`discover:nu7:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`), { accept: data => hasResults(data) && !data.partial })
+    return cached(`discover:nu7:${query}`, 10 * MIN, () => apiGet(`/read/api/discover?${query}`, { signal }), { signal, accept: data => hasResults(data) && !data.partial })
 }
 
 export const discoverTaxonomy = () =>

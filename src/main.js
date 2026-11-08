@@ -17,7 +17,7 @@ import { setupNative } from './lib/native.js'
 import { warmNuClearance } from './lib/nuwarm.js'
 import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
 import { cancelLibraryUpdates, showLibrary } from './screens/library.js'
-import { showDiscover } from './screens/discover.js'
+import { cancelDiscoverBrowse, showDiscover } from './screens/discover.js'
 import { cancelUpdates, showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
 import { cancelMangaBrowse, showManga } from './screens/manga.js'
@@ -219,6 +219,7 @@ startRouter(async route => {
     if (route.name !== 'home') cancelLibraryUpdates()
     if (route.name !== 'manga') cancelMangaBrowse()
     if (route.name !== 'video') cancelVideoBrowse()
+    if (route.name !== 'discover') cancelDiscoverBrowse()
     mountShell()
     await closeInactiveReaders(route)
     if (mine !== routeRequest) return

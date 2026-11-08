@@ -134,8 +134,8 @@ const fetchSearch = () => {
 
 function feedFetch(p) {
     if (query) return p === 1 ? fetchSearch() : Promise.resolve({ results: [] })
-    if (active) return discover(buildDiscoverParams(p))
-    return discover({ sort: 'trending', page: p, limit: LIMIT })
+    if (active) return discover(buildDiscoverParams(p), { signal: searchController?.signal })
+    return discover({ sort: 'trending', page: p, limit: LIMIT }, { signal: searchController?.signal })
 }
 
 const scroller = () => $('#view-discover .scroll')
@@ -460,8 +460,22 @@ export function showDiscover() {
     const pending = $('#dsearch').value.trim()
     if (!inited) { query = pending; inited = true; startFeed(true) }
     else if (pending !== query) { query = pending; startFeed() }
-    else if (query && searchPending) {
-        searchDeadline = Date.now() + 60_000
-        paintSearch({ results: items, pending: true }, feedGen)
+    else {
+        searchController ??= new AbortController()
+        if (query && searchPending) {
+            searchDeadline = Date.now() + 60_000
+            paintSearch({ results: items, pending: true }, feedGen)
+        } else if (!query) fillViewport()
     }
+}
+
+export function cancelDiscoverBrowse() {
+    clearTimeout(searchTimer)
+    clearTimeout(searchRefreshTimer)
+    if (!searchController) return
+    searchController.abort()
+    searchController = null
+    if (loadingGen !== 0 && page === 0) inited = false
+    loadingGen = 0
+    ++feedGen
 }

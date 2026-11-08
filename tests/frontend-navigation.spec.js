@@ -341,6 +341,89 @@ for (const section of ['manga', 'watch']) {
     })
 }
 
+for (const mode of ['trending', 'search']) {
+    test(`cancels an abandoned Discover ${mode} request and reloads on return`, async ({ page }) => {
+        const errors = await fixtures(page)
+        const path = mode === 'search' ? '/read/api/search' : '/read/api/discover'
+        await page.route(`**${path}?**`, route => reply(route, {
+            results: [{ key: 'nf:discovered', title: 'Discovered title', cover }], hasMore: false,
+        }))
+        await page.evaluate(({ path, mode }) => {
+            const originalFetch = window.fetch
+            window.heldDiscoverRequest = false
+            window.abandonedDiscoverRequest = false
+            window.fetch = (url, options) => {
+                const target = new URL(url, location.href)
+                if (!window.heldDiscoverRequest && target.pathname === path
+                    && (mode !== 'search' || target.searchParams.get('q') === 'discovered')) {
+                    window.heldDiscoverRequest = true
+                    return new Promise((_, reject) => {
+                        options.signal.addEventListener('abort', () => {
+                            window.abandonedDiscoverRequest = true
+                            reject(new DOMException('Cancelled', 'AbortError'))
+                        }, { once: true })
+                    })
+                }
+                return originalFetch(url, options)
+            }
+        }, { path, mode })
+
+        await navigate(page, '#/discover')
+        if (mode === 'search') await page.locator('#dsearch').fill('discovered')
+        await expect.poll(() => page.evaluate(() => window.heldDiscoverRequest)).toBe(true)
+        await navigate(page, '#/')
+        await expect.poll(() => page.evaluate(() => window.abandonedDiscoverRequest)).toBe(true)
+        await navigate(page, '#/discover')
+        await expect(page.locator('#dlist .dcard')).toContainText('Discovered title')
+        expect(errors).toEqual([])
+    })
+}
+
+test('Discover preserves its feed and retries a page interrupted by navigation', async ({ page }) => {
+    const errors = await fixtures(page)
+    const path = '/read/api/discover'
+    await page.route(`**${path}?**`, route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('page'))
+        const results = n === 1
+            ? Array.from({ length: 30 }, (_, i) => ({ key: `nf:discovery-${i}`, title: `Discovery ${i}`, cover }))
+            : [{ key: 'nf:final', title: 'Final discovery', cover }]
+        return reply(route, { page: n, results, hasMore: n === 1 })
+    })
+    await navigate(page, '#/discover')
+    await expect(page.locator('#dlist .dcard')).toHaveCount(30)
+    await page.evaluate(path => {
+        const originalFetch = window.fetch
+        window.heldDiscoverPage = false
+        window.abandonedDiscoverPage = false
+        window.fetch = (url, options) => {
+            const target = new URL(url, location.href)
+            if (!window.heldDiscoverPage && target.pathname === path && target.searchParams.get('page') === '2') {
+                window.heldDiscoverPage = true
+                return new Promise((_, reject) => {
+                    options.signal.addEventListener('abort', () => {
+                        window.abandonedDiscoverPage = true
+                        reject(new DOMException('Cancelled', 'AbortError'))
+                    }, { once: true })
+                })
+            }
+            return originalFetch(url, options)
+        }
+    }, path)
+    const scrollToEnd = () => page.locator('#view-discover .scroll').evaluate(element => {
+        element.scrollTop = element.scrollHeight
+        element.dispatchEvent(new Event('scroll'))
+    })
+    await scrollToEnd()
+    await expect.poll(() => page.evaluate(() => window.heldDiscoverPage)).toBe(true)
+    await navigate(page, '#/')
+    await expect.poll(() => page.evaluate(() => window.abandonedDiscoverPage)).toBe(true)
+    await expect(page.locator('#dlist .dcard')).toHaveCount(30)
+    await navigate(page, '#/discover')
+    await scrollToEnd()
+    await expect(page.locator('#dlist .dcard')).toHaveCount(31)
+    expect(errors).toEqual([])
+})
+
 test('novel image object URLs are released and refreshed when reopening a chapter', async ({ page }) => {
     const errors = await fixtures(page)
     await page.evaluate(async () => {
