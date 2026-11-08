@@ -11,6 +11,7 @@ let wired = false
 let feed = []
 let failed = false
 let filter = 'all'
+let feedCtrl = null
 const formatName = value => value ? value[0].toUpperCase() + value.slice(1) : ''
 const isVideo = u => u.kind === 'anime' || u.kind === 'drama'
 
@@ -127,12 +128,31 @@ function wire() {
     })
 }
 
+export function cancelUpdates() {
+    feedCtrl?.abort()
+    feedCtrl = null
+}
+
 export async function showUpdates() {
+    cancelUpdates()
+    const ctrl = new AbortController()
+    feedCtrl = ctrl
     wire()
     $('#ufeed').innerHTML = `<div class="void">checking for new chapters and episodes&hellip;</div>`
-    const result = await buildFeed()
-    feed = result.feed
-    failed = result.failed
-    render()
-    refresh()
+    try {
+        const result = await buildFeed({ signal: ctrl.signal })
+        if (ctrl.signal.aborted) return
+        feed = result.feed
+        failed = result.failed
+        render()
+        refresh()
+    } catch {
+        if (ctrl.signal.aborted) return
+        feed = []
+        failed = true
+        render()
+        refresh()
+    } finally {
+        if (feedCtrl === ctrl) feedCtrl = null
+    }
 }

@@ -16,6 +16,7 @@ const CONT_MAX = 4
 let filterQ = ''
 let wired = false
 const newCounts = new Map()
+let updatesCtrl = null
 
 const isManga = e => e.kind === 'manga'
 const isVideo = e => e.kind === 'anime' || e.kind === 'drama'
@@ -153,12 +154,17 @@ function render() {
     else table.innerHTML = rows.map(row).join('')
 }
 
-async function checkUpdates() {
-    const { feed } = await buildFeed()
-    newCounts.clear()
-    for (const u of feed) if (!u.read && u.newCount > 0) newCounts.set(u.slug, u.newCount)
-    $('#count-updates').textContent = unreadTotal(feed) ? String(unreadTotal(feed)) : ''
-    render()
+async function checkUpdates(signal) {
+    try {
+        const { feed } = await buildFeed({ signal })
+        if (signal.aborted) return
+        newCounts.clear()
+        for (const u of feed) if (!u.read && u.newCount > 0) newCounts.set(u.slug, u.newCount)
+        $('#count-updates').textContent = unreadTotal(feed) ? String(unreadTotal(feed)) : ''
+        render()
+    } catch (error) {
+        if (!signal.aborted) console.error('Library update check failed', error)
+    }
 }
 
 function wire() {
@@ -203,10 +209,20 @@ function keepDownloadedCovers() {
     }
 }
 
+export function cancelLibraryUpdates() {
+    updatesCtrl?.abort()
+    updatesCtrl = null
+}
+
 export function showLibrary() {
+    cancelLibraryUpdates()
+    const ctrl = new AbortController()
+    updatesCtrl = ctrl
     wire()
     render()
     renderDownloads()
     keepDownloadedCovers()
-    checkUpdates()
+    void checkUpdates(ctrl.signal).finally(() => {
+        if (updatesCtrl === ctrl) updatesCtrl = null
+    })
 }

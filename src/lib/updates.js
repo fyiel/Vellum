@@ -15,11 +15,11 @@ const rowOf = (e, led) => ({
 })
 
 // bounded concurrency so a big library does not serialize dozens of chapter fetches
-async function mapPool(list, n, fn) {
+async function mapPool(list, n, fn, signal) {
     const out = new Array(list.length)
     let i = 0
     const worker = async () => {
-        while (i < list.length) {
+        while (i < list.length && !signal?.aborted) {
             const idx = i++
             out[idx] = await fn(list[idx], idx)
         }
@@ -28,7 +28,7 @@ async function mapPool(list, n, fn) {
     return out
 }
 
-export async function buildFeed() {
+export async function buildFeed({ signal } = {}) {
     const lib = library()
     const ledger = loadUpdLedger()
     const now = Date.now()
@@ -37,11 +37,13 @@ export async function buildFeed() {
 
     const entries = await mapPool(lib, 5, async e => {
         try {
-            const data = e.kind === 'manga' ? await getMangaChapters(e.key || e.slug)
-                : isVideo(e) ? await getVideoSeries(e.key || e.slug, { fresh: true }) : await getChapters(e.slug)
+            const data = e.kind === 'manga' ? await getMangaChapters(e.key || e.slug, { signal })
+                : isVideo(e) ? await getVideoSeries(e.key || e.slug, { fresh: true, signal }) : await getChapters(e.slug, { signal })
             return { e, chapters: isVideo(e) ? data?.episodes : data?.chapters }
         } catch { return { e, chapters: null } }
-    })
+    }, signal)
+    // A superseded visit must not write its stale ledger snapshot.
+    if (signal?.aborted) throw new DOMException('updates check cancelled', 'AbortError')
     const failed = entries.some(({ e, chapters }) => !Array.isArray(chapters) || (e.total > 0 && chapters.length === 0))
 
     for (const { e, chapters } of entries) {

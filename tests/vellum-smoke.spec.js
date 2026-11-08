@@ -1088,6 +1088,66 @@ test('does not call a failed updates check all caught up', async ({ page }) => {
   page._vellumErrors.length = 0
 })
 
+test('switching between Updates and Library cancels old checks and preserves the current feed', async ({ page }) => {
+  const firstKey = 'mf:updates-old', secondKey = 'mf:updates-new'
+  await page.evaluate(async ({ firstKey, secondKey }) => {
+    const { setTransport } = await import('/src/lib/http.js')
+    const entry = (key, title) => ({
+      slug: key, key, kind: 'manga', title, format: 'manga', source: 'MangaFire',
+      chapterIds: ['seen'], total: 1, updatedAt: Date.now(),
+    })
+    const chapters = key => Response.json({
+      key, chapters: [{ id: 'new', number: 2 }, { id: 'seen', number: 1 }], partial: false, errors: [],
+    })
+    const first = entry(firstKey, 'Outdated series')
+    const second = entry(secondKey, 'Current series')
+    localStorage.setItem('vellum:lib', JSON.stringify([first]))
+    let started
+    const start = new Promise(resolve => { started = resolve })
+    const state = { start, second, oldRequests: [], releaseOld: () => {
+      for (const request of state.oldRequests) request.resolve(chapters(firstKey))
+    } }
+    window.updatesRace = state
+    setTransport((url, init) => {
+      const target = new URL(url, location.href)
+      const key = target.searchParams.get('key')
+      if (!target.pathname.endsWith('/manga/chapters')) throw Error(`unexpected request ${target}`)
+      if (key === firstKey) return new Promise(resolve => {
+        const request = { resolve, aborted: init.signal.aborted }
+        state.oldRequests.push(request)
+        init.signal.addEventListener('abort', () => { request.aborted = true }, { once: true })
+        started()
+      })
+      if (key === secondKey) return chapters(secondKey)
+      throw Error(`unexpected key ${key}`)
+    })
+    location.hash = '#/updates'
+  }, { firstKey, secondKey })
+
+  await page.evaluate(() => window.updatesRace.start)
+  await page.evaluate(() => { location.hash = '#/' })
+  await expect(page.locator('#view-library')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => window.updatesRace.oldRequests.length)).toBe(2)
+  await page.evaluate(() => {
+    localStorage.setItem('vellum:lib', JSON.stringify([window.updatesRace.second]))
+    location.hash = '#/updates'
+  })
+  await expect(page.locator('#ufeed .urow')).toContainText('Current series')
+  const result = await page.evaluate(async () => {
+    const before = JSON.parse(localStorage.getItem('vellum:updates') || '{}')
+    window.updatesRace.releaseOld()
+    await new Promise(resolve => setTimeout(resolve, 100))
+    const ledger = JSON.parse(localStorage.getItem('vellum:updates') || '{}')
+    return {
+      aborted: window.updatesRace.oldRequests.map(r => r.aborted),
+      titles: [...document.querySelectorAll('#ufeed .urow .n')].map(row => row.textContent),
+      beforeKeys: Object.keys(before),
+      ledgerKeys: Object.keys(ledger),
+    }
+  })
+  expect(result).toEqual({ aborted: [true, true], titles: ['Current series'], beforeKeys: [secondKey], ledgerKeys: [secondKey] })
+})
+
 test('sorts trending without applying staged filters', async ({ page }) => {
   await mockNovelCatalogue(page)
   await page.locator('[data-nav="discover"]').click()

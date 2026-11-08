@@ -16,9 +16,9 @@ import { startRouter, parseHash, back, go } from './lib/router.js'
 import { setupNative } from './lib/native.js'
 import { warmNuClearance } from './lib/nuwarm.js'
 import { mountShell, setCrumb, setActiveNav } from './screens/shell.js'
-import { showLibrary } from './screens/library.js'
+import { cancelLibraryUpdates, showLibrary } from './screens/library.js'
 import { showDiscover } from './screens/discover.js'
-import { showUpdates } from './screens/updates.js'
+import { cancelUpdates, showUpdates } from './screens/updates.js'
 import { showSeries } from './screens/series.js'
 import { showManga } from './screens/manga.js'
 import { showMangaSeries } from './screens/manga-series.js'
@@ -215,6 +215,8 @@ function closeInactiveReaders(route) {
 
 startRouter(async route => {
     const mine = ++routeRequest
+    if (route.name !== 'updates') cancelUpdates()
+    if (route.name !== 'home') cancelLibraryUpdates()
     mountShell()
     await closeInactiveReaders(route)
     if (mine !== routeRequest) return
