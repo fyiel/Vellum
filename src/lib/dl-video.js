@@ -65,14 +65,19 @@ async function downloadFile(url, writer, progress, signal) {
         let size = 0
         for (;;) {
             if (signal.aborted) throw new Error('download cancelled')
-            arm()
             const { done, value } = await raceAbort(reader.read(), ctrl.signal)
-            clearTimeout(timer)
             if (done) { completed = true; break }
+            // Empty chunks are not transfer progress; leave the inactivity
+            // clock running so a source cannot keep this download hung forever.
+            if (!value?.byteLength) continue
+            clearTimeout(timer)
             await writer.write(value)
             size += value.byteLength
             progress.done = size
             notify()
+            // Disk writes can be slow, so start the network clock again only
+            // after the previous chunk has been persisted.
+            arm()
         }
         // A cleanly closed stream can still be short. Do not register a broken
         // offline episode when the server declared how many bytes it would send.

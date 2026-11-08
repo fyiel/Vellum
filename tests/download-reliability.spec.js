@@ -968,6 +968,41 @@ for (const mode of ['steady', 'stalled', 'cancelled']) {
     })
 }
 
+test('empty direct-video stream chunks cannot keep a download alive indefinitely', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const realTimeout = window.setTimeout.bind(window)
+        window.setTimeout = (fn, ms, ...args) => realTimeout(fn, ms === 30_000 ? 80 : ms, ...args)
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const key = 'mock:empty-chunks', id = '1'
+        let emptyChunks = 0
+        setTransport((url, init) => {
+            if (String(url).includes('/playback?')) return Promise.resolve(Response.json({
+                key, episodeId: id, providerLabel: 'Test',
+                sources: [{ kind: 'direct', url: '/empty.mp4', type: 'video/mp4' }],
+            }))
+            let ticker
+            return Promise.resolve(new Response(new ReadableStream({
+                start(controller) {
+                    ticker = setInterval(() => { emptyChunks++; controller.enqueue(new Uint8Array(0)) }, 10)
+                    init.signal.addEventListener('abort', () => { clearInterval(ticker); controller.error(init.signal.reason) }, { once: true })
+                },
+                cancel() { clearInterval(ticker) },
+            })))
+        })
+        const task = video.downloadVideoEpisode(key, id).then(() => 'saved', error => error.message)
+        const outcome = await Promise.race([task, new Promise(resolve => realTimeout(() => resolve('pending'), 400))])
+        if (outcome === 'pending') video.cancelVideoDownload(key, id)
+        await task
+        return { outcome, emptyChunks, saved: !!video.videoDlEntry(key, id), active: !!video.videoDlActive(key, id) }
+    })
+    expect(result.outcome).toBe('download timed out')
+    expect(result.emptyChunks).toBeGreaterThan(2)
+    expect(result.saved).toBe(false)
+    expect(result.active).toBe(false)
+})
+
 for (const stalled of ['request', 'stream']) {
     for (const reason of ['timeout', 'cancel']) {
         test(`non-cooperative direct video ${stalled} settles on ${reason}`, async ({ page }) => {
