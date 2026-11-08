@@ -612,10 +612,14 @@ function showError(message) {
     $('#mr-retry').onclick = () => showMangaReader(state.key, state.id)
 }
 
+let drawerRows = []
 function renderDrawer(start = 0) {
     const query = $('#mdw-q').value.trim().toLowerCase()
     const read = readSet(state.key)
-    const rows = state.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
+    // The catalog and search only change on full renders; revealing more rows
+    // should reuse the existing matches rather than filtering everything again.
+    if (!start) drawerRows = query ? state.chapters.filter(chapter => `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query)) : state.chapters
+    const rows = drawerRows
     const count = Math.min(state.drawerLimit, rows.length)
     const shown = rows.slice(start, count)
     const html = `${shown.map(chapter => `<a class="chap${read.has(chapter.id) ? ' read' : ''}${chapter.id === state.id ? ' current' : ''}" href="${route(state.key, chapter.id)}"${chapter.id === state.id ? ' aria-current="page"' : ''}>
@@ -648,6 +652,7 @@ function openDrawer() {
 
 function closeDrawer(restoreFocus = true) {
     const wasOpen = drawer.classList.contains('open')
+    drawerRows = []
     drawer.classList.remove('open')
     drawerBackdrop.classList.remove('open')
     drawer.setAttribute('aria-hidden', 'true')

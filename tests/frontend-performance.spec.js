@@ -444,7 +444,7 @@ test('revealing more manga chapters retains existing rows and only appends new o
 
 test('revealing more manga reader chapters retains existing links and preserves search and focus', async ({ page }) => {
     const key = 'mf:reader-drawer-perf'
-    const chapters = Array.from({ length: 2000 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1, title: `Entry ${i + 1}` }))
+    const chapters = Array.from({ length: 12000 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1, title: `Entry ${i + 1}` }))
     await page.route('**/read/api/manga/series/**', route => reply(route, {
         key, kind: 'manga', format: 'manga', title: 'Large reader',
     }))
@@ -465,6 +465,8 @@ test('revealing more manga reader chapters retains existing links and preserves 
     await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
     await page.locator('#mr-list').click()
     await expect(page.locator('#mdrawer-list .chap')).toHaveCount(400)
+    await page.locator('#mdw-q').fill('Ch.')
+    await expect(page.locator('#mdrawer-list .chap')).toHaveCount(400)
 
     const result = await page.evaluate(() => {
         const list = document.querySelector('#mdrawer-list')
@@ -478,23 +480,32 @@ test('revealing more manga reader chapters retains existing links and preserves 
         }
         const observer = new MutationObserver(count)
         observer.observe(list, { childList: true })
+        const filter = Array.prototype.filter
+        let catalogFilters = 0
+        Array.prototype.filter = function (...args) {
+            if (this.length === 12000 && this[0]?.id === 'chapter-1') catalogFilters++
+            return filter.apply(this, args)
+        }
         const start = performance.now()
-        list.querySelector('#mdrawer-more').click()
-        list.querySelector('#mdrawer-more').click()
+        try {
+            list.querySelector('#mdrawer-more').click()
+            list.querySelector('#mdrawer-more').click()
+        } finally { Array.prototype.filter = filter }
         const elapsedMs = performance.now() - start
         count(observer.takeRecords())
         observer.disconnect()
         return {
-            added, removed, elapsedMs,
+            added, removed, elapsedMs, catalogFilters,
             after: list.querySelectorAll('.chap').length,
             firstPreserved: list.querySelector('.chap') === first,
             focused: document.activeElement?.querySelector('.n')?.textContent,
             more: list.querySelector('#mdrawer-more')?.textContent,
         }
     })
-    console.log(`Manga reader drawer reveal to ${result.after} links: ${result.elapsedMs.toFixed(1)}ms, ${result.added} links added, ${result.removed} removed`)
+    console.log(`Manga reader drawer reveal to ${result.after} links: ${result.elapsedMs.toFixed(1)}ms, ${result.added} links added, ${result.removed} removed, ${result.catalogFilters} full catalog filters`)
     expect(result).toMatchObject({
-        after: 1200, added: 800, removed: 0, firstPreserved: true, focused: 'Ch. 801', more: 'Show 400 more',
+        after: 1200, added: 800, removed: 0, catalogFilters: 0,
+        firstPreserved: true, focused: 'Ch. 801', more: 'Show 400 more',
     })
 
     await page.locator('#mdw-q').fill('Ch. 1777')
