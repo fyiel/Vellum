@@ -158,10 +158,22 @@ async function checkUpdates(signal) {
     try {
         const { feed } = await buildFeed({ signal })
         if (signal.aborted) return
+        const previous = new Map(newCounts)
         newCounts.clear()
         for (const u of feed) if (!u.read && u.newCount > 0) newCounts.set(u.slug, u.newCount)
-        $('#count-updates').textContent = unreadTotal(feed) ? String(unreadTotal(feed)) : ''
-        render()
+        const unread = unreadTotal(feed)
+        $('#count-updates').textContent = unread ? String(unread) : ''
+
+        // The check only changes alert cells. Rebuilding the whole library
+        // discards focused links and replaces up to 60 otherwise identical rows.
+        if (previous.size === newCounts.size && [...previous].every(([slug, count]) => newCounts.get(slug) === count)) return
+        const entries = new Map(library().map(entry => [entry.slug, entry]))
+        for (const rowEl of $('#libtable').querySelectorAll('.trow')) {
+            const slug = rowEl.dataset.slug
+            if ((previous.get(slug) || 0) === (newCounts.get(slug) || 0)) continue
+            const entry = entries.get(slug)
+            if (entry) rowEl.querySelector('.upd').outerHTML = updCell(entry)
+        }
     } catch (error) {
         if (!signal.aborted) console.error('Library update check failed', error)
     }
