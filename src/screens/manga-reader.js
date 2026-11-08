@@ -395,10 +395,10 @@ function imageLoaded(image) {
 function saveProgress() {
     if (!state.active || !state.id || !state.content) return
     posSet(state.key, { id: state.id, page: state.page, at: Date.now() })
-    updateLibrary()
+    updateLibrary(false)
 }
 
-function updateLibrary() {
+function updateLibrary(includeChapters = true) {
     if (!state.series || !state.chapter || !state.content) return
     const provider = parseMangaKey(state.key)?.provider
     touchLibrary({
@@ -411,7 +411,7 @@ function updateLibrary() {
         source: SOURCE[provider] || 'Manga',
         format: state.series.format,
         total: state.chapters.length,
-        chapterIds: state.chapters.map(chapter => chapter.id),
+        chapterIds: includeChapters ? state.chapters.map(chapter => chapter.id) : undefined,
         readCount: readSet(state.key).size,
         lastId: state.id,
         lastLabel: chapterLabel(state.chapter),

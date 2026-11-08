@@ -26,6 +26,68 @@ const pageRows = (pageNumber, count = 3) => Array.from({ length: count }, (_, in
   key: `mf:scroll-${pageNumber}-${index + 1}`, kind: 'manga', format: 'manga', title: `Scroll ${pageNumber} row ${index + 1}`, cover: poster,
 }))
 
+test('paged manga progress avoids reparsing the update ledger for every page', async ({ page }) => {
+  const key = 'mf:progress-perf'
+  const chapters = Array.from({ length: 600 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1 }))
+  await page.route('**/read/api/manga/series/**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, kind: 'manga', format: 'manga', title: 'Progress Manga' }),
+  }))
+  await page.route('**/read/api/manga/chapters?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapters, partial: false, errors: [] }),
+  }))
+  await page.route('**/read/api/manga/chapter?**', route => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ key, chapter: chapters[0], pages: Array.from({ length: 40 }, (_, i) => ({
+      url: `/read/api/manga/image?key=mf%3Aprogress-perf&id=chapter-1&page=${i}`, width: 800, height: 1200,
+    })) }),
+  }))
+  await page.route('**/read/api/manga/image?**', route => route.fulfill({
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"/>',
+  }))
+  await page.evaluate(() => {
+    const ledger = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [
+      `mf:followed-${i}`,
+      { read: true, seenIds: Array.from({ length: 500 }, (_, j) => `chapter-${j}`) },
+    ]))
+    localStorage.setItem('vellum:updates', JSON.stringify(ledger))
+  })
+
+  await page.goto(`${app}#/manga/read/mf%3Aprogress-perf/chapter-1`)
+  await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+  const result = await page.evaluate(k => {
+    const original = Storage.prototype.getItem
+    let ledgerReads = 0
+    Storage.prototype.getItem = function (storageKey) {
+      if (storageKey === 'vellum:updates') ledgerReads++
+      return original.call(this, storageKey)
+    }
+    const start = performance.now()
+    try {
+      for (let i = 0; i < 30; i++) document.querySelector('#mr-next').click()
+    } finally {
+      Storage.prototype.getItem = original
+    }
+    return {
+      ledgerReads,
+      durationMs: performance.now() - start,
+      position: JSON.parse(localStorage.getItem(`vellum:pos:${k}`)),
+      entry: JSON.parse(localStorage.getItem('vellum:lib'))[0],
+      read: JSON.parse(localStorage.getItem(`vellum:read:${k}`)),
+      tracked: JSON.parse(localStorage.getItem('vellum:updates'))[k]?.seenIds?.length,
+    }
+  }, key)
+  console.log(`30 paged manga turns: ${result.durationMs.toFixed(1)}ms; update ledger reads: ${result.ledgerReads}`)
+  expect(result.ledgerReads).toBe(0)
+  expect(result.position).toMatchObject({ id: 'chapter-1', page: 30 })
+  expect(result.entry).toMatchObject({ lastId: 'chapter-1', lastPage: 31, pageCount: 40, readCount: 1, total: 600 })
+  expect(result.entry.chapterIds).toHaveLength(600)
+  expect(result.read).toContain('chapter-1')
+  expect(result.tracked).toBe(600)
+})
+
 test('endlessly scrolls the manga shelf with no load-more button', async ({ page }) => {
   // a full grid keeps the bottom sentinel out of its 800px reveal margin, so the
   // page-2 load is driven by the explicit scroll and cannot auto-fire early
