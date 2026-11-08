@@ -64,7 +64,7 @@ async function runBatch(count) {
     try {
         await dlBatch(ids, id => downloadMangaChapter(key, id), {
             onStep: done => { batch.done = done; if (current?.key === key) batchPaint() },
-            onError: (id, error) => { if (current?.key === key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl() } },
+            onError: (id, error) => { if (current?.key === key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl(key, id) } },
         })
     } finally {
         batches.delete(key)
@@ -87,18 +87,22 @@ const dlButton = (key, id) => {
     return `<button type="button" class="chdl${state ? ` ${state}` : ''}" data-dl="${esc(id)}" title="${esc(hint)}" aria-label="${esc(hint)}">${label}</button>`
 }
 
-function paintDl() {
-    if (!current || !currentRouteIs(current.key)) return
+function paintDl(key, id) {
+    if (!current || (key && key !== current.key) || !currentRouteIs(current.key)) return
     const list = $('#mchapter-list')
     if (!list) return
-    list.querySelectorAll('.chdl').forEach(button => {
+    const buttons = key && id != null
+        ? [list.querySelector(`.chdl[data-dl="${CSS.escape(String(id))}"]`)]
+        : list.querySelectorAll('.chdl')
+    for (const button of buttons) {
+        if (!button) continue
         const { state, label, hint } = dlState(current.key, button.dataset.dl)
         const cls = `chdl${state ? ` ${state}` : ''}`
         if (button.className !== cls) button.className = cls
         if (button.textContent !== label) button.textContent = label
         if (button.title !== hint) button.title = hint
         if (button.getAttribute('aria-label') !== hint) button.setAttribute('aria-label', hint)
-    })
+    }
 }
 
 const chapterLabel = chapter => chapter.number == null ? (chapter.title || 'Special') : `Ch. ${chapter.number}`
@@ -220,7 +224,10 @@ function wire() {
                 return
             }
             if (mangaDlEntry(current.key, id)) {
-                if (confirm(`Delete the downloaded copy of this chapter?`)) deleteMangaDownload(current.key, id).then(paintDl).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
+                if (confirm(`Delete the downloaded copy of this chapter?`)) {
+                    const key = current.key
+                    deleteMangaDownload(key, id).then(() => paintDl(key, id)).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
+                }
                 return
             }
             dlFailed.delete(id)
@@ -228,7 +235,7 @@ function wire() {
             downloadMangaChapter(key, id).catch(error => {
                 if (current?.key !== key) return
                 dlFailed.set(id, error?.message || 'Download failed')
-                paintDl()
+                paintDl(key, id)
             })
             return
         }
@@ -268,10 +275,19 @@ function wire() {
         if (scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight - REVEAL_RADIUS) revealMore()
     }, { passive: true, capture: true })
     // Download notifications update button state without rebuilding chapter rows.
-    let dlPaintT = 0
-    onMangaDl(() => {
-        if (!current || dlPaintT) return
-        dlPaintT = setTimeout(() => { dlPaintT = 0; paintDl() }, 250)
+    let dlPaintT = 0, pendingKey = null
+    const pendingIds = new Set()
+    onMangaDl((key, id) => {
+        if (!current || current.key !== key || !currentRouteIs(key)) return
+        if (pendingKey !== key) { pendingKey = key; pendingIds.clear() }
+        pendingIds.add(id)
+        if (dlPaintT) return
+        dlPaintT = setTimeout(() => {
+            dlPaintT = 0
+            const key = pendingKey, ids = [...pendingIds]
+            pendingIds.clear()
+            for (const id of ids) paintDl(key, id)
+        }, 250)
     })
 }
 

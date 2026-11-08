@@ -5,7 +5,7 @@ import { dlEntry, dlExists, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, 
 // in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
 const active = new Map()
 const listeners = new Set()
-const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
+const notify = (key, id) => listeners.forEach(fn => { try { fn(key, id) } catch {} })
 const PAGE_WORKERS = 4
 export const onMangaDl = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export const mangaDlActive = (key, id) => active.get(`${key}:${id}`) || null
@@ -21,7 +21,7 @@ export async function downloadMangaChapter(key, id) {
     const finished = new Promise(resolve => { finish = resolve })
     const progress = { done: 0, total: 0, ctrl, finished }
     active.set(tag, progress)
-    notify()
+    notify(key, id)
     // A missing page leaves other files behind. Keep on-disk backups during a
     // retry: OPFS File snapshots can become unreadable after their path changes.
     const originals = new Map()
@@ -63,7 +63,7 @@ export async function downloadMangaChapter(key, id) {
                     if (ctrl.signal.aborted) throw new Error('download cancelled')
                     size += blob.size
                     progress.done++
-                    notify()
+                    notify(key, id)
                 } catch (error) {
                     if (!failure) { failure = error; ctrl.abort() }
                     return
@@ -106,7 +106,7 @@ export async function downloadMangaChapter(key, id) {
     } finally {
         active.delete(tag)
         finish()
-        notify()
+        notify(key, id)
     }
 }
 
@@ -166,7 +166,7 @@ export async function loadDownloadedMangaChapter(key, id, { signal } = {}) {
                 && current?.size === entry.size && !mangaDlActive(key, id)) {
                 // Retain surviving pages until a new download replaces them.
                 await dlUnregister('manga', key, id)
-                notify()
+                notify(key, id)
             }
         }
         return null

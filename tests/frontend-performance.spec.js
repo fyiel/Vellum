@@ -176,6 +176,62 @@ test('novel download updates only inspect the affected button in a large catalog
     expect(result.labelChecks).toBeLessThan(20)
 })
 
+test('manga download progress only inspects its chapter button in a large catalog', async ({ page }) => {
+    const key = 'mf:download-buttons-perf'
+    const id = 'chapter-1'
+    const chapters = Array.from({ length: 1200 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1 }))
+    await page.route('**/read/api/manga/series/**', route => reply(route, { key, kind: 'manga', format: 'manga', title: 'Large manga' }))
+    await page.route('**/read/api/manga/chapters?**', route => reply(route, { key, chapters }))
+    await page.route('**/read/api/manga/chapter?**', route => {
+        const chapterId = new URL(route.request().url()).searchParams.get('id')
+        return reply(route, {
+            key, chapter: chapters.find(chapter => chapter.id === chapterId),
+            pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${chapterId}&page=0` }],
+        })
+    })
+    await page.route('**/read/api/manga/image?**', route => route.fulfill({ contentType: 'image/png', body: 'page bytes' }))
+    await page.goto(`${app}#/manga/series/${encodeURIComponent(key)}`)
+    await expect(page.locator('#mchapter-list .chdl')).toHaveCount(250)
+    await page.locator('#mchapter-more').click()
+    await page.locator('#mchapter-more').click()
+    await expect(page.locator('#mchapter-list .chdl')).toHaveCount(750)
+
+    const result = await page.evaluate(async ({ key, id }) => {
+        const list = document.querySelector('#mchapter-list')
+        let labelChecks = 0
+        let mutations = 0
+        let firstChecks = 0
+        const observer = new MutationObserver(records => { mutations += records.length })
+        observer.observe(list, { attributes: true, characterData: true, childList: true, subtree: true })
+        const original = Element.prototype.getAttribute
+        Element.prototype.getAttribute = function (name) {
+            if (name === 'aria-label' && this.classList.contains('chdl')) labelChecks++
+            return original.call(this, name)
+        }
+        try {
+            const { downloadMangaChapter } = await import('/src/lib/dl-manga.js')
+            await downloadMangaChapter(key, id)
+            await new Promise(resolve => setTimeout(resolve, 350)) // let the progress paint flush
+            firstChecks = labelChecks
+            await Promise.all(['chapter-2', 'chapter-3'].map(chapterId => downloadMangaChapter(key, chapterId)))
+            await new Promise(resolve => setTimeout(resolve, 350))
+        } finally {
+            Element.prototype.getAttribute = original
+        }
+        mutations += observer.takeRecords().length
+        observer.disconnect()
+        const changed = list.querySelector(`[data-dl="${id}"]`)
+        const parallelLabels = ['chapter-2', 'chapter-3'].map(chapterId => list.querySelector(`[data-dl="${chapterId}"]`)?.textContent)
+        const untouched = list.querySelector('[data-dl="chapter-4"]')
+        return { firstChecks, labelChecks, mutations, changedLabel: changed?.textContent, parallelLabels, untouchedLabel: untouched?.textContent }
+    }, { key, id })
+    console.log(`Manga 750 rows, one download: ${result.firstChecks} button checks; three total: ${result.labelChecks} checks, ${result.mutations} DOM mutations`)
+    expect(result).toMatchObject({ changedLabel: '✓', parallelLabels: ['✓', '✓'], untouchedLabel: '↓' })
+    expect(result.firstChecks).toBeLessThan(20)
+    expect(result.labelChecks).toBeLessThan(20)
+    expect(result.mutations).toBeLessThan(30)
+})
+
 test('refining a novel chapter search avoids repeated DOM ancestor lookups', async ({ page }) => {
     const slug = 'chapter-filter-perf'
     const count = 3000
