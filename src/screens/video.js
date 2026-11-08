@@ -62,6 +62,10 @@ function paint() {
     const status = notice ? `<div class="watch-notice" role="status">${esc(notice)}</div>` : ''
     $('#vlist').innerHTML = rows.length ? status + rows.map(card).join('')
         : `<div class="watch-empty">${query ? `No matches for “${esc(query)}”` : `No ${kind === 'all' ? 'anime or drama' : kindName(kind)} available right now`}</div>`
+    paintPagination()
+}
+
+function paintPagination() {
     $('#vlist').setAttribute('aria-busy', String(loading))
     $('#vstatus').textContent = rows.length ? `Loaded ${rows.length}${hasMore ? ' so far' : ''}` : ''
     const more = $('#vmore')
@@ -153,7 +157,7 @@ async function more() {
     const mine = gen
     loading = true
     moreFailed = false
-    paint()
+    paintPagination()
     try { await fetchPage(page + 1, false, mine) }
     catch { if (mine === gen) moreFailed = true }
     finally { if (mine === gen) { loading = false; paint() } }

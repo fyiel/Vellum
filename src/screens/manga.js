@@ -53,6 +53,10 @@ function paint() {
     $('#mlist').innerHTML = rows.length
         ? status + rows.map(card).join('')
         : `<div class="manga-empty">${status || (query ? `No matches for “${esc(query)}”` : 'No manga available right now')}</div>`
+    paintPagination()
+}
+
+function paintPagination() {
     $('#mlist').setAttribute('aria-busy', String(loading))
     const more = $('#mmore')
     more.hidden = !hasMore
@@ -128,7 +132,7 @@ async function more() {
     const mine = gen
     loading = true
     pageError = false
-    paint()
+    paintPagination()
     try {
         await fetchPage(page + 1, false, mine, ctrl.signal)
     } catch (error) {
