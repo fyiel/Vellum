@@ -10,14 +10,26 @@ const NS = 'vellum'
 // covers are small; this bounds the cache at a few tens of MB even at the high end
 const MAX = 240
 
+let snapshotRaw
+let snapshot = {}
 const load = () => {
-    try {
-        const value = JSON.parse(localStorage.getItem(`${NS}:covers`))
-        return value && typeof value === 'object' ? value : {}
-    } catch { return {} }
+    let raw
+    try { raw = localStorage.getItem(`${NS}:covers`) } catch { raw = null }
+    if (raw === snapshotRaw) return snapshot
+    let value
+    try { value = JSON.parse(raw) } catch {}
+    snapshotRaw = raw
+    snapshot = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+    return snapshot
 }
 const save = map => {
-    try { localStorage.setItem(`${NS}:covers`, JSON.stringify(map)); return true }
+    try {
+        const raw = JSON.stringify(map)
+        localStorage.setItem(`${NS}:covers`, raw)
+        snapshotRaw = raw
+        snapshot = map
+        return true
+    }
     catch { return false }
 }
 
@@ -67,6 +79,7 @@ const sourcesFor = (url, title) => {
 // downloaded series at once on boot, so the work is queued instead of fired together
 const queue = []
 const LIMIT = 2
+const FETCH_TIMEOUT_MS = 15_000
 let active = 0
 const pump = () => {
     while (active < LIMIT && queue.length) {
@@ -83,25 +96,43 @@ export function storeCover(url, title) {
     queue.push(() => keep(url, title))
     pump()
 }
+
+async function fetchCover(source) {
+    const ctrl = new AbortController()
+    let timer
+    try {
+        // Bound both the response and its body, even if a native transport ignores abort.
+        return await Promise.race([
+            (async () => {
+                const response = await rawFetch(source, { signal: ctrl.signal })
+                if (!response?.ok) return null
+                const blob = await response.blob()
+                if (!blob?.size) return null
+                const type = blob.type || response.headers.get('content-type') || ''
+                return type && !type.toLowerCase().startsWith('image/') ? null : { blob, type }
+            })().catch(() => null),
+            new Promise(resolve => {
+                timer = setTimeout(() => { ctrl.abort(); resolve(null) }, FETCH_TIMEOUT_MS)
+            }),
+        ])
+    } finally { clearTimeout(timer) }
+}
+
 async function keep(url, title) {
     try {
         let blob, type
         for (const source of sourcesFor(url, title)) {
-            const response = await rawFetch(source).catch(() => null)
-            if (!response?.ok) continue
-            const value = await response.blob().catch(() => null)
-            if (!value?.size) continue
-            const contentType = value.type || response.headers.get('content-type') || ''
-            // Never keep an error page or a redirect body as if it were art.
-            if (contentType && !contentType.toLowerCase().startsWith('image/')) continue
-            blob = value
-            type = contentType
+            const image = await fetchCover(source)
+            if (!image) continue
+            blob = image.blob
+            type = image.type
             break
         }
         if (!blob) return null
         const path = dlPath.cover(`${hash(url)}.${storedExt(type, url)}`)
         await dlWrite(path, blob)
-        const next = load()
+        // The cached registry must stay untouched if the storage write fails.
+        const next = { ...load() }
         next[url] = path
         const keys = Object.keys(next)
         const evicted = []
