@@ -8,6 +8,43 @@ const chapters = [1, 2, 3, 4, 5].map(n => ({ n, t: `Chapter ${n}` }))
 const body = (n, count = 42) =>
     Array.from({ length: count }, (_, i) => `<p>c${n}p${i} ${'lorem ipsum dolor sit amet consectetur '.repeat(3)}</p>`).join('')
 
+test('saves the previous chapter position before a rapid chapter switch that fails', async ({ page }) => {
+    const slug = 'switch-after-scroll'
+    await page.route(`**/read/api/chapters?slug=${slug}`, route => route.fulfill({
+        json: { chapters: [{ n: 1, t: 'One' }, { n: 2, t: 'Two' }] },
+    }))
+    await page.route(`**/read/api/chapter?slug=${slug}&n=*`, route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return n === 2 ? route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } })
+            : route.fulfill({ json: { title: 'One', html: body(1, 160) } })
+    })
+    await page.route('**/read/api/series/**', route => route.fulfill({
+        json: { key: `nf:${slug}`, nfSlug: slug, title: 'Switch test' },
+    }))
+
+    await page.goto(`${app}#/read/${slug}/1`)
+    await expect(page.locator('#reader .ch-block')).toHaveCount(1)
+    const prior = await page.evaluate(slug => {
+        const block = document.querySelector('#reader .ch-block')
+        window.scrollTo(0, block.offsetTop + block.offsetHeight * 0.6 - window.innerHeight)
+        location.hash = `#/read/${slug}/2`
+        return window.scrollY
+    }, slug)
+    expect(prior).toBeGreaterThan(300)
+    await expect(page.locator('#rfoot-retry')).toBeVisible()
+
+    const saved = await page.evaluate(slug => JSON.parse(localStorage.getItem(`vellum:pos:${slug}`)), slug)
+    expect(saved?.n).toBe(1)
+    expect(saved?.p).toBeGreaterThan(0.5)
+    expect(saved?.p).toBeLessThan(0.7)
+    const read = await page.evaluate(slug => JSON.parse(localStorage.getItem(`vellum:read:${slug}`)), slug)
+    expect(read).not.toContain(2)
+
+    await page.evaluate(slug => { location.hash = `#/read/${slug}/1` }, slug)
+    await expect(page.locator('#reader .ch-block')).toHaveCount(1)
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300)
+})
+
 test('restores the saved reading position after retrying an initial chapter failure', async ({ page }) => {
     const slug = 'resume-after-failure'
     let requests = 0

@@ -131,6 +131,9 @@ prose.addEventListener(
 window.addEventListener("resize", rebuildOffsets);
 
 export async function showReader(slug, n) {
+  // A chapter link can replace the current block before the scroll idle handler
+  // runs. Persist the position while the old chapter's geometry still exists.
+  if (state.view === "reader") posSave();
   rd.ctrl?.abort();
   const ctrl = new AbortController();
   rd.ctrl = ctrl;
@@ -544,8 +547,10 @@ window.addEventListener('storage', event => {
 
 const topChapterIdx = () => {
   const y = scrollY() + 90;
-  let idx = rd.first;
-  for (const b of prose.querySelectorAll(".ch-block")) {
+  const blocks = prose.querySelectorAll(".ch-block");
+  if (!blocks.length) return -1;
+  let idx = Number(blocks[0].dataset.idx);
+  for (const b of blocks) {
     if (offOf(Number(b.dataset.idx), b).top <= y) idx = Number(b.dataset.idx);
     else break;
   }
