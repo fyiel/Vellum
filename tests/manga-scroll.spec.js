@@ -111,6 +111,52 @@ test('endlessly scrolls the manga shelf with no load-more button', async ({ page
   await expect(page.locator('#mmore')).toBeHidden()
 })
 
+test('trims old manga shelf cards without replacing the visible cards or moving the scroll anchor', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  const perPage = 48
+  await page.route('**/read/api/manga/discover?**', route => {
+    const n = Number(new URL(route.request().url()).searchParams.get('page'))
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      page: n, results: pageRows(n, perPage), hasMore: n < 4,
+    }) })
+  })
+
+  await page.goto(`${app}#/manga`)
+  const cards = page.locator('#mlist .manga-card')
+  await expect(cards).toHaveCount(perPage)
+  for (const n of [2, 3]) {
+    await page.locator('#mmore').dispatchEvent('click')
+    await expect(cards).toHaveCount(n * perPage)
+  }
+
+  await cards.nth(100).focus()
+  const before = await page.evaluate(() => {
+    const list = document.querySelector('#mlist')
+    const pinned = list.querySelectorAll('.manga-card')[100]
+    let removed = 0
+    new MutationObserver(records => {
+      for (const record of records) removed += [...record.removedNodes].filter(node => node.matches?.('.manga-card')).length
+    }).observe(list, { childList: true })
+    window.prunedShelf = { pinned, removed: () => removed }
+    return pinned.getBoundingClientRect().top
+  })
+
+  await page.locator('#mmore').dispatchEvent('click')
+  await expect(cards).toHaveCount(4 * perPage - 60)
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  const after = await page.evaluate(() => ({
+    keptPinned: window.prunedShelf.pinned === document.querySelectorAll('#mlist .manga-card')[40],
+    retainedFocus: document.activeElement === window.prunedShelf.pinned,
+    removedCards: window.prunedShelf.removed(),
+    top: window.prunedShelf.pinned.getBoundingClientRect().top,
+  }))
+  expect(after.keptPinned).toBe(true)
+  expect(after.retainedFocus).toBe(true)
+  expect(after.removedCards).toBe(60)
+  expect(Math.abs(after.top - before)).toBeLessThanOrEqual(3)
+  await expect(cards.first()).toHaveAttribute('data-key', 'mf:scroll-2-13')
+})
+
 test('keeps the same page in view when old chapters are trimmed', async ({ page }) => {
   const key = 'mf:trimmer'
   const chapters = [1, 2, 3].map(number => ({ id: `chapter-${number}`, number, title: `Chapter ${number}`, language: 'en' }))

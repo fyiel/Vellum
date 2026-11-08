@@ -171,18 +171,15 @@ function pruneGrid() {
     // prunes in 60 card chunks, no virtualization library, the pinned card
     // keeps its screen position after the oldest cards drop (reader.js loadPrev pattern)
     const scroller = $('#mscroll')
-    const pinned = $$('#mlist .manga-card').find(el => {
+    const cards = $$('#mlist .manga-card')
+    const pinned = cards.find(el => {
         const rect = el.getBoundingClientRect()
         return rect.bottom > 0 && rect.top < innerHeight
     })
-    const key = pinned?.dataset.key
-    const before = pinned?.offsetTop ?? null
+    const before = pinned?.getBoundingClientRect().top
     rows = rows.slice(PRUNE_DROP)
-    paint()
-    if (key) {
-        const el = $$('#mlist .manga-card').find(card => card.dataset.key === key)
-        if (el) scroller.scrollTop += el.offsetTop - (before ?? el.offsetTop)
-    }
+    for (const card of cards.slice(0, PRUNE_DROP)) card.remove()
+    if (pinned?.isConnected) scroller.scrollTop += pinned.getBoundingClientRect().top - before
 }
 
 function wire() {
