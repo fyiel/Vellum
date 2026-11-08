@@ -301,7 +301,7 @@ function wire() {
             const n = Number(dl.dataset.dl)
             if (novelDlActive(cur.slug, n)) return cancelNovelDownload(cur.slug, n)
             if (novelDlEntry(cur.slug, n)) {
-                if (confirm('Delete the downloaded copy of this chapter?')) deleteNovelDownload(cur.slug, n).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
+                if (confirm('Delete the downloaded copy of this chapter?')) deleteNovelDownload(cur.slug, n).then(paintDl).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
                 return
             }
             dlFailed.delete(n)

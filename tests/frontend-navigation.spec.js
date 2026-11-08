@@ -370,6 +370,24 @@ test('chapter filtering hides the download action with its novel row', async ({ 
     await expect(page.locator('#chlist .chdl:visible')).toHaveAttribute('data-dl', '2')
 })
 
+test('deleting a downloaded novel chapter restores its download button without navigation', async ({ page }) => {
+    const errors = await fixtures(page)
+    await page.evaluate(async () => {
+        const { dlRegister } = await import('/src/lib/downloads.js')
+        dlRegister({ kind: 'novel', key: 'fixture', id: '1', title: 'Novel fixture', size: 100 })
+        window.confirm = () => true
+    })
+    await navigate(page, '#/series/nf%3Afixture')
+    const button = page.locator('#chlist .chdl').last()
+    await expect(button).toHaveAttribute('data-dl', '1')
+    await expect(button).toHaveClass(/done/)
+    await button.click()
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('vellum:dl') || '[]').length)).toBe(0)
+    await expect(button).toHaveText('↓')
+    await expect(button).toHaveAttribute('aria-label', 'Download for offline reading')
+    expect(errors).toEqual([])
+})
+
 test('manga progress stays reset after filtering and a new download', async ({ page }) => {
     const errors = await fixtures(page)
     await page.evaluate(() => {
