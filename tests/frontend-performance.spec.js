@@ -133,6 +133,121 @@ test('novel progress only checks newly crossed chapters in a large catalog', asy
     } finally { await otherTab.close() }
 })
 
+test('extending a novel reader chapter drawer retains links and the current scroll position', async ({ page }) => {
+    const slug = 'drawer-reveal-perf'
+    const count = 2200
+    const chapters = Array.from({ length: count }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    await page.route('**/read/api/series/**', route => reply(route, {
+        key: `nf:${slug}`, nfSlug: slug, title: 'Large novel',
+    }))
+    await page.route(`**/read/api/chapters?slug=${slug}`, route => reply(route, { chapters }))
+    await page.route(`**/read/api/chapter?slug=${slug}&n=*`, route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return reply(route, { n, title: `Chapter ${n}`, html: `<p>Chapter ${n} text</p>` })
+    })
+    await page.goto(`${app}#/read/${slug}/1000`)
+    await expect(page.locator('#r-title')).toContainText('Chapter 1000')
+    await page.locator('#r-list').click()
+    await expect(page.locator('#drawer-list .chap')).toHaveCount(100)
+
+    const result = await page.evaluate(() => {
+        const list = document.querySelector('#drawer-list')
+        const first = list.querySelector('.chap')
+        let added = 0, removed = 0
+        const count = records => {
+            for (const record of records) {
+                for (const node of record.addedNodes) if (node.matches?.('.chap')) added++
+                for (const node of record.removedNodes) if (node.matches?.('.chap')) removed++
+            }
+        }
+        const observer = new MutationObserver(count)
+        observer.observe(list, { childList: true })
+        const start = performance.now()
+        const later = list.querySelector('#dw-later')
+        later.focus({ preventScroll: true })
+        later.click()
+        list.querySelector('#dw-later').click()
+        const focusLater = document.activeElement === later
+        const beforeAnchor = first.getBoundingClientRect().top
+        const earlier = list.querySelector('#dw-earlier')
+        earlier.focus({ preventScroll: true })
+        earlier.click()
+        const anchorShift = Math.abs(first.getBoundingClientRect().top - beforeAnchor)
+        const focusEarlier = document.activeElement === earlier
+        const elapsedMs = performance.now() - start
+        count(observer.takeRecords())
+        observer.disconnect()
+        return {
+            added, removed, elapsedMs,
+            after: list.querySelectorAll('.chap').length,
+            firstPreserved: first.isConnected && list.querySelectorAll('.chap')[150] === first,
+            anchorShift, focusLater, focusEarlier,
+            earlier: list.querySelector('#dw-earlier')?.textContent,
+            later: list.querySelector('#dw-later')?.textContent,
+        }
+    })
+    console.log(`Novel reader drawer reveal to ${result.after} links: ${result.elapsedMs.toFixed(1)}ms, ${result.added} links added, ${result.removed} removed, anchor shift ${result.anchorShift.toFixed(1)}px`)
+    expect(result).toMatchObject({
+        after: 550, added: 450, removed: 0, firstPreserved: true,
+        focusLater: true, focusEarlier: true, earlier: '824 earlier…', later: '826 later…',
+    })
+    expect(result.anchorShift).toBeLessThan(2)
+
+    await page.locator('#dw-q').fill('2166')
+    await expect(page.locator('#drawer-list .chap')).toHaveCount(1)
+    await expect(page.locator('#drawer-list .chap')).toContainText('Chapter 2166')
+    await page.locator('#dw-q').fill('')
+    await expect(page.locator('#drawer-list .chap')).toHaveCount(550)
+    await page.locator('#dw-q').fill('2166')
+    await page.locator('#drawer-list .chap').click()
+    await expect(page.locator('#r-title')).toContainText('Chapter 2166')
+})
+
+test('novel reader chapter drawer keeps keyboard focus when its last batch is revealed', async ({ page }) => {
+    const slug = 'drawer-boundaries'
+    const chapters = Array.from({ length: 200 }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    await page.route('**/read/api/series/**', route => reply(route, { key: `nf:${slug}`, nfSlug: slug, title: 'Novel' }))
+    await page.route(`**/read/api/chapters?slug=${slug}`, route => reply(route, { chapters }))
+    await page.route(`**/read/api/chapter?slug=${slug}&n=*`, route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return reply(route, { n, title: `Chapter ${n}`, html: `<p>Chapter ${n} text</p>` })
+    })
+
+    await page.goto(`${app}#/read/${slug}/180`)
+    await expect(page.locator('#r-title')).toContainText('Chapter 180')
+    await page.locator('#r-list').click()
+    const earlier = await page.evaluate(() => {
+        const list = document.querySelector('#drawer-list')
+        const button = list.querySelector('#dw-earlier')
+        button.focus({ preventScroll: true })
+        button.click()
+        button.click()
+        return {
+            focused: document.activeElement?.matches('.chap') ? document.activeElement.querySelector('.n')?.textContent : null,
+            count: list.querySelectorAll('.chap').length,
+            buttonGone: !list.querySelector('#dw-earlier'),
+        }
+    })
+    expect(earlier).toEqual({ focused: '#1', count: 200, buttonGone: true })
+
+    await page.keyboard.press('Escape')
+    await page.evaluate(slug => { location.hash = `#/read/${slug}/1` }, slug)
+    await expect(page.locator('#r-title')).toContainText('Chapter 1')
+    await page.locator('#r-list').click()
+    const later = await page.evaluate(() => {
+        const list = document.querySelector('#drawer-list')
+        const button = list.querySelector('#dw-later')
+        button.focus({ preventScroll: true })
+        button.click()
+        return {
+            focused: document.activeElement?.matches('.chap') ? document.activeElement.querySelector('.n')?.textContent : null,
+            count: list.querySelectorAll('.chap').length,
+            buttonGone: !list.querySelector('#dw-later'),
+        }
+    })
+    expect(later).toEqual({ focused: '#76', count: 200, buttonGone: true })
+})
+
 test('novel download updates only inspect the affected button in a large catalog', async ({ page }) => {
     const slug = 'download-buttons-perf'
     const count = 3000

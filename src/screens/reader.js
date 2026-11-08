@@ -768,28 +768,48 @@ function renderDrawer() {
   const row = ({
     c,
     i,
-  }) => `<a class="chap${set.has(c.n) ? " read" : ""}${i === rd.cur ? " current" : ""}" href="#/read/${hashSlug(rd.slug)}/${esc(c.n)}">
+  }, read = set) => `<a class="chap${read.has(c.n) ? " read" : ""}${i === rd.cur ? " current" : ""}" href="#/read/${hashSlug(rd.slug)}/${esc(c.n)}">
       <span class="n">#${esc(c.d ?? c.n)}</span><span class="t">${esc(c.t)}</span><span class="dot"></span></a>`;
+  const extraRows = (from, to) => {
+    const read = readSet(rd.slug);
+    return state.chapters.slice(from, to).map((c, index) => row({ c, i: from + index }, read)).join("");
+  };
   listEl.innerHTML =
     (!dw.q && dw.lo > 0
       ? `<button class="drawer-more" id="dw-earlier">${dw.lo} earlier…</button>`
       : "") +
     (rows.length
-      ? rows.map(row).join("")
+      ? rows.map(item => row(item)).join("")
       : `<div class="empty">(´д｀)\n\nno matching chapters</div>`) +
     (!dw.q && dw.hi < total
       ? `<button class="drawer-more" id="dw-later">${total - dw.hi} later…</button>`
       : "");
 
-  $("#dw-earlier")?.addEventListener("click", () => {
-    const h = listEl.scrollHeight;
+  $("#dw-earlier")?.addEventListener("click", (event) => {
+    const first = listEl.querySelector(".chap");
+    const top = first?.getBoundingClientRect().top;
+    const previous = dw.lo;
     dw.lo = Math.max(0, dw.lo - 150);
-    renderDrawer();
-    listEl.scrollTop += listEl.scrollHeight - h;
+    const button = event.currentTarget;
+    button.insertAdjacentHTML("afterend", extraRows(dw.lo, previous));
+    if (dw.lo) button.textContent = `${dw.lo} earlier…`;
+    else {
+      if (document.activeElement === button) button.nextElementSibling?.focus({ preventScroll: true });
+      button.remove();
+    }
+    if (first) listEl.scrollTop += first.getBoundingClientRect().top - top;
   });
-  $("#dw-later")?.addEventListener("click", () => {
+  $("#dw-later")?.addEventListener("click", (event) => {
+    const previous = dw.hi;
     dw.hi = Math.min(total, dw.hi + 150);
-    renderDrawer();
+    const button = event.currentTarget;
+    const last = button.previousElementSibling;
+    button.insertAdjacentHTML("beforebegin", extraRows(previous, dw.hi));
+    if (dw.hi < total) button.textContent = `${total - dw.hi} later…`;
+    else {
+      if (document.activeElement === button) last?.nextElementSibling?.focus({ preventScroll: true });
+      button.remove();
+    }
   });
 }
 
