@@ -92,6 +92,35 @@ test('a failed video writer releases its job and permits retry', async ({ page }
     expect(result).toEqual({ error: 'Disk full', activeAfterFailure: false, activeAfterRetry: false, saved: true })
 })
 
+for (const playlist of ['master', 'variant']) {
+    test(`video downloads report an HTTP failure from the ${playlist} HLS playlist`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async playlist => {
+            const { setTransport } = await import('/src/lib/http.js')
+            const dl = await import('/src/lib/dl-video.js')
+            const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+            const key = `mock:hls-${playlist}`, id = '1'
+            setTransport(async url => {
+                const path = String(url)
+                if (path.includes('/playback?')) return Response.json({
+                    key, episodeId: id, providerLabel: 'Test',
+                    sources: [{ kind: 'direct', url: '/master.m3u8', type: 'application/x-mpegURL' }],
+                })
+                if (path.endsWith('/master.m3u8')) {
+                    return playlist === 'master' ? new Response('Forbidden', { status: 403 })
+                        : new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nvariant.m3u8\n')
+                }
+                if (path.endsWith('/variant.m3u8')) return new Response('Not found', { status: 404 })
+                throw new Error(`unexpected request ${path}`)
+            })
+            let error
+            try { await dl.downloadVideoEpisode(key, id) } catch (e) { error = e.message }
+            return { error, saved: !!dl.videoDlEntry(key, id), bytes: !!await dlRead(dlPath.video(key, id)), active: !!dl.videoDlActive(key, id) }
+        }, playlist)
+        expect(result).toEqual({ error: playlist === 'master' ? 'http 403' : 'http 404', saved: false, bytes: false, active: false })
+    })
+}
+
 test('downloaded WebM episodes retain their format and play from offline storage', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async bytes => {

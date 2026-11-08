@@ -78,7 +78,11 @@ async function aesKey(uri, playlistUrl, signal, cache) {
 }
 
 async function downloadHls(url, writer, progress, signal) {
-    const playlistText = async playlistUrl => (await rawFetch(playlistUrl, { signal: withTimeout(signal) })).text()
+    const playlistText = async playlistUrl => {
+        const response = await rawFetch(playlistUrl, { signal: withTimeout(signal) })
+        if (!response.ok) throw new Error(`http ${response.status}`)
+        return response.text()
+    }
     let playlistUrl = url
     let text = await playlistText(playlistUrl)
     if (isMaster(text)) {
