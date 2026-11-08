@@ -6,6 +6,7 @@ import { dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } 
 const active = new Map()
 const listeners = new Set()
 const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
+const PAGE_WORKERS = 4
 export const onMangaDl = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export const mangaDlActive = (key, id) => active.get(`${key}:${id}`) || null
 export const mangaDlEntry = (key, id) => dlEntry('manga', key, id)
@@ -30,20 +31,32 @@ export async function downloadMangaChapter(key, id) {
         const chapter = content.chapter
         progress.total = content.pages.length
         let size = 0
-        for (let index = 0; index < content.pages.length; index++) {
-            if (ctrl.signal.aborted) throw new Error('download cancelled')
-            const requestSignal = AbortSignal.any([ctrl.signal, AbortSignal.timeout(60_000)])
-            const response = await raceAbort(rawFetch(mangaPageUrl(content.pages[index]), { signal: requestSignal }), requestSignal)
-            if (!response.ok) throw new Error(`page ${index + 1} failed (http ${response.status})`)
-            const blob = await raceAbort(response.blob(), requestSignal)
-            if (!blob.size) throw new Error(`page ${index + 1} failed (empty)`)
-            if (ctrl.signal.aborted) throw new Error('download cancelled')
-            await dlWrite(dlPath.mangaPage(key, id, index), blob)
-            size += blob.size
-            progress.done = index + 1
-            notify()
+        let next = 0
+        let failure = null
+        const worker = async () => {
+            while (next < content.pages.length && !ctrl.signal.aborted) {
+                const index = next++
+                try {
+                    const requestSignal = AbortSignal.any([ctrl.signal, AbortSignal.timeout(60_000)])
+                    const response = await raceAbort(rawFetch(mangaPageUrl(content.pages[index]), { signal: requestSignal }), requestSignal)
+                    if (!response.ok) throw new Error(`page ${index + 1} failed (http ${response.status})`)
+                    const blob = await raceAbort(response.blob(), requestSignal)
+                    if (!blob.size) throw new Error(`page ${index + 1} failed (empty)`)
+                    if (ctrl.signal.aborted) throw new Error('download cancelled')
+                    await dlWrite(dlPath.mangaPage(key, id, index), blob)
+                    if (ctrl.signal.aborted) throw new Error('download cancelled')
+                    size += blob.size
+                    progress.done++
+                    notify()
+                } catch (error) {
+                    if (!failure) { failure = error; ctrl.abort() }
+                    return
+                }
+            }
         }
-        // A cancellation during the final disk write must not publish a copy.
+        // Wait for every in-flight write before deleting partial files on failure.
+        await Promise.all(Array.from({ length: Math.min(PAGE_WORKERS, content.pages.length) }, worker))
+        if (failure) throw failure
         if (ctrl.signal.aborted) throw new Error('download cancelled')
         dlRegister({
             kind: 'manga', key, id,
