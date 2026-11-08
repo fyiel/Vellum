@@ -35,7 +35,9 @@ export const touchLibrary = entry => {
     // empty fields mean unknown, never let them erase stored values
     const known = Object.fromEntries(Object.entries(entry).filter(([, v]) => v != null && v !== ''))
     rest.unshift({ ...old, ...known, updatedAt: Date.now() })
-    lsSet(`${NS}:lib`, rest.slice(0, 60))
+    // The Library represents every followed title. Dropping older entries here
+    // silently unfollows them when a reader or player adds another title.
+    lsSet(`${NS}:lib`, rest)
     if (entry.kind === 'manga' && Array.isArray(entry.chapterIds)) {
         const ledger = loadUpdLedger()
         if (!ledger[entry.slug]) {

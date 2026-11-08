@@ -165,7 +165,7 @@ async function checkUpdates(signal) {
         $('#count-updates').textContent = unread ? String(unread) : ''
 
         // The check only changes alert cells. Rebuilding the whole library
-        // discards focused links and replaces up to 60 otherwise identical rows.
+        // discards focused links and replaces otherwise identical rows.
         if (previous.size === newCounts.size && [...previous].every(([slug, count]) => newCounts.get(slug) === count)) return
         const entries = new Map(library().map(entry => [entry.slug, entry]))
         for (const rowEl of $('#libtable').querySelectorAll('.trow')) {

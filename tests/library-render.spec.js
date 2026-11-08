@@ -71,3 +71,22 @@ for (const hasUpdate of [false, true]) {
         expect(await page.evaluate(() => window.libraryCheck.requests())).toBe(60)
     })
 }
+
+test('following a 61st title does not silently discard an older library entry', async ({ page }) => {
+    await page.route('**/read/api/chapters**', route => route.fulfill({ json: { chapters: [{ n: 1 }] } }))
+    await page.goto(app)
+    await page.evaluate(async () => {
+        const { touchLibrary } = await import('/src/lib/store.js')
+        for (let i = 0; i < 61; i++) {
+            touchLibrary({ slug: `nf:shelf-${i}`, kind: 'novel', title: `Shelf title ${i}`, total: 1 })
+        }
+        // Updating an existing title should not evict another followed series, either.
+        touchLibrary({ slug: 'nf:shelf-40', lastN: 1, readCount: 1 })
+    })
+    await page.reload()
+    await expect(page.locator('#libtable .trow')).toHaveCount(61)
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:lib')))
+    expect(saved).toHaveLength(61)
+    expect(saved.find(entry => entry.slug === 'nf:shelf-0')).toMatchObject({ title: 'Shelf title 0', total: 1 })
+    expect(saved.find(entry => entry.slug === 'nf:shelf-40')).toMatchObject({ lastN: 1, readCount: 1 })
+})
