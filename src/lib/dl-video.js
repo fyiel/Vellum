@@ -3,7 +3,7 @@ import { rawFetch } from './http.js'
 import { dlEntry, dlPath, dlRead, dlRegister, dlUnregister, dlWriter } from './downloads.js'
 import { isMaster, looksFragmentedMp4, parseMaster, parseMedia, pickVariant, resolveUri, segmentIv } from './hls-dl.js'
 
-// in-flight downloads: `${key}:${id}` -> { done, total, ctrl }
+// in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
 const active = new Map()
 const listeners = new Set()
 const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
@@ -159,7 +159,9 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
     const tag = `${key}:${id}`
     if (active.has(tag) || dlEntry('video', key, id)) return
     const ctrl = new AbortController()
-    const progress = { done: 0, total: 0, bytes: 0, ctrl }
+    let finish
+    const finished = new Promise(resolve => { finish = resolve })
+    const progress = { done: 0, total: 0, bytes: 0, ctrl, finished }
     active.set(tag, progress)
     notify()
     let writer
@@ -182,6 +184,7 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
         throw error
     } finally {
         active.delete(tag)
+        finish()
         notify()
     }
 }
@@ -191,7 +194,9 @@ export function cancelVideoDownload(key, id) {
 }
 
 export async function deleteVideoDownload(key, id) {
+    const pending = videoDlActive(key, id)?.finished
     cancelVideoDownload(key, id)
+    if (pending) await pending
     await dlUnregister('video', key, id, dlPath.video(key, id))
 }
 

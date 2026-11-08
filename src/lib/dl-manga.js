@@ -2,7 +2,7 @@ import { getMangaChapter, getMangaSeries, mangaPageUrl } from './manga-api.js'
 import { rawFetch } from './http.js'
 import { dlEntry, dlPath, dlRead, dlRegister, dlRemove, dlUnregister, dlWrite } from './downloads.js'
 
-// in-flight downloads: `${key}:${id}` -> { done, total, ctrl }
+// in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
 const active = new Map()
 const listeners = new Set()
 const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
@@ -16,7 +16,9 @@ export async function downloadMangaChapter(key, id) {
     const tag = `${key}:${id}`
     if (active.has(tag) || dlEntry('manga', key, id)) return
     const ctrl = new AbortController()
-    const progress = { done: 0, total: 0, ctrl }
+    let finish
+    const finished = new Promise(resolve => { finish = resolve })
+    const progress = { done: 0, total: 0, ctrl, finished }
     active.set(tag, progress)
     notify()
     try {
@@ -57,6 +59,7 @@ export async function downloadMangaChapter(key, id) {
         throw error
     } finally {
         active.delete(tag)
+        finish()
         notify()
     }
 }
@@ -66,7 +69,9 @@ export function cancelMangaDownload(key, id) {
 }
 
 export async function deleteMangaDownload(key, id) {
+    const pending = mangaDlActive(key, id)?.finished
     cancelMangaDownload(key, id)
+    if (pending) await pending
     await dlUnregister('manga', key, id, dlPath.manga(key, id))
 }
 

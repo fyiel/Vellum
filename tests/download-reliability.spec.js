@@ -68,6 +68,78 @@ test('cancelling a manga download at the final page never registers an incomplet
     expect(result).toEqual({ outcome: 'download cancelled', active: false, saved: false, bytes: false })
 })
 
+test('deleting a manga download waits for an in-flight page write and its cleanup', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const manga = await import('/src/lib/dl-manga.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mf:delete-during-write', id = 'c1'
+        setTransport(async url => {
+            const path = String(url)
+            if (path.includes('/manga/series/')) return Response.json({ key, kind: 'manga', title: 'Fixture', format: 'manga' })
+            if (path.includes('/manga/chapter?')) return Response.json({ key, chapter: { id, number: 1 }, pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=0` }] })
+            if (path.includes('/manga/image?')) return new Response('Pending page', { headers: { 'content-type': 'image/png' } })
+            throw new Error(`unexpected request ${path}`)
+        })
+        const original = FileSystemWritableFileStream.prototype.write
+        let enterWrite, releaseWrite
+        const entered = new Promise(resolve => { enterWrite = resolve })
+        const released = new Promise(resolve => { releaseWrite = resolve })
+        FileSystemWritableFileStream.prototype.write = async function (data) {
+            if (data instanceof Blob && await data.text() === 'Pending page') {
+                enterWrite()
+                await released
+            }
+            return original.call(this, data)
+        }
+        try {
+            const task = manga.downloadMangaChapter(key, id).then(() => 'saved', error => error.message)
+            await entered
+            const deletion = manga.deleteMangaDownload(key, id)
+            const early = await Promise.race([deletion.then(() => 'resolved'), new Promise(resolve => setTimeout(() => resolve('pending'), 50))])
+            releaseWrite()
+            const [outcome] = await Promise.all([task, deletion])
+            return { early, outcome, active: !!manga.mangaDlActive(key, id), saved: !!manga.mangaDlEntry(key, id), bytes: !!await dlRead(dlPath.mangaPage(key, id, 0)) }
+        } finally { releaseWrite(); FileSystemWritableFileStream.prototype.write = original }
+    })
+    expect(result).toEqual({ early: 'pending', outcome: 'download cancelled', active: false, saved: false, bytes: false })
+})
+
+test('deleting a video download waits for an in-flight file write and its cleanup', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { setTransport } = await import('/src/lib/http.js')
+        const video = await import('/src/lib/dl-video.js')
+        const { dlRead, dlPath } = await import('/src/lib/downloads.js')
+        const key = 'mock:delete-during-write', id = '1'
+        setTransport(async url => String(url).includes('/playback?')
+            ? Response.json({ key, episodeId: id, providerLabel: 'Test', sources: [{ kind: 'direct', url: '/test.mp4', type: 'video/mp4' }] })
+            : new Response(new Uint8Array([1, 2, 3, 4])))
+        const original = FileSystemWritableFileStream.prototype.write
+        let enterWrite, releaseWrite
+        const entered = new Promise(resolve => { enterWrite = resolve })
+        const released = new Promise(resolve => { releaseWrite = resolve })
+        FileSystemWritableFileStream.prototype.write = async function (data) {
+            if (data?.type === 'write' && data.data?.byteLength === 4) {
+                enterWrite()
+                await released
+            }
+            return original.call(this, data)
+        }
+        try {
+            const task = video.downloadVideoEpisode(key, id).then(() => 'saved', error => error.message)
+            await entered
+            const deletion = video.deleteVideoDownload(key, id)
+            const early = await Promise.race([deletion.then(() => 'resolved'), new Promise(resolve => setTimeout(() => resolve('pending'), 50))])
+            releaseWrite()
+            const [outcome] = await Promise.all([task, deletion])
+            return { early, outcome, active: !!video.videoDlActive(key, id), saved: !!video.videoDlEntry(key, id), bytes: !!await dlRead(dlPath.video(key, id)) }
+        } finally { releaseWrite(); FileSystemWritableFileStream.prototype.write = original }
+    })
+    expect(result).toEqual({ early: 'pending', outcome: 'download cancelled', active: false, saved: false, bytes: false })
+})
+
 test('a failed video writer releases its job and permits retry', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
