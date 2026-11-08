@@ -140,7 +140,7 @@ export async function showUpdates() {
     wire()
     $('#ufeed').innerHTML = `<div class="void">checking for new chapters and episodes&hellip;</div>`
     try {
-        const result = await buildFeed({ signal: ctrl.signal })
+        const result = await buildFeed({ signal: ctrl.signal, fresh: true })
         if (ctrl.signal.aborted) return
         feed = result.feed
         failed = result.failed

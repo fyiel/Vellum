@@ -28,7 +28,7 @@ async function mapPool(list, n, fn, signal) {
     return out
 }
 
-export async function buildFeed({ signal } = {}) {
+export async function buildFeed({ signal, fresh = false } = {}) {
     const lib = library()
     const now = Date.now()
     const feed = []
@@ -36,8 +36,8 @@ export async function buildFeed({ signal } = {}) {
 
     const entries = await mapPool(lib, 5, async e => {
         try {
-            const data = e.kind === 'manga' ? await getMangaChapters(e.key || e.slug, { signal })
-                : isVideo(e) ? await getVideoSeries(e.key || e.slug, { fresh: true, signal }) : await getChapters(e.slug, { signal })
+            const data = e.kind === 'manga' ? await getMangaChapters(e.key || e.slug, { signal, fresh })
+                : isVideo(e) ? await getVideoSeries(e.key || e.slug, { fresh: true, signal }) : await getChapters(e.slug, { signal, fresh })
             return { e, chapters: isVideo(e) ? data?.episodes : data?.chapters }
         } catch { return { e, chapters: null } }
     }, signal)

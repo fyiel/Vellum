@@ -168,13 +168,13 @@ export const getMangaSeries = (key, { signal } = {}) => {
         { accept, signal })
 }
 
-export const getMangaChapters = (key, { signal } = {}) => {
+export const getMangaChapters = (key, { signal, fresh = false } = {}) => {
     const normalized = canonicalKey(key)
     if (!normalized) return Promise.reject(new Error('invalid manga key'))
     const accept = value => validMangaChapters(value, normalized) && completeResponse(value)
     return cached(`manga:chapters:${normalized}`, 30 * MIN,
         () => requireValue(mangaGet(`/read/api/manga/chapters?key=${enc(normalized)}`, signal), accept, 'chapter list unavailable'),
-        { accept, signal })
+        { accept, signal, fresh })
 }
 
 export const getMangaChapter = (key, chapterId, { signal } = {}) => {

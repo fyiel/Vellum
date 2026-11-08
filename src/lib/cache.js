@@ -155,7 +155,7 @@ function background(key, ttlMs, loader, negTtlMs, accept, onFresh) {
         })
 }
 
-async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore, onFresh, isCancelled) {
+async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, claimStore, onFresh, isCancelled, isCurrent) {
     const now = Date.now()
     const disk = await idbGet(key)
     // Navigation may have cancelled the caller while IndexedDB was opening or reading.
@@ -164,9 +164,16 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, clai
     // never served, so a transient outage cannot stick for the full ttl and no caller
     // caches negatives by default (negTtlMs defaults to 0)
     if (disk && accept(disk.v)) {
-        memPut(key, disk)
+        // Another request may have refreshed this key while the disk read was
+        // pending. Do not replace its newer memory value with the old disk row.
+        const current = mem.get(key)
+        if (current && current.at >= disk.at && current.exp > Date.now() && accept(current.v)) return current.v
+        if (isCurrent()) memPut(key, disk)
         if (disk.exp > now) return disk.v
-        if (swr) { background(key, ttlMs, loader, negTtlMs, accept, onFresh); return disk.v }
+        if (swr) {
+            if (isCurrent()) background(key, ttlMs, loader, negTtlMs, accept, onFresh)
+            return disk.v
+        }
     }
 
     claimStore()
@@ -174,18 +181,18 @@ async function resolve(key, ttlMs, loader, swr, negTtlMs, accept, canStore, clai
 }
 
 export function cached(rawKey, ttlMs, loader, opts = {}) {
-    const { swr = true, negTtlMs = 0, accept = v => v !== null && v !== undefined, signal, onFresh } = opts
+    const { swr = true, fresh = false, negTtlMs = 0, accept = v => v !== null && v !== undefined, signal, onFresh } = opts
     const key = vkey(rawKey)
 
     if (signal?.aborted) return Promise.reject(aborted())
 
     const hot = mem.get(key)
-    if (hot && hot.exp > Date.now() && accept(hot.v)) return Promise.resolve(hot.v)
+    if (!fresh && hot && hot.exp > Date.now() && accept(hot.v)) return Promise.resolve(hot.v)
 
     const pending = inflight.get(key)
-    if (pending && pending.signal === signal) return pending.promise
+    if (pending && pending.signal === signal && (!fresh || pending.fresh)) return pending.promise
 
-    const entry = { signal, promise: null }
+    const entry = { signal, fresh, promise: null }
     const claimStore = () => {
         if (signal?.aborted || inflight.get(key) !== entry) return
         writers.set(key, entry)
@@ -197,8 +204,17 @@ export function cached(rawKey, ttlMs, loader, opts = {}) {
         cancel?.(aborted())
     }
     const notifyFresh = onFresh && (value => { if (!signal?.aborted) onFresh(value) })
-    const work = resolve(key, ttlMs, loader, swr, negTtlMs, accept,
-        () => writers.get(key) === entry, claimStore, notifyFresh, () => signal?.aborted)
+    const work = fresh
+        ? Promise.resolve().then(() => {
+            // A forced refresh bypasses both cache layers but still replaces the
+            // stored result, so the next reader gets the chapters just checked.
+            if (signal?.aborted) throw aborted()
+            claimStore()
+            return load(key, ttlMs, loader, negTtlMs, accept, () => writers.get(key) === entry)
+        })
+        : resolve(key, ttlMs, loader, swr, negTtlMs, accept,
+            () => writers.get(key) === entry, claimStore, notifyFresh,
+            () => signal?.aborted, () => inflight.get(key) === entry)
     // Reject the caller as soon as it aborts, even if its provider ignores cancellation.
     const ready = signal ? Promise.race([work, new Promise((_, reject) => { cancel = reject })]) : work
     const p = ready.then(value => {

@@ -167,8 +167,8 @@ export function getVideoSeries(key, { signal, fresh = false } = {}) {
     const accept = value => validVideoDetail(value, key) && complete(value)
     const load = () => requireValue(apiGet(`/read/api/video/series/${enc(key)}`, { signal }), accept, 'series unavailable')
     // 30min: episode lists change slowly and a warm revisit should feel instant
-    return fresh ? load() : cached(`video:series:${key}`, 30 * MIN, load, {
-        accept, signal,
+    return cached(`video:series:${key}`, 30 * MIN, load, {
+        accept, signal, fresh,
     })
 }
 
