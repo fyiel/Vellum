@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { kissSubToVtt } from '../src/lib/kiss-sub.js'
+import { encryptedTrackUrl, kissSubToVtt } from '../src/lib/kiss-sub.js'
 
 // fixture: real cue lines from kiss:8705 ep 173841 (English .srt.txt1 track)
 const BODY = [
@@ -23,3 +23,26 @@ test('decrypts KissKH .txt1 subtitle cues into WebVTT', async () => {
 test('rejects garbage without throwing', async () => {
     assert.equal(await kissSubToVtt('not a subtitle file', URL_TXT1), 'WEBVTT\n')
 })
+
+for (const stalled of ['request', 'body']) {
+    test(`abandoning a stalled subtitle ${stalled} settles even when its transport ignores abort`, async () => {
+        const ctrl = new AbortController()
+        let requests = 0
+        const fetchImpl = (_url, { signal }) => {
+            requests++
+            assert.equal(signal, ctrl.signal)
+            return stalled === 'request'
+                ? new Promise(() => {})
+                : Promise.resolve({ ok: true, text: () => new Promise(() => {}) })
+        }
+        const work = encryptedTrackUrl(URL_TXT1, fetchImpl, ctrl.signal)
+        await Promise.resolve() // let response.text() start for the body case
+        ctrl.abort()
+        const outcome = await Promise.race([
+            work.then(value => value, error => `error:${error.name}`),
+            new Promise(resolve => setTimeout(() => resolve('pending'), 120)),
+        ])
+        assert.equal(requests, 1)
+        assert.equal(outcome, null)
+    })
+}

@@ -39,9 +39,21 @@ export async function kissSubToVtt(body, url, subtle = globalThis.crypto?.subtle
 // fetch an encrypted track and mint a blob: URL usable as a <track> src; null on any failure
 export async function encryptedTrackUrl(url, fetchImpl = fetch, signal) {
     if (signal?.aborted) return null
-    const response = await fetchImpl(url, { signal })
-    if (!response.ok) return null
-    const vtt = await kissSubToVtt(await response.text(), url)
-    if (signal?.aborted) return null
-    return vtt.includes('-->') ? URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' })) : null
+    const load = async () => {
+        const response = await fetchImpl(url, { signal })
+        if (!response.ok) return null
+        const vtt = await kissSubToVtt(await response.text(), url)
+        if (signal?.aborted) return null
+        return vtt.includes('-->') ? URL.createObjectURL(new Blob([vtt], { type: 'text/vtt' })) : null
+    }
+    if (!signal) return load()
+    // Some subtitle hosts or native transports ignore abort during fetch or body reads.
+    let onAbort
+    const cancelled = new Promise(resolve => {
+        onAbort = () => resolve(null)
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+    })
+    try { return await Promise.race([load(), cancelled]) }
+    finally { signal.removeEventListener('abort', onAbort) }
 }
