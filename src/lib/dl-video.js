@@ -12,6 +12,7 @@ export const videoDlActive = (key, id) => active.get(`${key}:${id}`) || null
 export const videoDlEntry = (key, id) => dlEntry('video', key, id)
 
 const HLS_TYPES = ['application/x-mpegURL', 'application/vnd.apple.mpegurl']
+const HLS_PREFETCH = 4
 
 // playback sources may be app-relative proxy paths (/read/api/...); fetch and playlist
 // resolution both need a fully-qualified URL
@@ -137,39 +138,64 @@ async function downloadHls(url, writer, progress, signal) {
     progress.total = segments.length
     const keyCache = new Map()
     let nextMap = 0
-    for (let index = 0; index < segments.length; index++) {
-        const segment = segments[index]
-        if (signal.aborted) throw new Error('download cancelled')
-        // Initialization sections belong immediately before the first media
-        // segment that uses them; a playlist can change maps mid-stream.
-        if (maps[nextMap]?.at === index) {
-            const map = maps[nextMap++]
-            let bytes = await fetchBytes(resolveUri(playlistUrl, map.uri), signal, map.byteRange)
-            if (map.key) {
-                if (map.key.method !== 'AES-128') throw new Error(`${map.key.method} encrypted streams can't be downloaded`)
-                if (!map.key.iv) throw new Error('encrypted HLS initialization section requires an IV')
-                const key = await aesKey(map.key.uri, playlistUrl, signal, keyCache)
-                bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(map.key, 0) }, key, bytes))
+    const prefetchCtrl = new AbortController()
+    const prefetchSignal = AbortSignal.any([signal, prefetchCtrl.signal])
+    const pending = new Map()
+    let nextFetch = 0
+    const queue = index => {
+        // Preserve the map boundary: fetch an initialization section before
+        // requesting fragments that use it. Only four fragment buffers are held.
+        const boundary = maps[nextMap]?.at ?? segments.length
+        while (nextFetch < boundary && nextFetch - index < HLS_PREFETCH) {
+            const part = segments[nextFetch]
+            pending.set(nextFetch++, fetchBytes(resolveUri(playlistUrl, part.uri), prefetchSignal, part.byteRange)
+                .then(bytes => ({ bytes }), error => ({ error })))
+        }
+    }
+    try {
+        for (let index = 0; index < segments.length; index++) {
+            const segment = segments[index]
+            if (signal.aborted) throw new Error('download cancelled')
+            // Initialization sections belong immediately before the first media
+            // segment that uses them; a playlist can change maps mid-stream.
+            if (maps[nextMap]?.at === index) {
+                const map = maps[nextMap++]
+                let bytes = await fetchBytes(resolveUri(playlistUrl, map.uri), signal, map.byteRange)
+                if (map.key) {
+                    if (map.key.method !== 'AES-128') throw new Error(`${map.key.method} encrypted streams can't be downloaded`)
+                    if (!map.key.iv) throw new Error('encrypted HLS initialization section requires an IV')
+                    const key = await aesKey(map.key.uri, playlistUrl, signal, keyCache)
+                    bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(map.key, 0) }, key, bytes))
+                }
+                await writer.write(bytes)
+                size += bytes.byteLength
             }
-            await writer.write(bytes)
-            size += bytes.byteLength
+            queue(index)
+            const result = await pending.get(index)
+            pending.delete(index)
+            if (result.error) throw result.error
+            if (signal.aborted) throw new Error('download cancelled')
+            let bytes = result.bytes
+            if (segment.key) {
+                const key = await aesKey(segment.key.uri, playlistUrl, signal, keyCache)
+                bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(segment.key, segment.sequence) }, key, bytes))
+            }
+            if (remux) {
+                transmuxer.push(bytes)
+                transmuxer.flush()
+                await transmuxer.drain()
+                size = progress.bytes
+            } else {
+                await writer.write(bytes)
+                size += bytes.byteLength
+            }
+            progress.done++
+            notify()
         }
-        let bytes = await fetchBytes(resolveUri(playlistUrl, segment.uri), signal, segment.byteRange)
-        if (segment.key) {
-            const key = await aesKey(segment.key.uri, playlistUrl, signal, keyCache)
-            bytes = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: segmentIv(segment.key, segment.sequence) }, key, bytes))
-        }
-        if (remux) {
-            transmuxer.push(bytes)
-            transmuxer.flush()
-            await transmuxer.drain()
-            size = progress.bytes
-        } else {
-            await writer.write(bytes)
-            size += bytes.byteLength
-        }
-        progress.done++
-        notify()
+    } finally {
+        // A late fetch must never keep running after the job removes its file.
+        prefetchCtrl.abort()
+        await Promise.allSettled(pending.values())
     }
     return size
 }
