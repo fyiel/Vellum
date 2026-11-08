@@ -48,10 +48,12 @@ let current = null
 let wired = false
 let query = ''
 let limit = BATCH
+let episodeMatches = []
 
 export function cancelVideoSeriesLoad() {
     detailController?.abort()
     detailController = null
+    episodeMatches = []
 }
 
 function entryFor(series) {
@@ -183,7 +185,7 @@ function episodeRows(episodes) {
 
 const filteredEpisodes = () => {
     const q = query.toLowerCase()
-    return current.episodes.filter(episode => !q || `${episodeLabel(episode)} ${episode.title || ''}`.toLowerCase().includes(q))
+    return q ? current.episodes.filter(episode => `${episodeLabel(episode)} ${episode.title || ''}`.toLowerCase().includes(q)) : current.episodes
 }
 const episodeMoreButton = (shown, total) => shown < total
     ? `<button class="video-episode-more" id="video-episode-more" type="button">Show ${Math.min(BATCH, total - shown)} more <span>${shown} of ${total}</span></button>`
@@ -191,7 +193,9 @@ const episodeMoreButton = (shown, total) => shown < total
 
 function renderEpisodes() {
     if (!current || !currentRouteIs(current.series.key) || !$('#video-episode-list')) return
-    const filtered = filteredEpisodes()
+    // Search and catalog changes trigger a full render. Incremental reveals
+    // reuse those matches rather than filtering all episodes on each click.
+    const filtered = episodeMatches = filteredEpisodes()
     const shown = filtered.slice(0, limit)
     $('#video-episode-list').innerHTML = shown.length
         ? `${episodeRows(shown)}${episodeMoreButton(shown.length, filtered.length)}`
@@ -202,7 +206,7 @@ function revealMoreEpisodes() {
     if (!current || !currentRouteIs(current.series.key)) return null
     const list = $('#video-episode-list')
     if (!list) return null
-    const filtered = filteredEpisodes()
+    const filtered = episodeMatches
     const before = Math.min(limit, filtered.length)
     if (before >= filtered.length) return null
     limit += BATCH

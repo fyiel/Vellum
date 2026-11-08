@@ -533,7 +533,7 @@ test('revealing more manga reader chapters retains existing links and preserves 
 
 test('revealing more video episodes retains existing rows and only appends new ones', async ({ page }) => {
     const key = 'mock:reveal-perf'
-    const episodes = Array.from({ length: 2000 }, (_, i) => ({
+    const episodes = Array.from({ length: 12000 }, (_, i) => ({
         id: `episode-${i + 1}`, season: 1, number: i + 1, title: `Signal ${i + 1}`,
     }))
     await page.route('**/read/api/video/series/**', route => reply(route, {
@@ -541,6 +541,8 @@ test('revealing more video episodes retains existing rows and only appends new o
     }))
     await page.goto(`${app}#/watch/series/${encodeURIComponent(key)}`)
     await expect(page.locator('#video-episode-list .video-episode-row')).toHaveCount(200)
+    await page.locator('#video-episode-search').fill('Signal 1')
+    await expect(page.locator('#video-episode-more')).toContainText('200 of 3112')
 
     const result = await page.evaluate(() => {
         const list = document.querySelector('#video-episode-list')
@@ -554,23 +556,31 @@ test('revealing more video episodes retains existing rows and only appends new o
         }
         const observer = new MutationObserver(count)
         observer.observe(list, { childList: true })
+        const filter = Array.prototype.filter
+        let catalogFilters = 0
+        Array.prototype.filter = function (...args) {
+            if (this.length === 12000 && this[0]?.id === 'episode-1') catalogFilters++
+            return filter.apply(this, args)
+        }
         const start = performance.now()
-        list.querySelector('#video-episode-more').click()
-        list.querySelector('#video-episode-more').click()
+        try {
+            list.querySelector('#video-episode-more').click()
+            list.querySelector('#video-episode-more').click()
+        } finally { Array.prototype.filter = filter }
         const elapsedMs = performance.now() - start
         count(observer.takeRecords())
         observer.disconnect()
         return {
-            added, removed, elapsedMs,
+            added, removed, elapsedMs, catalogFilters,
             after: list.querySelectorAll('.video-episode-row').length,
             firstPreserved: list.querySelector('.chline') === first,
             focusedId: document.activeElement?.dataset.id,
             more: list.querySelector('#video-episode-more')?.textContent,
         }
     })
-    console.log(`Video reveal to ${result.after} rows: ${result.elapsedMs.toFixed(1)}ms, ${result.added} rows added, ${result.removed} removed`)
-    expect(result).toMatchObject({ after: 600, added: 400, removed: 0, firstPreserved: true, focusedId: 'episode-401' })
-    expect(result.more).toContain('600 of 2000')
+    console.log(`Video reveal to ${result.after} rows: ${result.elapsedMs.toFixed(1)}ms, ${result.added} rows added, ${result.removed} removed, ${result.catalogFilters} full catalog filters`)
+    expect(result).toMatchObject({ after: 600, added: 400, removed: 0, catalogFilters: 0, firstPreserved: true, focusedId: 'episode-1289' })
+    expect(result.more).toContain('600 of 3112')
     await page.locator('#video-episode-search').fill('Signal 1777')
     await expect(page.locator('#video-episode-list .video-episode-row')).toHaveCount(1)
     await expect(page.locator('#video-episode-list .video-episode-row')).toHaveAttribute('data-id', 'episode-1777')
