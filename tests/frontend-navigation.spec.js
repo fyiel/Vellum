@@ -303,6 +303,63 @@ for (const kind of ['manga', 'video']) {
     })
 }
 
+for (const kind of ['manga', 'video']) {
+    const mangaView = kind === 'manga'
+    const key = mangaView ? 'mf:first' : 'mock:first'
+    const route = mangaView ? '#/manga/series/mf%3Afirst' : '#/watch/series/mock%3Afirst'
+    const rows = mangaView ? '#mchapter-list .mchrow' : '#video-episode-list .video-episode-row'
+    const download = mangaView ? '#mchapter-list .chdl' : '#video-episode-list .chdl'
+
+    test(`keeps ${kind} rows and keyboard focus during download progress`, async ({ page }) => {
+        const started = deferred(), release = deferred()
+        const errors = await fixtures(page, { [mangaView ? 'image' : 'media']: async url => {
+            if (url.searchParams.get('id') !== '1') return
+            started.resolve()
+            await release.promise
+        } })
+        await navigate(page, route)
+        await expect(page.locator(rows)).toHaveCount(3)
+        await page.clock.install()
+        await page.evaluate(async ({ kind, key, rows }) => {
+            const dl = await import(kind === 'manga' ? '/src/lib/dl-manga.js' : '/src/lib/dl-video.js')
+            const row = document.querySelector(rows)
+            window.downloadRow = row
+            window.downloadButton = row.parentElement.querySelector('.chdl')
+            row.focus()
+            const task = kind === 'manga' ? dl.downloadMangaChapter(key, '1') : dl.downloadVideoEpisode(key, '1')
+            task.catch(() => {})
+        }, { kind, key, rows })
+        try {
+            await started.promise
+            await page.clock.runFor(300)
+            await expect(page.locator(download).first()).toHaveClass(/active/)
+            expect(await page.evaluate(() => ({
+                sameRow: document.querySelector('.mchrow, .video-episode-row') === window.downloadRow,
+                sameButton: document.querySelector('.mchrow, .video-episode-row').parentElement.querySelector('.chdl') === window.downloadButton,
+                rowFocused: document.activeElement === window.downloadRow,
+            }))).toEqual({ sameRow: true, sameButton: true, rowFocused: true })
+        } finally { release.resolve() }
+        expect(errors).toEqual([])
+    })
+
+    test(`updates the ${kind} download button after deleting a saved copy`, async ({ page }) => {
+        const errors = await fixtures(page)
+        await page.evaluate(async ({ kind, key }) => {
+            const { dlRegister } = await import('/src/lib/downloads.js')
+            dlRegister({ kind, key, id: '1', title: 'Fixture', size: 100 })
+            window.confirm = () => true
+        }, { kind, key })
+        await navigate(page, route)
+        const button = page.locator(download).first()
+        await expect(button).toHaveClass(/done/)
+        await button.click()
+        await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('vellum:dl') || '[]').length)).toBe(0)
+        await expect(button).toHaveText('↓')
+        await expect(button).toHaveAttribute('aria-label', mangaView ? 'Download for offline reading' : 'Download for offline watching')
+        expect(errors).toEqual([])
+    })
+}
+
 test('chapter filtering hides the download action with its novel row', async ({ page }) => {
     await fixtures(page)
     await navigate(page, '#/series/nf%3Afixture')

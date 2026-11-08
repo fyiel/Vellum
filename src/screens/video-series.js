@@ -130,19 +130,38 @@ async function runBatch(count) {
     const labelFor = id => episodeLabel(episodes.find(item => item.id === id) || { id })
     await dlBatch(ids, id => downloadVideoEpisode(series.key, id, { title: series.title, label: labelFor(id), mediaKind: series.kind }), {
         onStep: done => { if (batch) { batch.done = done; batchPaint() } },
-        onError: (id, error) => { if (current?.series.key === series.key) dlFailed.set(id, error?.message || 'Download failed') },
+        onError: (id, error) => { if (current?.series.key === series.key) { dlFailed.set(id, error?.message || 'Download failed'); paintDl() } },
     })
     batch = null
     batchPaint()
 }
-const dlButton = (key, id) => {
+const dlState = (key, id) => {
     const active = videoDlActive(key, id)
+    const saved = !active && videoDlEntry(key, id)
     const label = active ? (active.total ? `${Math.min(99, Math.round(active.done / active.total * 100))}%` : '…')
-        : videoDlEntry(key, id) ? '✓'
+        : saved ? '✓'
             : dlFailed.has(id) ? '!' : '↓'
-    const state = active ? 'active' : videoDlEntry(key, id) ? 'done' : dlFailed.has(id) ? 'failed' : ''
+    const state = active ? 'active' : saved ? 'done' : dlFailed.has(id) ? 'failed' : ''
     const hint = active ? 'Cancel download' : state === 'done' ? 'Delete downloaded episode' : state === 'failed' ? dlFailed.get(id) : 'Download for offline watching'
+    return { state, label, hint }
+}
+const dlButton = (key, id) => {
+    const { state, label, hint } = dlState(key, id)
     return `<button type="button" class="chdl${state ? ` ${state}` : ''}" data-dl="${esc(id)}" title="${esc(hint)}" aria-label="${esc(hint)}">${label}</button>`
+}
+
+function paintDl() {
+    if (!current || !currentRouteIs(current.series.key)) return
+    const list = $('#video-episode-list')
+    if (!list) return
+    list.querySelectorAll('.chdl').forEach(button => {
+        const { state, label, hint } = dlState(current.series.key, button.dataset.dl)
+        const cls = `chdl${state ? ` ${state}` : ''}`
+        if (button.className !== cls) button.className = cls
+        if (button.textContent !== label) button.textContent = label
+        if (button.title !== hint) button.title = hint
+        if (button.getAttribute('aria-label') !== hint) button.setAttribute('aria-label', hint)
+    })
 }
 
 function episodeRows(episodes) {
@@ -204,7 +223,7 @@ function wire() {
                 return
             }
             if (videoDlEntry(current.series.key, id)) {
-                if (confirm('Delete the downloaded copy of this episode?')) deleteVideoDownload(current.series.key, id).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
+                if (confirm('Delete the downloaded copy of this episode?')) deleteVideoDownload(current.series.key, id).then(paintDl).catch(error => alert(error.message || 'Could not delete this download. Please try again.'))
                 return
             }
             dlFailed.delete(id)
@@ -213,7 +232,7 @@ function wire() {
             downloadVideoEpisode(series.key, id, { title: series.title, label: episodeLabel(episode || { id }), mediaKind: series.kind }).catch(error => {
                 if (current?.series.key !== series.key) return
                 dlFailed.set(id, error?.message || 'Download failed')
-                renderEpisodes()
+                paintDl()
             })
             return
         }
@@ -233,11 +252,11 @@ function wire() {
         limit = BATCH
         renderEpisodes()
     })
-    // download progress/cancel/delete lands here; repaint the rows in place, coalesced
+    // Download notifications update button state without rebuilding episode rows.
     let dlPaintT = 0
     onVideoDl(() => {
         if (!current || dlPaintT) return
-        dlPaintT = setTimeout(() => { dlPaintT = 0; if (current) renderEpisodes() }, 250)
+        dlPaintT = setTimeout(() => { dlPaintT = 0; paintDl() }, 250)
     })
 }
 
