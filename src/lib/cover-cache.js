@@ -37,11 +37,19 @@ const NO_IMAGE = /noimagemid/i
 const cacheable = url => typeof url === 'string' && url.length > 0 && !NO_IMAGE.test(url)
     && (/^https:\/\//i.test(url) || url.startsWith('/read/api/cover?'))
 
-// stable, filename-safe key for an arbitrary url
+// Stable, filename-safe key for an arbitrary URL. DJB2 alone collides even for
+// ordinary two-letter differences (e.g. /Ab.jpg and /BA.jpg); combine it with
+// an independent hash so storing one cover cannot overwrite the other.
+// Existing downloads keep their original filenames through the URL -> path index.
 const hash = url => {
     let h = 5381
-    for (let i = 0; i < url.length; i++) h = ((h << 5) + h + url.charCodeAt(i)) >>> 0
-    return h.toString(36)
+    let second = 2166136261
+    for (let i = 0; i < url.length; i++) {
+        const char = url.charCodeAt(i)
+        h = ((h << 5) + h + char) >>> 0
+        second = Math.imul(second ^ char, 16777619) >>> 0
+    }
+    return `${h.toString(36)}-${second.toString(36)}`
 }
 // opfs derives a file's type from its name, so the stored extension has to match the bytes:
 // cover urls routinely lie (a .jpg that serves webp), and a mismatched name makes the browser

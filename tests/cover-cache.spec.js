@@ -134,3 +134,68 @@ test('cover filesystem lookup errors preserve its cached registry entry', async 
     })
     expect(result).toEqual({ offline: true, registered: true, recovered: 'saved inaccessible cover' })
 })
+
+test('different cover URLs with the same legacy hash keep their own offline artwork', async ({ page }) => {
+    await page.goto(app)
+    const first = 'https://covers.example/Ab.jpg'
+    const second = 'https://covers.example/BA.jpg'
+
+    await page.evaluate(async first => {
+        const { storeCover } = await import('/src/lib/cover-cache.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        localStorage.setItem('vellum:covers', '{}')
+        setTransport(async source => {
+            const title = new URL(source, location.href).searchParams.get('t')
+            return new Response(`<svg xmlns="http://www.w3.org/2000/svg"><title>${title}</title></svg>`, {
+                headers: { 'content-type': 'image/svg+xml' },
+            })
+        })
+        storeCover(first, 'First')
+    }, first)
+
+    const read = url => page.evaluate(async url => {
+        const { localCover } = await import('/src/lib/cover-cache.js')
+        return (await localCover(url))?.text() || null
+    }, url)
+    await expect.poll(() => read(first)).toContain('<title>First</title>')
+    await page.evaluate(async second => {
+        const { storeCover } = await import('/src/lib/cover-cache.js')
+        storeCover(second, 'Second')
+    }, second)
+    await expect.poll(() => read(second)).toContain('<title>Second</title>')
+
+    expect(await read(first)).toContain('<title>First</title>')
+    const registry = await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:covers')))
+    expect(registry[first]).not.toBe(registry[second])
+})
+
+test('a new colliding cover cannot overwrite a previously saved legacy filename', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { storeCover, localCover } = await import('/src/lib/cover-cache.js')
+        const { dlPath, dlWrite } = await import('/src/lib/downloads.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const oldUrl = 'https://covers.example/Ab.jpg'
+        const newUrl = 'https://covers.example/BA.jpg'
+        const oldPath = dlPath.cover('zvijml.svg') // the URL's original DJB2 filename
+        await dlWrite(oldPath, new Blob(['<svg>Existing offline art</svg>'], { type: 'image/svg+xml' }))
+        localStorage.setItem('vellum:covers', JSON.stringify({ [oldUrl]: oldPath }))
+        setTransport(async () => new Response('<svg>New offline art</svg>', {
+            headers: { 'content-type': 'image/svg+xml' },
+        }))
+        storeCover(newUrl, 'New')
+        for (let i = 0; i < 100 && !JSON.parse(localStorage.getItem('vellum:covers'))[newUrl]; i++) {
+            await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        return {
+            oldArt: await (await localCover(oldUrl))?.text(),
+            newArt: await (await localCover(newUrl))?.text(),
+            paths: JSON.parse(localStorage.getItem('vellum:covers')),
+            oldPath,
+        }
+    })
+    expect(result.oldArt).toBe('<svg>Existing offline art</svg>')
+    expect(result.newArt).toBe('<svg>New offline art</svg>')
+    expect(result.paths['https://covers.example/Ab.jpg']).toBe(result.oldPath)
+    expect(result.paths['https://covers.example/BA.jpg']).not.toBe(result.oldPath)
+})
