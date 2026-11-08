@@ -71,12 +71,12 @@ function refresh() {
     })
 }
 
-function setRowRead(row, read) {
+function setRowRead(row, read, persist = true) {
     row.classList.toggle('read', read)
     row.classList.toggle('unread', !read)
     const item = feed.find(entry => entry.slug === row.dataset.slug)
     if (item) item.read = read
-    setRead(row.dataset.slug, read, read ? row.dataset.up : null, item?.latestIds)
+    if (persist) setRead(row.dataset.slug, read, read ? row.dataset.up : null, item?.latestIds)
 
     const uch = row.querySelector('.uch')
     const badge = uch.querySelector('.unew')
@@ -104,7 +104,7 @@ function wire() {
 
     $('#umarkall').addEventListener('click', () => {
         markAll(feed)
-        $$('#ufeed .urow:not(.read)').forEach(r => setRowRead(r, true))
+        $$('#ufeed .urow:not(.read)').forEach(r => setRowRead(r, true, false))
         refresh()
     })
 
