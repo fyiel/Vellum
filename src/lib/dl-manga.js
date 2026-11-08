@@ -102,7 +102,7 @@ export async function loadDownloadedMangaChapter(key, id, { signal } = {}) {
         while (next < entry.pages && !missing && !signal?.aborted) {
             const index = next++
             const blob = await dlRead(dlPath.mangaPage(key, id, index))
-            if (!blob) { missing = true; return }
+            if (!blob?.size) { missing = true; return }
             if (missing || signal?.aborted) return
             pages[index] = { url: URL.createObjectURL(blob) }
         }

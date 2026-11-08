@@ -91,6 +91,22 @@ test('partial or cancelled manga reads release all allocated image URLs', async 
     expect(result).toEqual({ partialReleased: true, cancelled: true, allReleased: true })
 })
 
+test('zero-byte saved manga pages fall back from the incomplete offline copy', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const { loadDownloadedMangaChapter } = await import('/src/lib/dl-manga.js')
+        const key = 'mf:zero-byte-page', id = 'c1'
+        await dl.dlWrite(dl.dlPath.mangaPage(key, id, 0), 'page 0')
+        await dl.dlWrite(dl.dlPath.mangaPage(key, id, 1), new Blob([]))
+        dl.dlRegister({ kind: 'manga', key, id, pages: 2, title: 'Fixture' })
+        const offline = await loadDownloadedMangaChapter(key, id)
+        if (offline) for (const page of offline.content.pages) URL.revokeObjectURL(page.url)
+        return { offline: offline === null, registered: !!dl.dlEntry('manga', key, id) }
+    })
+    expect(result).toEqual({ offline: true, registered: true })
+})
+
 test('manga reader fetches metadata while opening its saved image files', async ({ page }) => {
     await page.goto(app)
     const key = 'mf:overlap', id = 'c1'
