@@ -61,15 +61,18 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
     active.set(tag, { ctrl })
     notify()
     const written = []
-    let committed = false
+    const chapterPath = dlPath.novelChapter(key, n)
+    let previousText = null
+    let writeAttempted = false
     try {
         // A repair enriches the saved chapter itself. Re-fetching source HTML would
         // replace already-downloaded illustrations with remote URLs during an outage.
         let chapter = null
         if (saved && force) {
             try {
-                const old = await dlRead(dlPath.novelChapter(key, n))
-                const value = old && JSON.parse(await old.text())
+                const previous = await dlRead(chapterPath)
+                if (previous) previousText = await previous.text()
+                const value = previousText && JSON.parse(previousText)
                 if (typeof value?.html === 'string' && value.html.trim()) chapter = value
             } catch {}
         }
@@ -78,16 +81,22 @@ export async function downloadNovelChapter(key, n, title, { force = false } = {}
         const images = await downloadImages(key, n, chapter.html, ctrl.signal, written)
         if (ctrl.signal.aborted) throw new Error('download cancelled')
         const text = JSON.stringify({ ...chapter, html: images.html })
-        await dlWrite(dlPath.novelChapter(key, n), text)
-        committed = true
+        writeAttempted = true
+        await dlWrite(chapterPath, text)
+        if (ctrl.signal.aborted) throw new Error('download cancelled')
         dlRegister({ kind: 'novel', key, id, title, label: `Ch. ${n}`, size: new TextEncoder().encode(text).byteLength + images.size })
     } catch (error) {
         if (!saved) {
-            await dlRemove(dlPath.novelChapter(key, n))
+            await dlRemove(chapterPath)
             await dlRemove(dlPath.novelImages(key, n))
-        } else if (!committed) {
-            // Old HTML still owns the old slots; remove only this attempt's new files.
-            for (const path of written) await dlRemove(path)
+        } else {
+            try {
+                // Restore the saved chapter if a write or registry update failed.
+                if (writeAttempted && previousText != null) await dlWrite(chapterPath, previousText)
+            } finally {
+                // Old HTML still owns its image slots; only discard this repair's files.
+                for (const path of written) await dlRemove(path)
+            }
         }
         throw error
     } finally {

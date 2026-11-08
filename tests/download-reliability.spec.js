@@ -168,6 +168,69 @@ test('registry quota failures reject downloads and keep existing entries recover
     expect(result).toMatchObject({ newEntry: null, newBytes: false, existingEntry: true, existingBytes: true })
 })
 
+test('failed repair registry writes keep the original chapter and remove new illustrations', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'repair-registry-quota'
+        const original = JSON.stringify({ html: '<p>Saved text</p><img src="dlimg:0"><img src="https://images.example/new.png">' })
+        await dl.dlWrite(dl.dlPath.novelChapter(key, 1), original)
+        await dl.dlWrite(dl.dlPath.novelImage(key, 1, 0), 'Saved picture')
+        dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved', size: 20 })
+        setTransport(async () => new Response('New picture', { headers: { 'content-type': 'image/png' } }))
+        const setItem = Storage.prototype.setItem
+        Storage.prototype.setItem = function (name, value) {
+            if (name === 'vellum:dl') throw new DOMException('Registry full', 'QuotaExceededError')
+            return setItem.call(this, name, value)
+        }
+        let error
+        try { await novel.downloadNovelChapter(key, 1, 'Saved', { force: true }) } catch (e) { error = e.message }
+        Storage.prototype.setItem = setItem
+        return {
+            error,
+            chapter: await (await dl.dlRead(dl.dlPath.novelChapter(key, 1)))?.text(),
+            oldImage: await (await dl.dlRead(dl.dlPath.novelImage(key, 1, 0)))?.text(),
+            newImage: !!await dl.dlRead(dl.dlPath.novelImage(key, 1, 1)),
+            size: dl.dlEntry('novel', key, '1')?.size,
+            original,
+        }
+    })
+    expect(result.error).toContain('download list')
+    expect(result).toMatchObject({ chapter: result.original, oldImage: 'Saved picture', newImage: false, size: 20 })
+})
+
+test('cancelling a novel download during its final file write never registers it', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const novel = await import('/src/lib/dl-novel.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const key = 'cancel-final-novel'
+        setTransport(async () => Response.json({ html: '<p>Chapter in progress</p>' }))
+        const write = FileSystemWritableFileStream.prototype.write
+        let interrupted = false
+        FileSystemWritableFileStream.prototype.write = async function (data) {
+            await write.call(this, data)
+            if (typeof data === 'string' && data.includes('Chapter in progress')) {
+                interrupted = true
+                novel.cancelNovelDownload(key, 1)
+            }
+        }
+        let outcome
+        try { await novel.downloadNovelChapter(key, 1, 'New') ; outcome = 'saved' }
+        catch (e) { outcome = e.message }
+        FileSystemWritableFileStream.prototype.write = write
+        return {
+            interrupted, outcome,
+            saved: !!dl.dlEntry('novel', key, '1'),
+            bytes: !!await dl.dlRead(dl.dlPath.novelChapter(key, 1)),
+        }
+    })
+    expect(result).toEqual({ interrupted: true, outcome: 'download cancelled', saved: false, bytes: false })
+})
+
 test('native chapter text is sent to the filesystem as UTF-8 bytes', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
