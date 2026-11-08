@@ -249,6 +249,61 @@ test('browses, follows, resumes, and detects updates through a lazy native playe
   expect(diagnostics.overflow).toBeLessThanOrEqual(1)
 })
 
+test('playback progress checkpoints avoid reparsing the update ledger', async ({ page }) => {
+  const state = { episodes: Array.from({ length: 600 }, (_, i) => episode(i + 1)) }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Stream',
+    sources: [{ kind: 'direct', url: `/read/api/video/media/${id}.mp4`, type: 'video/mp4' }],
+  }))
+  // Many followed series can give the ledger thousands of stored episode IDs.
+  await page.evaluate(() => {
+    const ledger = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [
+      `mock:followed-${i}`,
+      { read: true, seenIds: Array.from({ length: 500 }, (_, j) => `episode-${j}`) },
+    ]))
+    localStorage.setItem('vellum:updates', JSON.stringify(ledger))
+  })
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  const result = await page.evaluate(k => {
+    const video = document.querySelector('#vplayer video')
+    Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
+    Object.defineProperty(video, 'currentTime', { configurable: true, writable: true, value: 0 })
+    const original = Storage.prototype.getItem
+    let ledgerReads = 0
+    Storage.prototype.getItem = function (storageKey) {
+      if (storageKey === 'vellum:updates') ledgerReads++
+      return original.call(this, storageKey)
+    }
+    const start = performance.now()
+    try {
+      for (let i = 1; i <= 30; i++) {
+        video.currentTime = i
+        video.dispatchEvent(new Event('pause')) // forced checkpoint
+      }
+      video.currentTime = 95
+      video.dispatchEvent(new Event('ended'))
+    } finally {
+      Storage.prototype.getItem = original
+    }
+    return {
+      ledgerReads,
+      durationMs: performance.now() - start,
+      position: JSON.parse(localStorage.getItem(`vellum:pos:${k}`)),
+      entry: JSON.parse(localStorage.getItem('vellum:lib'))[0],
+      watched: JSON.parse(localStorage.getItem(`vellum:read:${k}`)),
+      tracked: JSON.parse(localStorage.getItem('vellum:updates'))[k]?.seenIds?.length,
+    }
+  }, key)
+  console.log(`31 forced video checkpoints: ${result.durationMs.toFixed(1)}ms; update ledger reads: ${result.ledgerReads}`)
+  expect(result.ledgerReads).toBe(0)
+  expect(result.position).toMatchObject({ id: 'episode-1', position: 95, duration: 100 })
+  expect(result.entry).toMatchObject({ lastId: 'episode-1', watchedCount: 1, total: 600 })
+  expect(result.watched).toContain('episode-1')
+  expect(result.tracked).toBe(600)
+})
+
 test('loads an HTTPS embed only after consent with allow-restrictions', async ({ page }) => {
   const state = { episodes: [episode(1), episode(2)] }
   let embedRequests = 0

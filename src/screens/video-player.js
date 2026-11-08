@@ -47,7 +47,7 @@ function renderSteps() {
     $('#vp-step').innerHTML = `${previous ? `<a href="${playRoute(state.key, previous.id)}"><span>Previous</span>${esc(episodeLabel(previous))}</a>` : '<span></span>'}${next ? `<a href="${playRoute(state.key, next.id)}"><span>Next</span>${esc(episodeLabel(next))}</a>` : '<span></span>'}`
 }
 
-function libraryEntry(position, duration) {
+function libraryEntry(position, duration, includeEpisodes = true) {
     const progress = Number.isFinite(position) && Number.isFinite(duration) ? { lastPosition: position, lastDuration: duration } : {}
     return {
         slug: state.key,
@@ -59,7 +59,7 @@ function libraryEntry(position, duration) {
         source: state.series.source,
         format: state.offlineCatalogue ? state.series.format : state.series.kind === 'drama' ? dramaLabel(state.series.country) : 'Anime',
         total: state.offlineCatalogue ? undefined : state.episodes.length,
-        episodeIds: state.offlineCatalogue ? undefined : state.episodes.map(episode => episode.id),
+        episodeIds: state.offlineCatalogue || !includeEpisodes ? undefined : state.episodes.map(episode => episode.id),
         watchedCount: readSet(state.key).size,
         lastId: state.id,
         lastLabel: episodeLabel(state.episode),
@@ -92,7 +92,9 @@ function saveProgress(force = false) {
         if (!watched.has(state.id)) { watched.add(state.id); saveRead(state.key, watched) }
     }
     posSet(state.key, { id: state.id, position, duration, at: now })
-    touchLibrary(libraryEntry(position, duration))
+    // The catalogue was recorded when the episode opened; progress updates do
+    // not change it, so avoid rebuilding IDs and parsing the updates ledger.
+    touchLibrary(libraryEntry(position, duration, false))
 }
 
 function showMediaError() {
