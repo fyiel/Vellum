@@ -137,6 +137,24 @@ export async function dlRead(path) {
     } catch { return null }
 }
 
+// Distinguish an evicted file from a transient read failure before clearing
+// any persistent registry record that says the download exists.
+export async function dlExists(path) {
+    if (isTauri()) {
+        const { fs, baseDir } = await tauri()
+        return fs.exists(tpath(path), { baseDir })
+    }
+    try {
+        const parts = path.split('/')
+        const dir = await opfsDir(parts.slice(0, -1), false)
+        await dir.getFileHandle(parts.at(-1), { create: false })
+        return true
+    } catch (error) {
+        if (error?.name === 'NotFoundError') return false
+        throw error
+    }
+}
+
 // removes a file or a directory subtree; missing paths are fine
 export async function dlRemove(path) {
     if (isTauri()) {

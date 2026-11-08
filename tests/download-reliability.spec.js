@@ -229,6 +229,77 @@ for (const kind of ['direct', 'hls']) {
     })
 }
 
+test('missing or empty offline videos release stale registry entries so they can be downloaded again', async ({ page }) => {
+    await page.goto(app)
+    const results = await page.evaluate(async () => {
+        const video = await import('/src/lib/dl-video.js')
+        const dl = await import('/src/lib/downloads.js')
+        const { setTransport } = await import('/src/lib/http.js')
+        const results = []
+        for (const kind of ['missing', 'empty']) {
+            const key = `mock:stale-video-${kind}`, id = '1'
+            const path = dl.dlPath.video(key, id)
+            dl.dlRegister({ kind: 'video', key, id, size: 100, mime: 'video/mp4' })
+            if (kind === 'empty') await dl.dlWrite(path, new Uint8Array(0))
+            const localUrl = await video.loadDownloadedVideoUrl(key, id)
+            const stale = !!video.videoDlEntry(key, id)
+            setTransport(async url => String(url).includes('/playback?')
+                ? Response.json({ key, episodeId: id, providerLabel: 'Test', sources: [{ kind: 'direct', url: '/recovered.mp4', type: 'video/mp4' }] })
+                : new Response(new Uint8Array([1, 2, 3])))
+            await video.downloadVideoEpisode(key, id)
+            results.push({ kind, localUrl, stale, savedSize: video.videoDlEntry(key, id)?.size,
+                bytes: (await dl.dlRead(path))?.size ?? null })
+        }
+        return results
+    })
+    expect(results).toEqual([
+        { kind: 'missing', localUrl: null, stale: false, savedSize: 3, bytes: 3 },
+        { kind: 'empty', localUrl: null, stale: false, savedSize: 3, bytes: 3 },
+    ])
+})
+
+test('a temporary offline video read error preserves its download registry entry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const video = await import('/src/lib/dl-video.js')
+        const dl = await import('/src/lib/downloads.js')
+        const key = 'mock:unreadable-video', id = '1'
+        await dl.dlWrite(dl.dlPath.video(key, id), new Uint8Array([1, 2, 3]))
+        dl.dlRegister({ kind: 'video', key, id, size: 3 })
+        const original = FileSystemFileHandle.prototype.getFile
+        FileSystemFileHandle.prototype.getFile = async function (...args) {
+            if (this.name === '1.mp4') throw new Error('temporary read failure')
+            return original.apply(this, args)
+        }
+        let localUrl
+        try { localUrl = await video.loadDownloadedVideoUrl(key, id) }
+        finally { FileSystemFileHandle.prototype.getFile = original }
+        return { localUrl, saved: !!video.videoDlEntry(key, id), bytes: (await dl.dlRead(dl.dlPath.video(key, id)))?.size }
+    })
+    expect(result).toEqual({ localUrl: null, saved: true, bytes: 3 })
+})
+
+test('an unavailable offline video file lookup falls back without clearing its registry entry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const video = await import('/src/lib/dl-video.js')
+        const dl = await import('/src/lib/downloads.js')
+        const key = 'mock:lookup-error-video', id = '1'
+        await dl.dlWrite(dl.dlPath.video(key, id), new Uint8Array([1, 2, 3]))
+        dl.dlRegister({ kind: 'video', key, id, size: 3 })
+        const original = FileSystemDirectoryHandle.prototype.getFileHandle
+        FileSystemDirectoryHandle.prototype.getFileHandle = async function (name, options) {
+            if (name === '1.mp4') throw new DOMException('file system temporarily unavailable', 'NotAllowedError')
+            return original.call(this, name, options)
+        }
+        let localUrl
+        try { localUrl = await video.loadDownloadedVideoUrl(key, id) }
+        finally { FileSystemDirectoryHandle.prototype.getFileHandle = original }
+        return { localUrl, saved: !!video.videoDlEntry(key, id) }
+    })
+    expect(result).toEqual({ localUrl: null, saved: true })
+})
+
 for (const playlist of ['master', 'variant']) {
     test(`video downloads report an HTTP failure from the ${playlist} HLS playlist`, async ({ page }) => {
         await page.goto(app)

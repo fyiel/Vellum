@@ -1,6 +1,6 @@
 import { getVideoPlayback, videoAssetUrl } from './video-api.js'
 import { raceAbort, rawFetch } from './http.js'
-import { dlEntry, dlPath, dlRead, dlRegister, dlUnregister, dlWriter } from './downloads.js'
+import { dlEntry, dlExists, dlPath, dlRead, dlRegister, dlUnregister, dlWriter } from './downloads.js'
 import { isMaster, looksFragmentedMp4, parseMaster, parseMedia, pickVariant, resolveUri, segmentIv } from './hls-dl.js'
 
 // in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
@@ -259,8 +259,26 @@ export async function deleteVideoDownload(key, id) {
 export async function loadDownloadedVideoUrl(key, id) {
     const entry = dlEntry('video', key, id)
     if (!entry) return null
-    const blob = await dlRead(dlPath.video(key, id))
-    if (!blob || !blob.size) return null
+    const path = dlPath.video(key, id)
+    const blob = await dlRead(path)
+    if (!blob?.size) {
+        // A missing/zero-byte file cannot play, and a stale registry row blocks
+        // another download. Keep the entry if the file exists but cannot be read.
+        let stale = !!blob
+        if (!blob) {
+            try { stale = !await dlExists(path) }
+            catch { return null } // temporary filesystem failure: preserve the registry
+        }
+        if (stale) {
+            const current = dlEntry('video', key, id)
+            if (current?.at === entry.at && current?.size === entry.size && !videoDlActive(key, id)) {
+                // The next download replaces any empty file; no bytes are removed here.
+                await dlUnregister('video', key, id)
+                notify()
+            }
+        }
+        return null
+    }
     // The persistent path predates WebM support and ends in .mp4. OPFS infers
     // File.type from that suffix, so preserve the actual downloaded format here.
     // Older registry entries have no mime field and retain their prior MP4 behavior.
