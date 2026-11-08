@@ -705,7 +705,7 @@ function wire() {
     pages.addEventListener('click', event => {
         const retry = event.target.closest('[data-page-retry]')
         if (retry) {
-            loadPage(Number(retry.dataset.pageRetry), true)
+            loadFigure(retry.closest('.manga-page'), true)
             return
         }
         if (event.target.closest('button, a')) return
