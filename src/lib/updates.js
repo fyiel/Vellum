@@ -5,6 +5,19 @@ import { getVideoSeries } from './video-api.js'
 
 const isVideo = e => e.kind === 'anime' || e.kind === 'drama'
 
+// A provider may omit chapters or episodes it already advertised. Keep their
+// unread labels and ID watermark until acknowledgement, even when the next
+// response contains only a subset of the earlier list.
+const keepPending = (saved, fetched) => {
+    if (!saved?.length) return fetched
+    const rows = new Map(saved.map(item => [item.id, item]))
+    for (const item of fetched) rows.set(item.id, item)
+    return [...rows.values()]
+}
+const knownIds = (current, baseline, pending = []) => [
+    ...new Set([...pending, ...current, ...baseline]),
+]
+
 const rowOf = (e, led) => ({
     slug: e.slug, key: e.key, kind: e.kind, title: e.title, cover: e.cover,
     source: e.source, format: e.format,
@@ -75,12 +88,13 @@ export async function buildFeed({ signal, fresh = false } = {}) {
                 if (led && !led.read && led.newEpisodes?.length) feed.push(rowOf(e, led))
                 continue
             }
+            const pending = led && !led.read ? led : null
             if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenIds: baseline, newEpisodes: [], latest: 0, latestIds: [] }
             const cur = ledger[e.slug]
             if (cur.read) { cur.read = false; cur.firstSeen = now }
-            cur.newEpisodes = fresh
-            cur.latest = chapters.length
-            cur.latestIds = latestIds
+            cur.newEpisodes = keepPending(pending?.newEpisodes, fresh)
+            cur.latest = Math.max(cur.latest || 0, chapters.length)
+            cur.latestIds = knownIds(latestIds, baseline, pending?.latestIds)
             dirty = true
             feed.push(rowOf(e, cur))
             continue
@@ -110,12 +124,13 @@ export async function buildFeed({ signal, fresh = false } = {}) {
                 continue
             }
 
+            const pending = led && !led.read ? led : null
             if (!led) ledger[e.slug] = { firstSeen: now, read: false, seenIds: baseline, newChapters: [], latest: 0, latestIds: [] }
             const cur = ledger[e.slug]
             if (cur.read) { cur.read = false; cur.firstSeen = now }
-            cur.newChapters = fresh
-            cur.latest = chapters.length
-            cur.latestIds = latestIds
+            cur.newChapters = keepPending(pending?.newChapters, fresh)
+            cur.latest = Math.max(cur.latest || 0, chapters.length)
+            cur.latestIds = knownIds(latestIds, baseline, pending?.latestIds)
             dirty = true
             feed.push(rowOf(e, cur))
             continue
@@ -167,13 +182,15 @@ export async function buildFeed({ signal, fresh = false } = {}) {
             ledger[e.slug] = { firstSeen: now, read: false, seenUpTo: base, newNums: [], latest: 0 }
             dirty = true
         }
+        const pending = led && !led.read ? led.newNums : null
         const cur = ledger[e.slug]
         if (cur.read) {
             cur.read = false
             cur.firstSeen = now
         }
-        cur.newNums = chapters.slice(upTo).map(c => c.n)
-        cur.latest = latest
+        const newNums = chapters.slice(upTo).map(c => c.n)
+        cur.newNums = pending?.length ? [...new Set([...pending, ...newNums])] : newNums
+        cur.latest = Math.max(cur.latest || 0, latest)
         dirty = true
         feed.push(rowOf(e, cur))
     }

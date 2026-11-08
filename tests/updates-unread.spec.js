@@ -139,3 +139,57 @@ for (const kind of ['novel', 'manga', 'anime', 'drama']) {
         expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vellum:updates')))).toEqual(first)
     })
 }
+
+for (const kind of ['novel', 'manga', 'anime', 'drama']) {
+    test(`a partial ${kind} refresh preserves every unacknowledged update`, async ({ page }) => {
+        await page.goto(app)
+        await page.evaluate(async kind => {
+            const { setTransport } = await import('/src/lib/http.js')
+            const key = kind === 'manga' ? 'mf:partial-alert'
+                : kind === 'novel' ? 'nf:partial-alert' : `mock:${kind}-partial-alert`
+            const entries = kind === 'novel'
+                ? [{ n: 1 }, { n: 2 }, { n: 3 }]
+                : [{ id: 'old', number: 1 }, { id: 'new-2', number: 2 }, { id: 'new-3', number: 3 }]
+            const partial = kind === 'novel' ? [entries[0], entries[2]] : [entries[2]]
+            window.partialUpdates = false
+            setTransport(() => Promise.resolve(Response.json(kind === 'anime' || kind === 'drama'
+                ? { key, kind, title: 'Partial alert', episodes: window.partialUpdates ? partial : entries }
+                : { key, chapters: window.partialUpdates ? partial : entries })))
+            localStorage.setItem('vellum:lib', JSON.stringify([{
+                slug: key, key, kind, title: 'Partial alert', total: 1,
+                ...(kind === 'manga' ? { chapterIds: ['old'] }
+                    : kind === 'novel' ? {} : { episodeIds: ['old'] }),
+            }]))
+            localStorage.setItem('vellum:updates', JSON.stringify({
+                [key]: kind === 'novel'
+                    ? { firstSeen: Date.now(), read: true, seenUpTo: 1 }
+                    : { firstSeen: Date.now(), read: true, seenIds: ['old'] },
+            }))
+            location.hash = '#/updates'
+        }, kind)
+
+        await expect(page.locator('#ufeed .urow.unread')).toHaveCount(1)
+        await expect(page.locator('#count-updates')).toHaveText('2')
+
+        const after = await page.evaluate(async () => {
+            window.partialUpdates = true
+            const { buildFeed, setRead } = await import('/src/lib/updates.js')
+            const { feed } = await buildFeed({ fresh: true })
+            if (feed.length === 1) {
+                const row = feed[0]
+                setRead(row.slug, true, row.latest, row.latestIds, row)
+            }
+            window.partialUpdates = false
+            const restored = await buildFeed({ fresh: true })
+            return { row: feed[0], remaining: restored.feed }
+        })
+        expect(after.row).toMatchObject({ read: false, title: 'Partial alert', newCount: 2, latest: 3 })
+        if (kind === 'novel') expect(after.row.newNums).toEqual([2, 3])
+        else {
+            const items = kind === 'manga' ? after.row.newChapters : after.row.newEpisodes
+            expect(items.map(item => item.id)).toEqual(['new-2', 'new-3'])
+            expect(after.row.latestIds).toEqual(['old', 'new-2', 'new-3'])
+        }
+        expect(after.remaining).toHaveLength(0)
+    })
+}
