@@ -612,15 +612,22 @@ function showError(message) {
     $('#mr-retry').onclick = () => showMangaReader(state.key, state.id)
 }
 
-function renderDrawer() {
+function renderDrawer(start = 0) {
     const query = $('#mdw-q').value.trim().toLowerCase()
     const read = readSet(state.key)
     const rows = state.chapters.filter(chapter => !query || `${chapterLabel(chapter)} ${chapter.title || ''}`.toLowerCase().includes(query))
-    const shown = rows.slice(0, state.drawerLimit)
-    $('#mdrawer-list').innerHTML = shown.length ? `${shown.map(chapter => `<a class="chap${read.has(chapter.id) ? ' read' : ''}${chapter.id === state.id ? ' current' : ''}" href="${route(state.key, chapter.id)}"${chapter.id === state.id ? ' aria-current="page"' : ''}>
+    const count = Math.min(state.drawerLimit, rows.length)
+    const shown = rows.slice(start, count)
+    const html = `${shown.map(chapter => `<a class="chap${read.has(chapter.id) ? ' read' : ''}${chapter.id === state.id ? ' current' : ''}" href="${route(state.key, chapter.id)}"${chapter.id === state.id ? ' aria-current="page"' : ''}>
       <span class="n">${esc(chapterLabel(chapter))}</span><span class="t">${esc(chapter.title || '')}</span><span class="dot"></span></a>`).join('')
-      }${shown.length < rows.length ? `<button type="button" class="drawer-more" id="mdrawer-more">Show ${Math.min(DRAWER_BATCH, rows.length - shown.length)} more</button>` : ''}`
-        : '<div class="empty" role="status">No matching chapters</div>'
+      }${count < rows.length ? `<button type="button" class="drawer-more" id="mdrawer-more">Show ${Math.min(DRAWER_BATCH, rows.length - count)} more</button>` : ''}`
+    const list = $('#mdrawer-list')
+    if (start) {
+        list.querySelector('#mdrawer-more')?.remove()
+        list.insertAdjacentHTML('beforeend', html)
+    } else {
+        list.innerHTML = html || '<div class="empty" role="status">No matching chapters</div>'
+    }
 }
 
 function openDrawer() {
@@ -710,7 +717,7 @@ function wire() {
         if (!event.target.closest('#mdrawer-more')) return
         const before = $('#mdrawer-list').querySelectorAll('.chap').length
         state.drawerLimit += DRAWER_BATCH
-        renderDrawer()
+        renderDrawer(before)
         $('#mdrawer-list').querySelectorAll('.chap')[before]?.focus({ preventScroll: true })
     })
     $('#mdw-q').addEventListener('input', () => { state.drawerLimit = DRAWER_BATCH; renderDrawer() })

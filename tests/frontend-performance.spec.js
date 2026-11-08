@@ -278,6 +278,74 @@ test('revealing more manga chapters retains existing rows and only appends new o
     await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
 })
 
+test('revealing more manga reader chapters retains existing links and preserves search and focus', async ({ page }) => {
+    const key = 'mf:reader-drawer-perf'
+    const chapters = Array.from({ length: 2000 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1, title: `Entry ${i + 1}` }))
+    await page.route('**/read/api/manga/series/**', route => reply(route, {
+        key, kind: 'manga', format: 'manga', title: 'Large reader',
+    }))
+    await page.route('**/read/api/manga/chapters?**', route => reply(route, { key, chapters }))
+    await page.route('**/read/api/manga/chapter?**', route => {
+        const id = new URL(route.request().url()).searchParams.get('id')
+        return reply(route, {
+            key, chapter: chapters.find(chapter => chapter.id === id),
+            pages: [{ url: `/read/api/manga/image?key=${encodeURIComponent(key)}&id=${id}&page=0` }],
+        })
+    })
+    await page.route('**/read/api/manga/image?**', route => route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200"/>',
+    }))
+
+    await page.goto(`${app}#/manga/read/${encodeURIComponent(key)}/chapter-1`)
+    await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
+    await page.locator('#mr-list').click()
+    await expect(page.locator('#mdrawer-list .chap')).toHaveCount(400)
+
+    const result = await page.evaluate(() => {
+        const list = document.querySelector('#mdrawer-list')
+        const first = list.querySelector('.chap')
+        let added = 0, removed = 0
+        const count = records => {
+            for (const record of records) {
+                for (const node of record.addedNodes) if (node.matches?.('.chap')) added++
+                for (const node of record.removedNodes) if (node.matches?.('.chap')) removed++
+            }
+        }
+        const observer = new MutationObserver(count)
+        observer.observe(list, { childList: true })
+        const start = performance.now()
+        list.querySelector('#mdrawer-more').click()
+        list.querySelector('#mdrawer-more').click()
+        const elapsedMs = performance.now() - start
+        count(observer.takeRecords())
+        observer.disconnect()
+        return {
+            added, removed, elapsedMs,
+            after: list.querySelectorAll('.chap').length,
+            firstPreserved: list.querySelector('.chap') === first,
+            focused: document.activeElement?.querySelector('.n')?.textContent,
+            more: list.querySelector('#mdrawer-more')?.textContent,
+        }
+    })
+    console.log(`Manga reader drawer reveal to ${result.after} links: ${result.elapsedMs.toFixed(1)}ms, ${result.added} links added, ${result.removed} removed`)
+    expect(result).toMatchObject({
+        after: 1200, added: 800, removed: 0, firstPreserved: true, focused: 'Ch. 801', more: 'Show 400 more',
+    })
+
+    await page.locator('#mdw-q').fill('Ch. 1777')
+    await expect(page.locator('#mdrawer-list .chap')).toHaveCount(1)
+    await expect(page.locator('#mdrawer-list .chap .n')).toHaveText('Ch. 1777')
+    await page.locator('#mdw-q').fill('not a chapter')
+    await expect(page.locator('#mdrawer-list .empty')).toHaveText('No matching chapters')
+    await page.locator('#mdw-q').fill('')
+    await expect(page.locator('#mdrawer-list .chap')).toHaveCount(400)
+    await expect(page.locator('#mdrawer-list .chap.current')).toHaveAttribute('aria-current', 'page')
+    await page.locator('#mdw-q').fill('Ch. 1777')
+    await page.locator('#mdrawer-list .chap').click()
+    await expect(page.locator('#mr-title')).toContainText('Ch. 1777')
+})
+
 test('revealing more video episodes retains existing rows and only appends new ones', async ({ page }) => {
     const key = 'mock:reveal-perf'
     const episodes = Array.from({ length: 2000 }, (_, i) => ({
