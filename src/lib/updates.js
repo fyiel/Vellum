@@ -173,7 +173,7 @@ export async function buildFeed({ signal } = {}) {
 
 export const unreadTotal = feed => feed.reduce((n, u) => n + (u.read ? 0 : u.newCount), 0)
 
-export function setRead(slug, read, upTo, latestIds) {
+export function setRead(slug, read, upTo, latestIds, update) {
     const ledger = loadUpdLedger()
     const n = upTo == null ? null : Number(upTo)
     if (ledger[slug]) {
@@ -185,6 +185,18 @@ export function setRead(slug, read, upTo, latestIds) {
             ledger[slug].latestIds = latestIds
             saveUpdLedger(ledger)
             return
+        }
+        // Undoing an acknowledgement must also undo its ID watermark. The
+        // original alert is still in the visible row, so restore just those
+        // IDs and labels instead of keeping every acknowledged alert in storage.
+        const reopened = !read && update && (update.kind === 'manga' || isVideo(update))
+            ? (update.kind === 'manga' ? update.newChapters : update.newEpisodes) : null
+        if (reopened?.length) {
+            const ids = new Set(reopened.map(chapter => chapter.id))
+            const seen = Array.isArray(ledger[slug].seenIds) ? ledger[slug].seenIds : latestIds || []
+            ledger[slug].seenIds = seen.filter(id => !ids.has(id))
+            if (update.kind === 'manga') ledger[slug].newChapters = reopened
+            else ledger[slug].newEpisodes = reopened
         }
         // ack raises the watermark to the acknowledged count, unack resets it to the follow baseline
         ledger[slug].seenUpTo = read ? (n != null ? n : ledger[slug].seenUpTo) : null

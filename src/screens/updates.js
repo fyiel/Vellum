@@ -76,7 +76,7 @@ function setRowRead(row, read, persist = true) {
     row.classList.toggle('unread', !read)
     const item = feed.find(entry => entry.slug === row.dataset.slug)
     if (item) item.read = read
-    if (persist) setRead(row.dataset.slug, read, read ? row.dataset.up : null, item?.latestIds)
+    if (persist) setRead(row.dataset.slug, read, read ? row.dataset.up : null, item?.latestIds, item)
 
     const uch = row.querySelector('.uch')
     const badge = uch.querySelector('.unew')
