@@ -74,6 +74,16 @@ function paintPagination() {
     more.textContent = loading ? 'Loading…' : moreFailed ? 'Try again' : 'Load more'
 }
 
+function paintAdded(previousCount) {
+    if (!previousCount || rows.length < previousCount) { paint(); return }
+    const list = $('#vlist')
+    if (list.querySelectorAll(':scope > .watch-card').length !== previousCount) { paint(); return }
+    if (rows.length > previousCount) {
+        list.insertAdjacentHTML('beforeend', rows.slice(previousCount).map((item, index) => card(item, previousCount + index)).join(''))
+    }
+    paintPagination()
+}
+
 const providerNotice = data => {
     const providers = [...new Set((data.errors || []).map(error => videoProviderLabel(error?.provider)).filter(Boolean))]
     return data.partial && providers.length
@@ -155,12 +165,13 @@ async function start() {
 async function more() {
     if (loading || !hasMore) return
     const mine = gen
+    const previousCount = rows.length
     loading = true
     moreFailed = false
     paintPagination()
     try { await fetchPage(page + 1, false, mine) }
     catch { if (mine === gen) moreFailed = true }
-    finally { if (mine === gen) { loading = false; paint() } }
+    finally { if (mine === gen) { loading = false; paintAdded(previousCount) } }
 }
 
 // poster hosts are cold on a first visit (~5MB per grid); preconnecting while the

@@ -64,6 +64,22 @@ function paintPagination() {
     more.textContent = loading ? 'Loading…' : pageError ? 'Try again' : 'Load more'
 }
 
+function paintAdded(previousCount) {
+    if (!previousCount || rows.length < previousCount) { paint(); return }
+    const list = $('#mlist')
+    // A stale-while-revalidate page-1 refresh can replace the grid mid-request.
+    if (list.querySelectorAll(':scope > .manga-card').length !== previousCount) { paint(); return }
+    const currentNotice = list.querySelector('.manga-notice')
+    if (notice) {
+        if (currentNotice) currentNotice.textContent = notice
+        else list.insertAdjacentHTML('afterbegin', `<div class="manga-notice">${esc(notice)}</div>`)
+    } else currentNotice?.remove()
+    if (rows.length > previousCount) {
+        list.insertAdjacentHTML('beforeend', rows.slice(previousCount).map((item, index) => card(item, previousCount + index)).join(''))
+    }
+    paintPagination()
+}
+
 async function fetchPage(nextPage, fresh, mine, signal) {
     const request = { query, source, format }
     const opts = { source: request.source, format: request.format, page: nextPage, limit: LIMIT, signal }
@@ -130,6 +146,7 @@ async function start() {
 async function more() {
     if (loading || !hasMore) return
     const mine = gen
+    const previousCount = rows.length
     loading = true
     pageError = false
     paintPagination()
@@ -143,7 +160,7 @@ async function more() {
     } finally {
         if (mine === gen) {
             loading = false
-            paint()
+            paintAdded(previousCount)
         }
     }
     if (mine === gen && !pageError) pruneGrid()
