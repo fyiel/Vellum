@@ -158,8 +158,28 @@ export async function deleteNovelDownload(key, n) {
     // A force repair may be writing this chapter. Let its cancellation and
     // rollback finish before deleting, so it cannot restore an orphan afterward.
     if (pending) await pending
-    await dlUnregister('novel', key, String(n), dlPath.novelChapter(key, n))
-    await dlRemove(dlPath.novelImages(key, n))
+    const chapterPath = dlPath.novelChapter(key, n)
+    const entry = novelDlEntry(key, n)
+    // The chapter and its illustrations live in separate paths. Keep the small
+    // chapter file so a failed illustration cleanup can restore a usable copy.
+    const original = entry ? await dlRead(chapterPath) : null
+    if (entry && !original && await dlExists(chapterPath)) {
+        throw new Error('Could not read the saved chapter before deleting it')
+    }
+    // OPFS File objects become unreadable after their underlying entry is removed.
+    const backup = original ? new Blob([await original.arrayBuffer()]) : null
+    await dlUnregister('novel', key, String(n), chapterPath)
+    try {
+        await dlRemove(dlPath.novelImages(key, n), { strict: true })
+    } catch (error) {
+        try {
+            if (backup) await dlWrite(chapterPath, backup)
+            if (entry) dlRegister(entry)
+        } catch (restoreError) {
+            throw new AggregateError([error, restoreError], 'Could not delete illustrations or restore the chapter')
+        }
+        throw error
+    }
 }
 
 // offline reader payload: same shape as getChapter (parsed { html, title?, ... }),

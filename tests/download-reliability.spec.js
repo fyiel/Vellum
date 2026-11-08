@@ -655,6 +655,67 @@ for (const kind of ['novel', 'manga', 'video']) {
     })
 }
 
+test('failed novel illustration cleanup preserves the chapter and images for retry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const { deleteNovelDownload } = await import('/src/lib/dl-novel.js')
+        const key = 'novel-delete-image-error', n = 1
+        const chapterPath = dl.dlPath.novelChapter(key, n)
+        const imagePath = dl.dlPath.novelImage(key, n, 0)
+        const original = JSON.stringify({ html: '<p>Saved</p><img src="dlimg:0">' })
+        await dl.dlWrite(chapterPath, original)
+        await dl.dlWrite(imagePath, 'Saved illustration')
+        dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved novel' })
+
+        const remove = FileSystemDirectoryHandle.prototype.removeEntry
+        FileSystemDirectoryHandle.prototype.removeEntry = function (name, options) {
+            if (name === '1.img') throw new DOMException('Storage unavailable', 'NoModificationAllowedError')
+            return remove.call(this, name, options)
+        }
+        let error
+        try { await deleteNovelDownload(key, n) } catch (cause) { error = cause.message }
+        finally { FileSystemDirectoryHandle.prototype.removeEntry = remove }
+        const preserved = !!dl.dlEntry('novel', key, '1')
+            && await (await dl.dlRead(chapterPath))?.text() === original
+            && await (await dl.dlRead(imagePath))?.text() === 'Saved illustration'
+        await deleteNovelDownload(key, n)
+        return {
+            error, preserved,
+            deletedOnRetry: !dl.dlEntry('novel', key, '1') && !await dl.dlRead(chapterPath) && !await dl.dlRead(imagePath),
+        }
+    })
+    expect(result).toEqual({ error: 'Storage unavailable', preserved: true, deletedOnRetry: true })
+})
+
+test('failed novel chapter removal preserves its existing illustrations', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const dl = await import('/src/lib/downloads.js')
+        const { deleteNovelDownload } = await import('/src/lib/dl-novel.js')
+        const key = 'novel-delete-chapter-error', n = 1
+        const chapterPath = dl.dlPath.novelChapter(key, n)
+        const imagePath = dl.dlPath.novelImage(key, n, 0)
+        await dl.dlWrite(chapterPath, JSON.stringify({ html: '<img src="dlimg:0">' }))
+        await dl.dlWrite(imagePath, 'Saved illustration')
+        dl.dlRegister({ kind: 'novel', key, id: '1', title: 'Saved novel' })
+
+        const remove = FileSystemDirectoryHandle.prototype.removeEntry
+        FileSystemDirectoryHandle.prototype.removeEntry = function (name, options) {
+            if (name === '1.json') throw new DOMException('Storage unavailable', 'NoModificationAllowedError')
+            return remove.call(this, name, options)
+        }
+        let error
+        try { await deleteNovelDownload(key, n) } catch (cause) { error = cause.message }
+        finally { FileSystemDirectoryHandle.prototype.removeEntry = remove }
+        return { error, registered: !!dl.dlEntry('novel', key, '1'),
+            chapter: !!await dl.dlRead(chapterPath),
+            image: await (await dl.dlRead(imagePath))?.text() }
+    })
+    expect(result).toEqual({ error: 'Storage unavailable', registered: true,
+        chapter: true, image: 'Saved illustration' })
+})
+
 test('failed repair registry writes keep the original chapter and remove new illustrations', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
