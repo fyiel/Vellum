@@ -97,12 +97,61 @@ const dlRow = e => `<div class="dlrow" data-kind="${esc(e.kind)}" data-key="${es
   <a class="dl-open" href="${downloadRoute(e)}"><div class="tt"><div class="n">${esc(e.title || e.key)}</div><div class="au">${esc(DL_KIND_LABEL[e.kind] || e.kind)} · ${esc(e.label || '')}</div></div><span class="dlsize">${esc(fmtSize(e.size))}</span></a>
   <button type="button" class="dldel" title="Delete download" aria-label="${esc(`Delete download of ${e.title || e.key}, ${e.label || e.id}`)}">✕</button>
 </div>`
+const dlKey = e => JSON.stringify([e.kind, e.key, String(e.id)])
+const dlSignature = e => JSON.stringify([e.title, e.label, e.size])
+const dlRowSignatures = new WeakMap()
+
+function updateDownloadRow(rowEl, entry, signature) {
+    if (dlRowSignatures.get(rowEl) === signature) return
+    rowEl.querySelector('.dl-open').setAttribute('href', downloadRoute(entry))
+    rowEl.querySelector('.n').textContent = entry.title || entry.key
+    rowEl.querySelector('.au').textContent = `${DL_KIND_LABEL[entry.kind] || entry.kind} · ${entry.label || ''}`
+    rowEl.querySelector('.dlsize').textContent = fmtSize(entry.size)
+    rowEl.querySelector('.dldel').setAttribute('aria-label', `Delete download of ${entry.title || entry.key}, ${entry.label || entry.id}`)
+    dlRowSignatures.set(rowEl, signature)
+}
+
+function renderDownloadRows(entries) {
+    const table = $('#dltable')
+    if (!entries.length) { table.replaceChildren(); return }
+    if (!table.firstElementChild) {
+        // Build a cold list in one parse; batch downloads use the keyed path below.
+        table.innerHTML = entries.map(dlRow).join('')
+        let i = 0
+        for (const rowEl of table.children) dlRowSignatures.set(rowEl, dlSignature(entries[i++]))
+        return
+    }
+    const focused = table.contains(document.activeElement) ? document.activeElement : null
+    const oldRows = new Map()
+    for (const rowEl of table.children) {
+        const key = dlKey(rowEl.dataset)
+        if (!oldRows.has(key)) oldRows.set(key, [])
+        oldRows.get(key).push(rowEl)
+    }
+    const template = document.createElement('template')
+    let cursor = table.firstElementChild
+    for (const entry of entries) {
+        const key = dlKey(entry)
+        const signature = dlSignature(entry)
+        let rowEl = oldRows.get(key)?.shift()
+        if (rowEl) updateDownloadRow(rowEl, entry, signature)
+        else {
+            template.innerHTML = dlRow(entry)
+            rowEl = template.content.firstElementChild
+            dlRowSignatures.set(rowEl, signature)
+        }
+        if (rowEl !== cursor) table.insertBefore(rowEl, cursor)
+        else cursor = cursor.nextElementSibling
+    }
+    for (const rows of oldRows.values()) for (const rowEl of rows) rowEl.remove()
+    if (focused?.isConnected && document.activeElement !== focused) focused.focus({ preventScroll: true })
+}
 
 function renderDownloads() {
     const entries = dlEntries().filter(matchesSearch)
     $('#dl-lab').hidden = !entries.length
     $('#dl-size').textContent = entries.length ? `· ${fmtSize(dlTotalSize())}` : ''
-    $('#dltable').innerHTML = entries.map(dlRow).join('')
+    renderDownloadRows(entries)
     const note = $('#dl-storage')
     note.hidden = !entries.length || !!window.__TAURI_INTERNALS__
     if (!note.hidden) {
@@ -207,7 +256,8 @@ function wire() {
         const del = e.target.closest('.dldel')
         if (del) deleteDownload(del.closest('.dlrow'))
     })
-    dlListen(renderDownloads)
+    // Downloads completed on other screens are listed when the library opens.
+    dlListen(() => { if (!$('#view-library').hidden) renderDownloads() })
 }
 
 // A series you downloaded is one you expect to open with no network, so keep its cover. This is

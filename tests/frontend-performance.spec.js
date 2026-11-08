@@ -760,3 +760,103 @@ test('manga page turns reuse the chapter order of a large catalog', async ({ pag
     await expect(page.locator('#mreader')).toHaveAttribute('data-state', 'ready')
     expect(await page.evaluate(before => window.catalogSorts - before, chapterSorts)).toBe(0)
 })
+
+test('adding a download to a large library keeps existing rows and keyboard focus', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { dlRegister } = await import('/src/lib/downloads.js')
+        const { showLibrary } = await import('/src/screens/library.js')
+        const entries = Array.from({ length: 750 }, (_, i) => ({
+            kind: 'novel', key: `large-library-${i}`, id: '1',
+            title: `Saved novel ${i}`, label: 'Chapter 1', size: 1024,
+        }))
+        localStorage.setItem('vellum:dl', JSON.stringify(entries))
+        const table = document.querySelector('#dltable')
+        const initialObserver = new MutationObserver(() => {})
+        initialObserver.observe(table, { childList: true })
+        const initialStart = performance.now()
+        showLibrary()
+        const initialMs = performance.now() - initialStart
+        const initialMutations = initialObserver.takeRecords().length
+        initialObserver.disconnect()
+
+        const originalRow = table.children[375]
+        const updatedRow = table.children[10]
+        const focusedButton = originalRow.querySelector('.dldel')
+        focusedButton.focus()
+        let added = 0, removed = 0
+        const count = records => {
+            for (const record of records) {
+                for (const node of record.addedNodes) if (node.matches?.('.dlrow')) added++
+                for (const node of record.removedNodes) if (node.matches?.('.dlrow')) removed++
+            }
+        }
+        const observer = new MutationObserver(count)
+        observer.observe(table, { childList: true })
+        const start = performance.now()
+        dlRegister({ kind: 'novel', key: 'new-saved', id: '1', title: 'New saved chapter', size: 2048 })
+        const elapsedMs = performance.now() - start
+        count(observer.takeRecords())
+        observer.disconnect()
+
+        const first = {
+            added, removed, elapsedMs,
+            rows: table.children.length,
+            preserved: originalRow.isConnected && table.children[376] === originalRow,
+            focused: document.activeElement === focusedButton,
+            newest: table.firstElementChild.dataset.key,
+        }
+        dlRegister({ kind: 'novel', key: 'large-library-10', id: '1', title: 'Updated saved novel', label: 'New chapter', size: 3072 })
+        return {
+            first, initialMs, initialMutations,
+            existingPreserved: table.firstElementChild === updatedRow,
+            originalStillFocused: document.activeElement === focusedButton,
+            updatedLabel: table.firstElementChild.querySelector('.au')?.textContent,
+            updatedTitle: table.firstElementChild.querySelector('.n')?.textContent,
+            rowsAfterUpdate: table.children.length,
+        }
+    })
+    console.log(`Library 750 downloads: initial ${result.initialMs.toFixed(1)}ms (${result.initialMutations} mutations), addition ${result.first.elapsedMs.toFixed(1)}ms, ${result.first.added} added, ${result.first.removed} removed`)
+    expect(result.initialMutations).toBeLessThan(10)
+    expect(result.first).toMatchObject({
+        added: 1, removed: 0, rows: 751, preserved: true, focused: true, newest: 'new-saved',
+    })
+    expect(result).toMatchObject({
+        existingPreserved: true, originalStillFocused: true,
+        updatedLabel: 'Novel · New chapter', updatedTitle: 'Updated saved novel', rowsAfterUpdate: 751,
+    })
+
+    await page.locator('#filter').fill('Updated saved novel')
+    await expect(page.locator('#dltable .dlrow')).toHaveCount(1)
+    await page.locator('#filter').fill('')
+    await expect(page.locator('#dltable .dlrow')).toHaveCount(751)
+
+    const followUp = await page.evaluate(async () => {
+        const { dlRegister, dlUnregister } = await import('/src/lib/downloads.js')
+        const { showLibrary } = await import('/src/screens/library.js')
+        const table = document.querySelector('#dltable')
+        const stable = table.querySelector('[data-key="large-library-375"]')
+        const button = stable.querySelector('.dldel')
+        button.focus()
+        await dlUnregister('novel', 'large-library-80', '1')
+        const afterDelete = {
+            rows: table.children.length,
+            preserved: table.querySelector('[data-key="large-library-375"]') === stable,
+            focused: document.activeElement === button,
+        }
+        document.querySelector('#view-library').hidden = true
+        dlRegister({ kind: 'novel', key: 'saved-offscreen', id: '1', title: 'Offline batch', size: 2048 })
+        const rowsWhileHidden = table.children.length
+        document.querySelector('#view-library').hidden = false
+        showLibrary()
+        return {
+            afterDelete, rowsWhileHidden,
+            rowsAfterReturn: table.children.length,
+            newest: table.firstElementChild.dataset.key,
+        }
+    })
+    expect(followUp).toEqual({
+        afterDelete: { rows: 750, preserved: true, focused: true },
+        rowsWhileHidden: 750, rowsAfterReturn: 751, newest: 'saved-offscreen',
+    })
+})
