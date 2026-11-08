@@ -58,8 +58,12 @@ async fn nu_refresh(app: tauri::AppHandle, ua: String) -> bool {
         log::warn!("nu_refresh: main thread dispatch failed");
         return false;
     }
-    match rx.recv_timeout(Duration::from_secs(5)) {
-        Ok(Some(cookie)) => {
+    // GTK may take seconds to run the dispatched callback. Wait on Tauri's
+    // blocking pool so this async command doesn't occupy a Tokio worker.
+    match tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(5)))
+        .await
+    {
+        Ok(Ok(Some(cookie))) => {
             log::info!(
                 "nu_refresh: cookie header ready ({} chars), ua={}",
                 cookie.len(),
