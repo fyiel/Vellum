@@ -46,6 +46,7 @@ export function installCoverFallback() {
       img.removeEventListener("load", release);
       img.removeEventListener("error", release);
       URL.revokeObjectURL(url);
+      if (img.naturalWidth) img.style.removeProperty("display");
     };
     pending.set(img, release);
     img.addEventListener("load", release);
@@ -58,7 +59,10 @@ export function installCoverFallback() {
     if (!img?.dataset?.cover || img.dataset.coverDone) return;
     img.dataset.coverDone = "1";
     const blob = await localCover(img.dataset.cover).catch(() => null);
-    if (!blob || !img.isConnected) return;
+    if (!blob || !img.isConnected) {
+      delete img.dataset.coverDone;
+      return;
+    }
     useLocal(img, blob);
   };
   const hydrateSoon = (root) => {
@@ -87,14 +91,13 @@ export function installCoverFallback() {
       // the host died while we are online, or the resolver is gone too: the stored copy is the
       // last thing that can still paint this tile
       if (img.dataset.cover && !img.dataset.coverDone && (img.dataset.cfDone || !img.dataset.cf)) {
-        const before = img.dataset.coverDone;
         img.dataset.coverDone = "1";
         const blob = await localCover(img.dataset.cover).catch(() => null);
         if (blob && img.isConnected) {
           useLocal(img, blob);
           return;
         }
-        if (before) img.dataset.coverDone = before;
+        delete img.dataset.coverDone;
       }
       // one hop to the resolver, then give up quietly so a broken icon never shows over the placeholder
       if (img.dataset.cf && !img.dataset.cfDone) {

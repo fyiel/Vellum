@@ -2,6 +2,57 @@ import { test, expect } from '@playwright/test'
 
 const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 
+test('an offline cover retries if the cached file arrives after its first lookup', async ({ page }) => {
+    await page.goto(app)
+    await page.evaluate(async () => {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+        const source = 'https://covers.example.invalid/late.png'
+        const img = document.createElement('img')
+        img.id = 'late-offline-cover'
+        img.dataset.cover = source
+        img.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
+        document.body.append(img)
+        window.dispatchEvent(new Event('offline'))
+        // A cover write can finish after the network has gone offline and the first
+        // lookup found no registry entry. The element should still retry later.
+        await new Promise(resolve => setTimeout(resolve, 0))
+        const { dlPath, dlWrite } = await import('/src/lib/downloads.js')
+        const path = dlPath.cover('late.png')
+        const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8t8AAAAASUVORK5CYII='), c => c.charCodeAt(0))
+        await dlWrite(path, new Blob([png], { type: 'image/png' }))
+        localStorage.setItem('vellum:covers', JSON.stringify({ [source]: path }))
+        window.dispatchEvent(new Event('offline'))
+    })
+    await expect.poll(() => page.locator('#late-offline-cover').getAttribute('src')).toMatch(/^blob:/)
+})
+
+test('a failed cover reappears when its cached file later becomes available', async ({ page }) => {
+    await page.goto(app)
+    await page.evaluate(() => {
+        const img = document.createElement('img')
+        img.id = 'recovered-offline-cover'
+        img.dataset.cover = 'https://covers.example.invalid/recovered.png'
+        img.dataset.cf = '/read/api/cover?t=recovered'
+        img.dataset.cfDone = '1'
+        img.src = 'data:image/png;base64,broken'
+        document.body.append(img)
+    })
+    await expect.poll(() => page.locator('#recovered-offline-cover').evaluate(img => img.style.display)).toBe('none')
+
+    await page.evaluate(async () => {
+        const { dlPath, dlWrite } = await import('/src/lib/downloads.js')
+        const path = dlPath.cover('recovered.png')
+        const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a8t8AAAAASUVORK5CYII='), c => c.charCodeAt(0))
+        await dlWrite(path, new Blob([png], { type: 'image/png' }))
+        localStorage.setItem('vellum:covers', JSON.stringify({ 'https://covers.example.invalid/recovered.png': path }))
+        Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+        window.dispatchEvent(new Event('offline'))
+    })
+    await expect.poll(() => page.locator('#recovered-offline-cover').evaluate(img => ({
+        src: img.src.startsWith('blob:'), visible: getComputedStyle(img).display !== 'none', natural: img.naturalWidth,
+    }))).toEqual({ src: true, visible: true, natural: 1 })
+})
+
 test('a corrupt offline cover releases its object URL when decoding fails', async ({ page }) => {
     await page.goto(app)
     await page.evaluate(async () => {
