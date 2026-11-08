@@ -69,6 +69,7 @@ const rd = {
   buffering: false,
   end: false,
   failed: false,
+  resumeP: 0,
   ctrl: null,
   coveredCatalog: null,
   coveredSlug: null,
@@ -236,6 +237,7 @@ async function startAt(slug, idx, p = 0) {
     buffering: false,
     end: false,
     failed: false,
+    resumeP: p,
   });
   setProse(`<div class="spinner" id="boot-spin"></div>`);
   rfoot.innerHTML = "";
@@ -393,7 +395,7 @@ const renderFoot = () => {
       rd.failed = false;
       renderFoot();
       // boot failure never rendered a block, restart it so chrome and progress come up
-      if (rd.last < rd.first) startAt(rd.slug, rd.first, 0);
+      if (rd.last < rd.first) startAt(rd.slug, rd.first, rd.resumeP);
       else ensureBuffer();
     };
   } else if (rd.end) {

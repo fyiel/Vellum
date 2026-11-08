@@ -8,6 +8,32 @@ const chapters = [1, 2, 3, 4, 5].map(n => ({ n, t: `Chapter ${n}` }))
 const body = (n, count = 42) =>
     Array.from({ length: count }, (_, i) => `<p>c${n}p${i} ${'lorem ipsum dolor sit amet consectetur '.repeat(3)}</p>`).join('')
 
+test('restores the saved reading position after retrying an initial chapter failure', async ({ page }) => {
+    const slug = 'resume-after-failure'
+    let requests = 0
+    await page.route(`**/read/api/chapters?slug=${slug}`, route => route.fulfill({
+        json: { chapters: [{ n: 1, t: 'One' }] },
+    }))
+    await page.route(`**/read/api/chapter?slug=${slug}&n=1`, route => {
+        if (++requests <= 2) return route.fulfill({ status: 503, json: { error: 'temporarily unavailable' } })
+        return route.fulfill({ json: { title: 'One', html: body(1, 120) } })
+    })
+    await page.route(`**/read/api/series/nf%3A${slug}`, route => route.fulfill({
+        json: { key: `nf:${slug}`, nfSlug: slug, title: 'Resume' },
+    }))
+
+    await page.goto(app)
+    await page.evaluate(s => localStorage.setItem(`vellum:pos:${s}`, JSON.stringify({ n: 1, p: 0.65, at: Date.now() })), slug)
+    await page.goto(`${app}#/read/${slug}/1`)
+    await expect(page.locator('#rfoot-retry')).toBeVisible()
+    await page.locator('#rfoot-retry').click()
+    await expect(page.locator('#reader .ch-block')).toHaveCount(1)
+    const position = await page.evaluate(() => ({ y: window.scrollY, progress: document.querySelector('#r-pos').textContent }))
+    expect(requests).toBe(3)
+    expect(position.y).toBeGreaterThan(300)
+    expect(position.progress).toMatch(/6[0-9]%/)
+})
+
 test('keeps the reading position while buffering, trimming and a late image land', async ({ page }) => {
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
