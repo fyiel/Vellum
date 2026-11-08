@@ -266,7 +266,15 @@ function paintSearch(data, gen, fresh = false) {
     if (searchPending) searchRefreshTimer = setTimeout(async () => {
         if (gen !== feedGen || $('#view-discover').hidden) return
         try { paintSearch(await fetchSearch(), gen) }
-        catch { if (gen === feedGen) { searchPending = false; setCount() } }
+        catch {
+            if (gen !== feedGen) return
+            searchPending = false
+            if (!items.length) {
+                feedError = true
+                $('#dlist').innerHTML = `<div class="void">${voidMsg()}</div>`
+            }
+            setCount()
+        }
     }, Math.max(250, Math.min(2_000, Number(data.retryAfterMs) || 500)))
 }
 

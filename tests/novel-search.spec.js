@@ -56,6 +56,20 @@ test('an empty pending response keeps searching; old responses cannot overwrite 
     await expect(page.locator('#dlist')).toContainText('Azure Chronicles')
 })
 
+test('failed progressive search stops showing an endless searching state', async ({ page }) => {
+    let requests = 0
+    await page.route('**/read/api/search?**', route => {
+        requests++
+        if (requests === 1) return reply(route, { results: [], pending: true, retryAfterMs: 250 })
+        return route.fulfill({ status: 422, json: { error: { code: 'source_unavailable', message: 'Search unavailable', retryable: false } } })
+    })
+    await page.locator('#dsearch').fill('interrupted search')
+    await expect(page.locator('#dlist')).toContainText('searching')
+    await expect.poll(() => requests).toBe(2)
+    await expect(page.locator('#dlist')).toContainText('could not reach the sources right now')
+    await expect(page.locator('#rescount')).not.toContainText('searching')
+})
+
 test('resumes background search after returning to discover', async ({ page }) => {
     let complete = false
     await page.route('**/read/api/search?**', route => reply(route, { results: [row(complete ? 'nu:multi' : 'ndx:multi', complete ? 'Finished title' : 'Early title')], pending: !complete, retryAfterMs: 250 }))
