@@ -751,14 +751,14 @@ function renderDrawer() {
   if (dw.q) {
     const f = dw.q.toLowerCase();
     const asNum = Number(dw.q);
-    rows = state.chapters
-      .map((c, i) => ({ c, i }))
-      .filter(
-        ({ c }) =>
-          (c.t || "").toLowerCase().includes(f) ||
-          (Number.isFinite(asNum) && c.n === asNum),
-      )
-      .slice(0, 200);
+    const numeric = Number.isFinite(asNum);
+    rows = [];
+    for (let i = 0; i < total && rows.length < 200; i++) {
+      const c = state.chapters[i];
+      if ((c.t || "").toLowerCase().includes(f) || (numeric && c.n === asNum)) {
+        rows.push({ c, i });
+      }
+    }
   } else {
     rows = state.chapters
       .slice(dw.lo, dw.hi)

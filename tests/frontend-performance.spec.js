@@ -248,6 +248,55 @@ test('novel reader chapter drawer keeps keyboard focus when its last batch is re
     expect(later).toEqual({ focused: '#76', count: 200, buttonGone: true })
 })
 
+test('novel reader chapter search stops scanning once the visible result limit is reached', async ({ page }) => {
+    const slug = 'drawer-search-perf'
+    const chapters = Array.from({ length: 12000 }, (_, i) => ({ n: i + 1, t: `Chapter ${i + 1}` }))
+    chapters[11000].t = '' // numeric chapter searches must still work without a title
+    await page.route('**/read/api/series/**', route => reply(route, { key: `nf:${slug}`, nfSlug: slug, title: 'Large novel' }))
+    await page.route(`**/read/api/chapters?slug=${slug}`, route => reply(route, { chapters }))
+    await page.route(`**/read/api/chapter?slug=${slug}&n=*`, route => {
+        const n = Number(new URL(route.request().url()).searchParams.get('n'))
+        return reply(route, { n, title: `Chapter ${n}`, html: `<p>Chapter ${n} text</p>` })
+    })
+
+    await page.goto(`${app}#/read/${slug}/1`)
+    await expect(page.locator('#r-title')).toContainText('Chapter 1')
+    await page.locator('#r-list').click()
+    const result = await page.evaluate(() => {
+        const input = document.querySelector('#dw-q')
+        const original = String.prototype.toLowerCase
+        let checkedTitles = 0
+        String.prototype.toLowerCase = function () {
+            if (this.startsWith('Chapter ')) checkedTitles++
+            return original.call(this)
+        }
+        let elapsedMs
+        try {
+            const started = performance.now()
+            input.value = 'Chapter'
+            input.dispatchEvent(new Event('input', { bubbles: true }))
+            elapsedMs = performance.now() - started
+        } finally { String.prototype.toLowerCase = original }
+        return {
+            checkedTitles, elapsedMs,
+            count: document.querySelectorAll('#drawer-list .chap').length,
+            first: document.querySelector('#drawer-list .chap:first-child .n')?.textContent,
+            last: document.querySelector('#drawer-list .chap:last-child .n')?.textContent,
+        }
+    })
+    console.log(`Novel chapter search (12k chapters, 200 visible): ${result.checkedTitles} titles checked in ${result.elapsedMs.toFixed(1)}ms`)
+    expect(result).toMatchObject({ count: 200, first: '#1', last: '#200' })
+    expect(result.checkedTitles).toBeLessThan(250)
+
+    await page.locator('#dw-q').fill('11001')
+    await expect(page.locator('#drawer-list .chap')).toHaveCount(1)
+    await expect(page.locator('#drawer-list .chap .n')).toHaveText('#11001')
+    await page.locator('#dw-q').fill('no matching chapter')
+    await expect(page.locator('#drawer-list .empty')).toContainText('no matching chapters')
+    await page.locator('#dw-q').fill('')
+    await expect(page.locator('#drawer-list .chap')).toHaveCount(75)
+})
+
 test('novel download updates only inspect the affected button in a large catalog', async ({ page }) => {
     const slug = 'download-buttons-perf'
     const count = 3000
