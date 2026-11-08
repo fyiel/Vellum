@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 
 const app = `http://127.0.0.1:${process.env.VELLUM_TEST_PORT || '5173'}/`
 const key = 'mock:signal-season'
 const poster = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="600" height="900"%3E%3Crect width="100%25" height="100%25" fill="%231d1f25"/%3E%3C/svg%3E'
+const offlineClip = [...readFileSync(new URL('./fixtures/offline-clip.webm', import.meta.url))]
 const episode = number => ({ id: `episode-${number}`, season: 1, number, title: `Signal ${number}`, runtime: 24 })
 const encryptedSubtitleUrl = 'https://sub.cdnvideo11.shop/English-EP1-The-White-Olive-Tree.2025.srt.txt1'
 const encryptedSubtitle = '1\n00:01:40,039 --> 00:01:43,070\nHNiyEmkqtBWbIF4DbMxZ8TXkPcEb3U/WQ2o1d5Jav1o=\n'
@@ -69,6 +71,36 @@ async function mockVideo(page, state, playback) {
     ? route.fulfill({ contentType: 'text/vtt', body: 'WEBVTT\n' })
     : route.fulfill({ contentType: 'video/mp4', body: '' }))
 }
+
+test('plays a saved episode removed from the provider catalogue without replacing the live series', async ({ page }) => {
+  const state = { episodes: [episode(2), episode(3)] }
+  await mockVideo(page, state, id => ({
+    key, episodeId: id, providerLabel: 'Mock Stream',
+    sources: [{ kind: 'direct', url: `/read/api/video/media/${id}.mp4`, type: 'video/mp4' }],
+  }))
+  await page.evaluate(async bytes => {
+    const { dlWrite, dlPath, dlRegister } = await import('/src/lib/downloads.js')
+    const key = 'mock:signal-season', id = 'episode-1'
+    await dlWrite(dlPath.video(key, id), new Uint8Array(bytes))
+    dlRegister({ kind: 'video', key, id, mime: 'video/webm', title: 'Saved series', label: 'Retired premiere', mediaKind: 'anime', size: bytes.length })
+  }, offlineClip)
+
+  await page.goto(`${app}#/watch/play/mock%3Asignal-season/episode-1`)
+  await expect(page.locator('#vplayer')).toHaveAttribute('data-state', 'ready')
+  await expect(page.locator('#vplayer video.video-media')).toHaveAttribute('src', /^blob:/)
+  await expect(page.locator('.video-provider-label')).toHaveText('Provided by Downloaded copy')
+  await expect(page.locator('#vp-title')).toHaveText('Signal Season')
+  await expect(page.locator('#vp-episode')).toContainText('Retired premiere')
+  await expect(page.locator('#vp-step a')).toHaveCount(0)
+
+  const saved = await page.evaluate(() => ({
+    list: JSON.parse(localStorage.getItem('vellum:lib')),
+    entry: localStorage.getItem('vellum:dl'),
+  }))
+  expect(saved.list.find(item => item.slug === key)).toMatchObject({ lastId: 'episode-1', title: 'Signal Season' })
+  expect(saved.list.find(item => item.slug === key).episodeIds).toBeUndefined()
+  expect(saved.entry).toContain('episode-1')
+})
 
 async function watchEncryptedSubtitles(page) {
   await page.addInitScript(() => {

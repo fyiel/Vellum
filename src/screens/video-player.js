@@ -405,12 +405,21 @@ export async function showVideoPlayer(key, id) {
             playback = localPlayback
         }
         if (!stillHere(key, id, gen)) return
-        const episodes = ordered(series.episodes)
-        const episode = episodes.find(item => item.id === id)
-        if (!episode) throw new Error('Episode is no longer available')
+        let episodes = ordered(series.episodes)
+        let episode = episodes.find(item => item.id === id)
+        if (!episode) {
+            const entry = localPlayback && videoDlEntry(key, id)
+            if (!entry) throw new Error('Episode is no longer available')
+            // The provider may remove an episode while its saved copy still exists.
+            // Keep the live series metadata, but don't put this retired episode into
+            // its catalogue or offer navigation based on an unknown episode order.
+            episode = { id, number: null, title: entry.label || 'Downloaded episode' }
+            episodes = [episode]
+            state.offlineCatalogue = true
+        }
         Object.assign(state, { series: { ...series, episodes }, episodes, episode })
         $('#vp-title').textContent = series.title
-        $('#vp-episode').textContent = `${episodeLabel(episode)}${episode.title ? ` · ${episode.title}` : ''}`
+        $('#vp-episode').textContent = `${episodeLabel(episode)}${episode.title && episode.number != null ? ` · ${episode.title}` : ''}`
         measure('vellum:video-player:contract')
         recordSelection()
         player.dataset.state = 'ready'
