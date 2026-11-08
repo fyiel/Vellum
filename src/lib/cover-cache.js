@@ -3,7 +3,7 @@
 // while online are kept in the download store (tauri fs / opfs) behind a bounded url -> path
 // registry, and coverImg's error fallback swaps the stored copy in when the network fails.
 
-import { dlPath, dlRead, dlRemove, dlWrite } from './downloads.js'
+import { dlExists, dlPath, dlRead, dlRemove, dlWrite } from './downloads.js'
 import { apiUrl, isNative, rawFetch } from './http.js'
 
 const NS = 'vellum'
@@ -159,6 +159,12 @@ export async function localCover(url) {
     if (!path) return null
     const blob = await dlRead(path).catch(() => null)
     if (blob?.size) return blob
+    if (!blob) {
+        // dlRead also returns null for transient filesystem errors. Keep the
+        // index if the file still exists or its presence cannot be checked.
+        try { if (await dlExists(path)) return null }
+        catch { return null }
+    }
     // Browsers can evict OPFS independently of localStorage. An absent or empty
     // file must not keep this URL marked as cached forever: the next library
     // render can then queue a fresh copy when the user is online.

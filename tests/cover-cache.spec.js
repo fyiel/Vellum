@@ -79,3 +79,58 @@ for (const kind of ['missing', 'empty']) {
         expect(await page.evaluate(() => window.coverFetches)).toBe(1)
     })
 }
+
+test('temporary offline cover read failures preserve its cached registry entry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { localCover } = await import('/src/lib/cover-cache.js')
+        const { dlPath, dlRead, dlWrite } = await import('/src/lib/downloads.js')
+        const url = 'https://covers.example/temporarily-unreadable.jpg'
+        const path = dlPath.cover('temporarily-unreadable.svg')
+        await dlWrite(path, new Blob(['saved cover'], { type: 'image/svg+xml' }))
+        localStorage.setItem('vellum:covers', JSON.stringify({ [url]: path }))
+
+        const getFile = FileSystemFileHandle.prototype.getFile
+        FileSystemFileHandle.prototype.getFile = async function (...args) {
+            if (this.name === 'temporarily-unreadable.svg') throw new DOMException('In use', 'NotReadableError')
+            return getFile.apply(this, args)
+        }
+        let offline
+        try { offline = await localCover(url) }
+        finally { FileSystemFileHandle.prototype.getFile = getFile }
+        return {
+            offline: offline === null,
+            registered: JSON.parse(localStorage.getItem('vellum:covers'))[url] === path,
+            recovered: await (await localCover(url))?.text(),
+            bytes: await (await dlRead(path))?.text(),
+        }
+    })
+    expect(result).toEqual({ offline: true, registered: true, recovered: 'saved cover', bytes: 'saved cover' })
+})
+
+test('cover filesystem lookup errors preserve its cached registry entry', async ({ page }) => {
+    await page.goto(app)
+    const result = await page.evaluate(async () => {
+        const { localCover } = await import('/src/lib/cover-cache.js')
+        const { dlPath, dlWrite } = await import('/src/lib/downloads.js')
+        const url = 'https://covers.example/temporarily-inaccessible.jpg'
+        const path = dlPath.cover('temporarily-inaccessible.svg')
+        await dlWrite(path, new Blob(['saved inaccessible cover'], { type: 'image/svg+xml' }))
+        localStorage.setItem('vellum:covers', JSON.stringify({ [url]: path }))
+
+        const getFileHandle = FileSystemDirectoryHandle.prototype.getFileHandle
+        FileSystemDirectoryHandle.prototype.getFileHandle = async function (name, options) {
+            if (name === 'temporarily-inaccessible.svg') throw new DOMException('Unavailable', 'NotAllowedError')
+            return getFileHandle.call(this, name, options)
+        }
+        let offline
+        try { offline = await localCover(url) }
+        finally { FileSystemDirectoryHandle.prototype.getFileHandle = getFileHandle }
+        return {
+            offline: offline === null,
+            registered: JSON.parse(localStorage.getItem('vellum:covers'))[url] === path,
+            recovered: await (await localCover(url))?.text(),
+        }
+    })
+    expect(result).toEqual({ offline: true, registered: true, recovered: 'saved inaccessible cover' })
+})
