@@ -6,7 +6,7 @@ import { isMaster, looksFragmentedMp4, parseMaster, parseMedia, pickVariant, res
 // in-flight downloads: `${key}:${id}` -> { done, total, ctrl, finished }
 const active = new Map()
 const listeners = new Set()
-const notify = () => listeners.forEach(fn => { try { fn() } catch {} })
+const notify = (key, id) => listeners.forEach(fn => { try { fn(key, id) } catch {} })
 export const onVideoDl = fn => { listeners.add(fn); return () => listeners.delete(fn) }
 export const videoDlActive = (key, id) => active.get(`${key}:${id}`) || null
 export const videoDlEntry = (key, id) => dlEntry('video', key, id)
@@ -74,7 +74,7 @@ async function downloadFile(url, writer, progress, signal) {
             await writer.write(value)
             size += value.byteLength
             progress.done = size
-            notify()
+            notify(progress.key, progress.id)
             // Disk writes can be slow, so start the network clock again only
             // after the previous chunk has been persisted.
             arm()
@@ -203,7 +203,7 @@ async function downloadHls(url, writer, progress, signal) {
                 size += bytes.byteLength
             }
             progress.done++
-            notify()
+            notify(progress.key, progress.id)
         }
     } finally {
         // A late fetch must never keep running after the job removes its file.
@@ -219,9 +219,9 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
     const ctrl = new AbortController()
     let finish
     const finished = new Promise(resolve => { finish = resolve })
-    const progress = { done: 0, total: 0, bytes: 0, ctrl, finished }
+    const progress = { key, id, done: 0, total: 0, bytes: 0, ctrl, finished }
     active.set(tag, progress)
-    notify()
+    notify(key, id)
     let writer
     try {
         writer = await dlWriter(dlPath.video(key, id))
@@ -246,7 +246,7 @@ export async function downloadVideoEpisode(key, id, meta = {}) {
     } finally {
         active.delete(tag)
         finish()
-        notify()
+        notify(key, id)
     }
 }
 
@@ -279,7 +279,7 @@ export async function loadDownloadedVideoUrl(key, id) {
             if (current?.at === entry.at && current?.size === entry.size && !videoDlActive(key, id)) {
                 // The next download replaces any empty file; no bytes are removed here.
                 await dlUnregister('video', key, id)
-                notify()
+                notify(key, id)
             }
         }
         return null

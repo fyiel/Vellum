@@ -327,6 +327,65 @@ test('revealing more video episodes retains existing rows and only appends new o
     await expect(page.locator('#video-episode-list .video-episode-row')).toHaveCount(200)
 })
 
+test('video download progress only inspects the affected button in a large episode list', async ({ page }) => {
+    const key = 'mock:download-progress-perf'
+    const episodes = Array.from({ length: 1200 }, (_, i) => ({
+        id: `episode-${i + 1}`, season: 1, number: i + 1,
+    }))
+    await page.route('**/read/api/video/series/**', route => reply(route, {
+        key, kind: 'anime', title: 'Large video series', episodes,
+    }))
+    await page.route('**/read/api/video/playback?**', route => {
+        const id = new URL(route.request().url()).searchParams.get('id')
+        return reply(route, {
+            key, episodeId: id, providerLabel: 'Test provider',
+            sources: [{ kind: 'direct', url: '/read/api/video/media/test.mp4', type: 'video/mp4' }],
+        })
+    })
+    await page.route('**/read/api/video/media/**', route => route.fulfill({ contentType: 'video/mp4', body: 'offline video bytes' }))
+    await page.goto(`${app}#/watch/series/${encodeURIComponent(key)}`)
+    await expect(page.locator('#video-episode-list .chdl')).toHaveCount(200)
+    await page.locator('#video-episode-more').click()
+    await page.locator('#video-episode-more').click()
+    await expect(page.locator('#video-episode-list .chdl')).toHaveCount(600)
+
+    const result = await page.evaluate(async key => {
+        const list = document.querySelector('#video-episode-list')
+        const untouched = list.querySelector('[data-dl="episode-600"]')
+        let checks = 0, mutations = 0, firstChecks = 0
+        const original = Element.prototype.getAttribute
+        const observer = new MutationObserver(records => { mutations += records.length })
+        observer.observe(list, { attributes: true, characterData: true, childList: true, subtree: true })
+        Element.prototype.getAttribute = function (name) {
+            if (name === 'aria-label' && this.classList.contains('chdl')) checks++
+            return original.call(this, name)
+        }
+        try {
+            const { downloadVideoEpisode } = await import('/src/lib/dl-video.js')
+            await downloadVideoEpisode(key, 'episode-1')
+            await new Promise(resolve => setTimeout(resolve, 350))
+            firstChecks = checks
+            await Promise.all(['episode-2', 'episode-3'].map(id => downloadVideoEpisode(key, id)))
+            await new Promise(resolve => setTimeout(resolve, 350))
+        } finally {
+            Element.prototype.getAttribute = original
+        }
+        mutations += observer.takeRecords().length
+        observer.disconnect()
+        return {
+            firstChecks, checks, mutations,
+            changedLabel: list.querySelector('[data-dl="episode-1"]')?.textContent,
+            parallelLabels: ['episode-2', 'episode-3'].map(id => list.querySelector(`[data-dl="${id}"]`)?.textContent),
+            untouchedLabel: untouched.textContent,
+        }
+    }, key)
+    console.log(`Video 600 rows, one download: ${result.firstChecks} button checks; three total: ${result.checks} checks, ${result.mutations} DOM mutations`)
+    expect(result).toMatchObject({ changedLabel: '✓', parallelLabels: ['✓', '✓'], untouchedLabel: '↓' })
+    expect(result.firstChecks).toBeLessThan(20)
+    expect(result.checks).toBeLessThan(20)
+    expect(result.mutations).toBeLessThan(30)
+})
+
 test('refining a novel chapter search avoids repeated DOM ancestor lookups', async ({ page }) => {
     const slug = 'chapter-filter-perf'
     const count = 3000
