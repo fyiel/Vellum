@@ -19,6 +19,7 @@ let current = null
 let wired = false
 let chapterQuery = ''
 let chapterLimit = CHAPTER_BATCH
+let chapterMatches = []
 let filterLastQ = '', filterTop = 0
 const dlFailed = new Map()
 const batches = new Map()
@@ -27,6 +28,7 @@ export function cancelMangaSeriesLoad() {
     detailController?.abort()
     detailController = null
     clearTimeout(filterTimer)
+    chapterMatches = []
 }
 
 // batch buttons sit in .chtool; "next" counts from the continue chapter, skipping
@@ -168,7 +170,9 @@ function renderChapterList() {
     if (!current || !currentRouteIs(current.key) || !$('#mchapter-list')) return
     const sc = activeScroller()
     const saved = sc?.scrollTop ?? 0
-    const filtered = filteredChapters()
+    // Only full renders change the chapter search or catalog. Revealing more
+    // can reuse this result without scanning the complete catalog again.
+    const filtered = chapterMatches = filteredChapters()
     const shown = filtered.slice(0, chapterLimit)
     $('#mchapter-list').innerHTML = shown.length
         ? `${chapterRows(shown, current.saved)}${moreButton(shown.length, filtered.length)}`
@@ -183,7 +187,7 @@ function revealMore() {
     if (!current || !currentRouteIs(current.key)) return null
     const list = $('#mchapter-list')
     if (!list) return null
-    const filtered = filteredChapters()
+    const filtered = chapterMatches
     const before = Math.min(chapterLimit, filtered.length)
     if (before >= filtered.length) return null
     chapterLimit += CHAPTER_BATCH

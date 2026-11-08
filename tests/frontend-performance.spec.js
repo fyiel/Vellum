@@ -398,11 +398,13 @@ test('manga download progress only inspects its chapter button in a large catalo
 
 test('revealing more manga chapters retains existing rows and only appends new ones', async ({ page }) => {
     const key = 'mf:reveal-perf'
-    const chapters = Array.from({ length: 2000 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1 }))
+    const chapters = Array.from({ length: 12000 }, (_, i) => ({ id: `chapter-${i + 1}`, number: i + 1 }))
     await page.route('**/read/api/manga/series/**', route => reply(route, { key, kind: 'manga', format: 'manga', title: 'Large manga' }))
     await page.route('**/read/api/manga/chapters?**', route => reply(route, { key, chapters }))
     await page.goto(`${app}#/manga/series/${encodeURIComponent(key)}`)
     await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
+    await page.locator('#mchsearch').fill('Ch. 1')
+    await expect(page.locator('#mchapter-status')).toHaveText('Showing 250 of 3112 chapters')
 
     const result = await page.evaluate(() => {
         const list = document.querySelector('#mchapter-list')
@@ -415,9 +417,17 @@ test('revealing more manga chapters retains existing rows and only appends new o
             }
         })
         observer.observe(list, { childList: true })
+        const filter = Array.prototype.filter
+        let catalogFilters = 0
+        Array.prototype.filter = function (...args) {
+            if (this.length === 12000 && this[0]?.id === 'chapter-1') catalogFilters++
+            return filter.apply(this, args)
+        }
         const start = performance.now()
-        list.querySelector('#mchapter-more').click()
-        list.querySelector('#mchapter-more').click()
+        try {
+            list.querySelector('#mchapter-more').click()
+            list.querySelector('#mchapter-more').click()
+        } finally { Array.prototype.filter = filter }
         const elapsedMs = performance.now() - start
         observer.takeRecords().forEach(record => {
             for (const node of record.addedNodes) if (node.matches?.('.chline')) added++
@@ -425,19 +435,19 @@ test('revealing more manga chapters retains existing rows and only appends new o
         })
         observer.disconnect()
         return {
-            added, removed, elapsedMs, before: 250,
+            added, removed, elapsedMs, catalogFilters, before: 250,
             after: list.querySelectorAll('.mchrow').length,
             firstPreserved: list.querySelector('.chline') === first,
             focusedId: document.activeElement?.dataset.id,
             more: list.querySelector('#mchapter-more')?.textContent,
         }
     })
-    console.log(`Manga reveal to ${result.after} rows: ${result.elapsedMs.toFixed(1)}ms, ${result.added} rows added, ${result.removed} removed`)
-    expect(result).toMatchObject({ after: 750, added: 500, removed: 0, firstPreserved: true, focusedId: 'chapter-501' })
-    expect(result.more).toContain('750 of 2000')
-    await page.locator('#mchsearch').fill('Ch. 777')
+    console.log(`Manga reveal to ${result.after} rows: ${result.elapsedMs.toFixed(1)}ms, ${result.added} rows added, ${result.removed} removed, ${result.catalogFilters} full catalog filters`)
+    expect(result).toMatchObject({ after: 750, added: 500, removed: 0, catalogFilters: 0, firstPreserved: true, focusedId: 'chapter-1389' })
+    expect(result.more).toContain('750 of 3112')
+    await page.locator('#mchsearch').fill('Ch. 7777')
     await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(1)
-    await expect(page.locator('#mchapter-list .mchrow')).toHaveAttribute('data-id', 'chapter-777')
+    await expect(page.locator('#mchapter-list .mchrow')).toHaveAttribute('data-id', 'chapter-7777')
     await page.locator('#mchsearch').fill('')
     await expect(page.locator('#mchapter-list .mchrow')).toHaveCount(250)
 })
