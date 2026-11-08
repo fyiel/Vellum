@@ -156,18 +156,28 @@ export async function dlExists(path, { directory = false } = {}) {
     }
 }
 
-// removes a file or a directory subtree; missing paths are fine
-export async function dlRemove(path) {
+// Removes a file or directory subtree. Cleanup is best-effort, but user-initiated
+// deletion needs strict errors so the registry can keep a failed download visible.
+export async function dlRemove(path, { strict = false } = {}) {
     if (isTauri()) {
         const { fs, baseDir } = await tauri()
-        await fs.remove(tpath(path), { baseDir, recursive: true }).catch(() => {})
+        try { await fs.remove(tpath(path), { baseDir, recursive: true }) }
+        catch (error) {
+            if (!strict) return
+            // Native fs errors do not consistently expose a NotFoundError name.
+            // Missing files are already gone; other failures must reach the caller.
+            try { if (!await fs.exists(tpath(path), { baseDir })) return } catch {}
+            throw error
+        }
         return
     }
     try {
         const parts = path.split('/')
         const dir = await opfsDir(parts.slice(0, -1), false)
         await dir.removeEntry(parts.at(-1), { recursive: true })
-    } catch {}
+    } catch (error) {
+        if (strict && error?.name !== 'NotFoundError') throw error
+    }
 }
 
 // ---- registry -------------------------------------------------------------
@@ -221,8 +231,25 @@ export function dlRegister(entry) {
 
 // drops the registry row and the stored bytes (path may be a file or a directory)
 export async function dlUnregister(kind, key, id, path) {
-    save(load().filter(item => !(item.kind === kind && item.key === key && item.id === String(id))))
-    if (path) await dlRemove(path)
+    const matches = item => item.kind === kind && item.key === key && item.id === String(id)
+    const entries = load()
+    save(entries.filter(item => !matches(item)))
+    if (!path) return
+    try { await dlRemove(path, { strict: true }) }
+    catch (error) {
+        // Removing bytes failed after the registry was written. Restore the saved
+        // entry so the user can retry, while preserving concurrent registry edits.
+        const current = load()
+        if (!current.some(matches)) {
+            const removed = entries.filter(matches)
+            if (removed.length) {
+                const restored = [...current]
+                restored.splice(Math.min(entries.findIndex(matches), restored.length), 0, ...removed)
+                save(restored)
+            }
+        }
+        throw error
+    }
 }
 
 export const dlTotalSize = () => load().reduce((sum, entry) => sum + (entry.size || 0), 0)

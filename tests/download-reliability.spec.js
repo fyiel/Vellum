@@ -616,6 +616,45 @@ test('registry quota failures reject downloads and keep existing entries recover
     expect(result).toMatchObject({ newEntry: null, newBytes: false, existingEntry: true, existingBytes: true })
 })
 
+for (const kind of ['novel', 'manga', 'video']) {
+    test(`${kind} deletion reports filesystem failures without losing the saved download`, async ({ page }) => {
+        await page.goto(app)
+        const result = await page.evaluate(async kind => {
+            const dl = await import('/src/lib/downloads.js')
+            const key = kind === 'manga' ? 'mf:delete-failure' : `delete-failure-${kind}`
+            const id = '1'
+            const path = kind === 'novel' ? dl.dlPath.novelChapter(key, id)
+                : kind === 'manga' ? dl.dlPath.mangaPage(key, id, 0) : dl.dlPath.video(key, id)
+            const deletionPath = kind === 'manga' ? dl.dlPath.manga(key, id) : path
+            const blockedName = deletionPath.split('/').at(-1)
+            const deleteFn = kind === 'novel' ? (await import('/src/lib/dl-novel.js')).deleteNovelDownload
+                : kind === 'manga' ? (await import('/src/lib/dl-manga.js')).deleteMangaDownload
+                    : (await import('/src/lib/dl-video.js')).deleteVideoDownload
+            await dl.dlWrite(path, 'Saved offline content')
+            dl.dlRegister({ kind, key, id, title: 'Saved copy', size: 21 })
+
+            const remove = FileSystemDirectoryHandle.prototype.removeEntry
+            FileSystemDirectoryHandle.prototype.removeEntry = function (name, options) {
+                if (name === blockedName) throw new DOMException('Storage unavailable', 'NoModificationAllowedError')
+                return remove.call(this, name, options)
+            }
+            let error
+            try { await deleteFn(key, id) } catch (cause) { error = cause.message }
+            finally { FileSystemDirectoryHandle.prototype.removeEntry = remove }
+            const preservedEntry = dl.dlEntry(kind, key, id)
+            const preservedBytes = await dl.dlRead(path)
+            const preserved = preservedEntry?.title === 'Saved copy' && (await preservedBytes?.text()) === 'Saved offline content'
+            await deleteFn(key, id)
+            return {
+                error,
+                preserved,
+                removedAfterRetry: !dl.dlEntry(kind, key, id) && !await dl.dlRead(path),
+            }
+        }, kind)
+        expect(result).toEqual({ error: 'Storage unavailable', preserved: true, removedAfterRetry: true })
+    })
+}
+
 test('failed repair registry writes keep the original chapter and remove new illustrations', async ({ page }) => {
     await page.goto(app)
     const result = await page.evaluate(async () => {
