@@ -53,19 +53,28 @@ the same AniList catalogue.
 
 ## Build from source
 
-Requires [Rust](https://rustup.rs) and [Node.js](https://nodejs.org). On Linux
-you'll also need the Tauri system dependencies see the
-[Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Requires [Rust](https://rustup.rs), [Node.js](https://nodejs.org) 20 or later,
+and [Bun](https://bun.sh). Install dependencies with `bun install --frozen-lockfile`
+so the mobile tooling patch is applied. On Linux also install the
+[Tauri system dependencies](https://v2.tauri.app/start/prerequisites/).
 
 ## Tests
 
 - `bun run test:unit` runs every deterministic Node unit test.
+- `bun run test:security` checks the locked dependencies for known vulnerabilities.
 - `bun run test:e2e:offline` runs provider-independent Chromium browser tests with mocked data.
 - `bun run test:e2e:live` runs the `@live` catalogue, download, and subtitle tests against the real providers. These need network access and may fail when a provider is unavailable.
 - `bun run test:e2e` runs both browser groups. Set `VELLUM_TEST_PORT` to use a port other than 5173.
 
-Install the test browser with `bunx playwright install chromium`. CI runs the unit tests,
-provider-independent browser tests, and web build before Pages or release builds can publish.
+Install the test browser with `bunx playwright install chromium`. CI runs the dependency
+audit, unit tests, browser tests with mocked data, and production build before Pages
+or release builds can publish.
+
+Dependency overrides keep the Capacitor 6 build tools on fixed archive and glob
+packages. The Capacitor CLI patch uses the archive package's named export.
+Unit tests extract all three mobile templates and check migration cleanup so
+dependency updates cannot silently break platform generation. Keep the patch and
+overrides until the mobile toolchain can use fixed dependencies directly.
 
 ## Tech stack
 

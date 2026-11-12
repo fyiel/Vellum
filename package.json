@@ -5,6 +5,9 @@
   "type": "module",
   "description": "a reading app that feels native everywhere",
   "license": "CC-BY-NC-SA-4.0",
+  "engines": {
+    "node": "20 || >=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -22,26 +25,34 @@
     "ios:build": "vite build && cap sync ios && cap build ios --scheme App",
     "cap": "cap",
     "test:unit": "node --test tests/*.test.mjs",
+    "test:security": "bun audit",
     "test:e2e:offline": "playwright test tests --grep-invert @live",
     "test:e2e:live": "playwright test tests --grep @live"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6",
+    "@capacitor/cli": "^6.2.3",
     "@playwright/test": "1.61.0",
     "@tauri-apps/cli": "^2",
-    "vite": "^6.0.5"
+    "vite": "^6.4.6"
   },
   "dependencies": {
-    "@capacitor/android": "^6",
-    "@capacitor/core": "^6",
-    "@capacitor/ios": "^6",
+    "@capacitor/android": "^6.2.3",
+    "@capacitor/core": "^6.2.3",
+    "@capacitor/ios": "^6.2.3",
     "@fontsource/archivo": "^5",
     "@fontsource/ibm-plex-mono": "^5",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-fs": "^2.5.1",
     "@tauri-apps/plugin-http": "^2",
-    "dompurify": "^3.4.13",
+    "dompurify": "^3.4.17",
     "hls.js": "^1.6.13",
     "mux.js": "^6.3.0"
+  },
+  "overrides": {
+    "glob": "^14.0.5",
+    "tar": "^7.5.23"
+  },
+  "patchedDependencies": {
+    "@capacitor/cli@6.2.3": "patches/@capacitor%2Fcli@6.2.3.patch"
   }
 }
