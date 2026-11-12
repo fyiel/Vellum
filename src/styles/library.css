@@ -84,9 +84,16 @@ body { background: #15161a; overflow: hidden; }
 .den .ctile .bar { flex: 1; height: 4px; background: var(--track); }
 .den .ctile .bar > span { display: block; height: 100%; background: var(--ac); }
 
-.den .trow { display: grid; grid-template-columns: 48px minmax(0, 1fr) 110px 62px 50px; align-items: center; gap: 14px; padding: 12px 8px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; }
-.den .trow:hover { background: var(--rowh); }
-.den .trow .cv { width: 44px; height: 62px; background: var(--bg); border: 1px solid var(--line2); border-radius: 4px; overflow: hidden; }
+.den #libtable { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px 14px; }
+.den #libtable > .library-empty { grid-column: 1 / -1; }
+.den .trow { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto 1fr auto auto; align-items: start; min-width: 0; gap: 8px; padding: 10px; background: var(--row); border: 1px solid var(--line2); border-radius: 10px; color: var(--text); text-decoration: none; }
+.den .trow:hover { background: var(--rowh); border-color: var(--ac); }
+.den .trow .cv { grid-column: 1 / -1; display: block; width: 100%; aspect-ratio: 2 / 3; background: var(--bg); border: 1px solid var(--line2); border-radius: 5px; overflow: hidden; }
+.den .trow .tt, .den .trow .pcell { grid-column: 1 / -1; }
+.den .trow .tt .n { min-height: 2.7em; }
+.den .trow .tt .au { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.den .trow .chp { text-align: left; }
+.den .trow .upd { white-space: nowrap; }
 .den .tt { min-width: 0; }
 .den .tt .n { font: 600 14px/1.35 'Archivo'; color: var(--hi); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .den .tt .au { font: 400 11px 'Archivo'; color: var(--dim); }
@@ -115,11 +122,9 @@ body { background: #15161a; overflow: hidden; }
 
 .den .void { color: var(--dim); font: 400 13px 'Archivo'; padding: 40px 4px; text-align: center; }
 
-.den.d-compact .trow { padding: 6px 10px; }
-.den.d-compact .trow .cv { width: 30px; height: 40px; }
+.den.d-compact .trow { padding: 8px; }
 .den.d-compact .ctile { padding: 7px; }
-.den.d-dense .trow { padding: 3px 10px; }
-.den.d-dense .trow .cv { width: 22px; height: 30px; }
+.den.d-dense .trow { padding: 6px; }
 .den.d-dense .tt .au { display: none; }
 .den.d-dense .tt .n { font-size: 13px; }
 .den.d-dense .cont { margin-bottom: 13px; }
@@ -164,13 +169,12 @@ body { background: #15161a; overflow: hidden; }
   .den .cont { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: min(86%, 330px); overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 2px 0 8px; margin-bottom: 16px; }
   .den .cont::-webkit-scrollbar { display: none; }
   .den .ctile { scroll-snap-align: start; }
-  .den .trow { grid-template-columns: 44px minmax(0, 1fr) 38px; grid-template-rows: auto auto; gap: 5px 10px; padding: 12px 0; }
-  .den .trow .cv { grid-row: 1 / 3; align-self: start; }
-  .den .trow .tt { grid-column: 2; }
-  .den .trow .pcell { grid-column: 2; grid-row: 2; max-width: 180px; }
+  .den #libtable { gap: 12px 8px; }
+  .den .trow { gap: 6px; padding: 6px; border-radius: 7px; }
+  .den .trow .tt .n { font-size: 12px; }
+  .den .trow .tt .au, .den .trow .tt .last { font-size: 9px; }
   .den .trow .pct { font-size: 10px; }
-  .den .trow .chp { display: none; }
-  .den .trow .upd { grid-column: 3; grid-row: 1 / 3; font-size: 10px; }
+  .den .trow .chp, .den .trow .upd { font-size: 9px; }
 }
 
 @media (max-width: 640px) and (pointer: coarse), (max-height: 500px) and (pointer: coarse) {
