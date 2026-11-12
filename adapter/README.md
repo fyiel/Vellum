@@ -43,7 +43,14 @@ Provider modules live in `adapter/providers/`:
   payload. The listing path (`/browse`) is the named discover source; if it
   cannot be parsed, discover returns `{ rows: [], hasMore: false, partial: true }`
   plus an error entry.
+
 - `goplay.mjs` - registry entry only; no scraping path.
+
+Discovery gives slower providers 500 ms after the first usable catalogue arrives,
+with an overall budget of eight seconds. Providers still loading are reported as
+partial errors while their shared caches continue warming for the next request.
+Keep `provider-results.mjs` and its type declaration beside the adapter when
+deploying it as `src/pumg-anime.mjs` on the live Bun server.
 
 `/read/api/video/discover` aggregates discovery across every provider serving
 the requested kind (`all`/`anime`/`drama`) into

@@ -36,7 +36,7 @@ const safeUrl = value => {
 }
 const episode = value => ID.test(String(value?.id || ''))
     && (value.number == null || Number.isFinite(value.number))
-    && (value.season == null || (Number.isInteger(value.season) && value.season > 0))
+    && (value.season == null || (Number.isInteger(value.season) && value.season >= 0))
 const source = value => value?.kind === 'direct'
     ? safeUrl(value.url) && TYPES.includes(value.type)
     : value?.kind === 'embed' && /^https:\/\//i.test(value.url) && safeUrl(value.url)

@@ -23,8 +23,9 @@ export const searchNovels = (q, { signal, sources = [], genres, tags, status, mi
 }
 
 export const getSeries = (key, { signal } = {}) => {
-    const accept = d => typeof d?.title === 'string' && d.title.trim().length > 0
-    return cached(`series:nu6:${key}`, 6 * HOUR, () => requireValue(apiGet(`/read/api/series/${enc(key)}`, { signal, timeoutMs: key.startsWith('rb:') ? 65_000 : 25_000 }), accept, 'series unavailable'), { accept, signal })
+    const valid = d => typeof d?.title === 'string' && d.title.trim().length > 0
+    const accept = d => valid(d) && !d.metadataPending
+    return cached(`series:nu6:${key}`, 6 * HOUR, () => requireValue(apiGet(`/read/api/series/${enc(key)}`, { signal, timeoutMs: key.startsWith('rb:') ? 65_000 : 25_000 }), valid, 'series unavailable'), { accept, signal })
 }
 
 export const getChapters = (slug, { signal, fresh = false } = {}) => {

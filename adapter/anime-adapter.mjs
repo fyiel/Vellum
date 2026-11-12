@@ -2,6 +2,7 @@ import { dramacooli } from './providers/dramacooli.mjs'
 import { cineby } from './providers/cineby.mjs'
 import { goplay } from './providers/goplay.mjs'
 import { kisskh } from './providers/kisskh.mjs'
+import { settleProviders } from './provider-results.mjs'
 
 const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' }
 const ANILIST = 'https://graphql.anilist.co'
@@ -770,9 +771,11 @@ export async function handleAnimeVideoRequest(request, env = {}, fetchImpl = fet
             if (format && !FORMATS.has(format)) return failure(400, 'invalid_request', 'Invalid anime format')
             const ctx = ctxFor(env, fetchImpl, request)
             const providers = [...REGISTRY.values()].filter(entry => !entry.unavailable && typeof entry.discover === 'function' && (kind === 'all' || entry.kinds.includes(kind)))
-            const outcomes = await Promise.all(providers.map(entry => entry.discover(ctx, { page, limit, format, search })
-                .then(result => ({ entry, ...result }))
-                .catch(error => ({ entry, rows: [], hasMore: false, partial: true, error: { provider: entry.key, code: 'provider_unavailable', message: error?.message || 'Provider is unavailable' } }))))
+            const settled = await settleProviders(providers.map(entry => entry.discover(ctx, { page, limit, format, search })), result => result?.rows?.length > 0)
+            const outcomes = settled.map((result, index) => result.status === 'fulfilled'
+                ? { entry: providers[index], ...result.value }
+                : { entry: providers[index], rows: [], hasMore: false, partial: true,
+                    error: { provider: providers[index].key, code: result.reason?.code || 'provider_unavailable', message: result.reason?.message || 'Provider is unavailable' } })
             return json({
                 page,
                 results: outcomes.flatMap(outcome => outcome.rows),
