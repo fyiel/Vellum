@@ -2,7 +2,7 @@
 
 `anime-adapter.mjs` is a dependency-free Fetch handler for Vellum's
 `/read/api/anime/*` and shared `/read/api/video/*` contracts. It routes provider
-keys through a fixed registry (a `Map` of four provider objects - not a plugin
+keys through a fixed registry (a `Map` of five provider objects - not a plugin
 system) into per-provider `discover`, `series`, `episodes`, and `playback`
 handlers. Each handler receives a context of `{ env, fetchImpl, request, cached }`.
 
@@ -13,11 +13,11 @@ handlers. Each handler receives a context of `{ env, fetchImpl, request, cached 
 | `miruro` | Miruro | anime | AniList metadata; owned playback service, Slipgate (AniDB App), or the HiAnime fallback |
 | `dc` | DramaCooli | drama | open WordPress REST API (`wp-json/wp/v2/*`) |
 | `gp` | GoPlay | drama | **unavailable** - goplay.su blocks automated access (Cloudflare Turnstile) |
-| `cineby` | Cineby | anime | SSR `__NEXT_DATA__` pages |
+| `cineby` | Cineby | anime | Flixer's public TMDB API for metadata; signed/encrypted playback is currently unavailable |
 | `kiss` | KissKH | drama | public JSON API + per-episode AES-128-CBC kkey; **unavailable from datacenter egress** (Cloudflare + ASN-blocked HLS CDNs) |
 
 Keys are `provider:id` with a per-provider id gate: `miruro` and `cineby` take
-numeric ids, `dc` and `gp` take `[a-z0-9._-]{1,100}` slugs. An unknown prefix
+numeric ids, as does `kiss`; `dc` and `gp` take `[a-z0-9._-]{1,100}` slugs. An unknown prefix
 returns `400 invalid_request 'Unknown video provider'` (non-retryable) with the
 raw prefix as `error.provider`; a known prefix that fails its id gate is
 rejected as an invalid key.
@@ -32,17 +32,14 @@ Provider modules live in `adapter/providers/`:
   post count) become `dc:<categoryId>` rows; category posts become episodes
   ordered by `-episode-N` / `-full-movie` slug; playback extracts the first
   `<iframe src>` (https only) from the post body as an embed.
-- `cineby.mjs` - parses SSR `__NEXT_DATA__` pages with a plain browser
-  user-agent: series pages map to `cineby:<tmdbId>` rows, seasons flatten to
-  flat `s{season}e{episode}` ids (movies are a single `s1e1`), and playback
-  extracts the player from the exact season/episode node for the requested
-  `s{season}e{episode}` id - unrelated page regions (ads, nav) can never become
-  the stream, and an absent episode node fails closed with
-  `stream_unavailable`. It emits only validated https HLS/MP4 or embed sources
-  and fails closed on any missing, non-https, or non-allowlisted player
-  payload. The listing path (`/browse`) is the named discover source; if it
-  cannot be parsed, discover returns `{ rows: [], hasMore: false, partial: true }`
-  plus an error entry.
+- `cineby.mjs` - Cineby redirects to Flixer, whose public TMDB API supplies
+  discovery, title metadata and seasons. Keys remain `cineby:<tmdbId>`;
+  seasons flatten to `s{season}e{episode}` ids, including season zero specials
+  (movies are a single `s1e1`). Playback accepts only readable payloads with
+  validated HTTPS HLS/MP4 or allowlisted embed sources. The site's current
+  signed/encrypted source responses are unsupported and fail with
+  `stream_unavailable`; successful metadata does not imply playable video.
+  An unavailable listing produces partial discovery with an error entry.
 
 - `goplay.mjs` - registry entry only; no scraping path.
 
