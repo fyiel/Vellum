@@ -50,9 +50,8 @@ const resumeRoute = e => isManga(e) ? (e.lastId ? `#/manga/read/${encodeURICompo
 const matchesSearch = e => !filterQ || [e.title, e.author, e.format, e.source, e.key].some(value => String(value || '').toLowerCase().includes(filterQ.toLowerCase()))
 const progressBar = e => `<span class="bar" role="progressbar" aria-label="${esc(e.title)} progress" aria-valuenow="${pctOf(e)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${pctOf(e)}%"></span>${epPct(e) ? `<span class="ep" style="width:${epPct(e)}%"></span>` : ''}</span>`
 
-// the library is what you see with no network: its tiles carry the lookup key for a stored copy,
-// and series you actually downloaded get one kept (see keepDownloadedCovers)
-const cover = (e, ph) => coverImg(e.cover, e.title, { offline: true }) || (ph ? `<span>${ph}</span>` : '')
+// Library thumbnails load from the persistent day cache, including on mobile and offline.
+const cover = (e, ph) => coverImg(e.cover, e.title, { offline: true, cache: true }) || (ph ? `<span>${ph}</span>` : '')
 
 const contTile = e => {
     const pct = pctOf(e)

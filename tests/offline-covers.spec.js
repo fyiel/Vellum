@@ -8,9 +8,8 @@ const entry = (slug, title, cover, readCount) => ({
     total: 10, readCount, lastN: readCount, updatedAt: Date.now(),
 })
 
-// a series you downloaded is one you expect to open with no network, so its cover is kept;
-// everything else in the library must not cost a network round trip on every render
-test('keeps a downloaded series cover readable offline', async ({ page, context }) => {
+// All followed titles share the persistent cover cache, even without chapter downloads.
+test('keeps downloaded and followed-only series covers readable offline', async ({ page, context }) => {
     const errors = []
     page.on('pageerror', error => errors.push(error.message))
 
@@ -50,9 +49,9 @@ test('keeps a downloaded series cover readable offline', async ({ page, context 
     await page.reload()
 
     await expect.poll(async () => (await probe('seen'))?.natural ?? 0, { timeout: 15_000 }).toBeGreaterThan(0)
-    // the downloaded series gets a copy; the browsed one must not spend a round trip
+    // Both library titles get a copy, including the one without downloaded chapters.
     await expect.poll(async () => Object.keys(await stored()).some(key => key.includes('seen.jpg')), { timeout: 15_000 }).toBe(true)
-    expect(Object.keys(await stored()).some(key => key.includes('never-fetched'))).toBe(false)
+    await expect.poll(async () => Object.keys(await stored()).some(key => key.includes('never-fetched'))).toBe(true)
     await page.evaluate(() => {
         window.onlineCoverImages = Object.fromEntries(['seen', 'never-fetched'].map(name => [name,
             [...document.querySelectorAll('.cv img')].find(el => (el.dataset.cover || '').includes(`${name}.jpg`)),
@@ -80,6 +79,6 @@ test('keeps a downloaded series cover readable offline', async ({ page, context 
     ])))
     expect(freshImages).toEqual({ seen: true, 'never-fetched': true })
     await expect.poll(async () => (await probe('seen'))?.natural ?? 0, { timeout: 15_000 }).toBeGreaterThan(0)
-    expect((await probe('never-fetched'))?.natural ?? 0).toBe(0)
+    await expect.poll(async () => (await probe('never-fetched'))?.natural ?? 0).toBeGreaterThan(0)
     expect(errors).toEqual([])
 })

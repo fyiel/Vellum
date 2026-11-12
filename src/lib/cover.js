@@ -1,5 +1,5 @@
 import { apiUrl } from "./http.js";
-import { localCover } from "./cover-cache.js";
+import { cachedCover, localCover } from "./cover-cache.js";
 import { esc } from "./dom.js";
 
 const enc = encodeURIComponent;
@@ -12,8 +12,9 @@ const resolver = (title) => apiUrl(`/read/api/cover?t=${enc(title)}&v=nu1`);
 export function coverImg(url, title, options = {}) {
   const useResolver = typeof options === "boolean" ? options : options.useResolver !== false;
   const eager = typeof options === "object" && options.eager === true;
+  const cached = typeof options === "object" && options.cache === true;
   // only the surfaces you look at with no network carry the lookup key for a stored copy
-  const keep = typeof options === "object" && options.offline === true;
+  const keep = cached || typeof options === "object" && options.offline === true;
   const fb = useResolver && title ? resolver(title) : "";
   let src = placeholder(url) ? fb : url;
   let nu = "";
@@ -29,7 +30,8 @@ export function coverImg(url, title, options = {}) {
   // the offline copy is keyed by the url we asked for, so remember it on the element
   const remember = keep ? (url && !placeholder(url) ? url : fb) : "";
   const offline = remember ? ` data-cover="${esc(remember)}"` : "";
-  return `<img src="${esc(src)}"${cf}${nu}${offline}${hide} loading="${eager ? "eager" : "lazy"}"${eager ? ' fetchpriority="high"' : ""} alt="">`;
+  const imageSource = cached ? `data-src="${esc(src)}" data-cache-cover data-title="${esc(title)}"` : `src="${esc(src)}"`;
+  return `<img ${imageSource}${cf}${nu}${offline}${hide} loading="${eager ? "eager" : "lazy"}"${eager ? ' fetchpriority="high"' : ""} alt="">`;
 }
 
 let installed = false;
@@ -65,6 +67,30 @@ export function installCoverFallback() {
     }
     useLocal(img, blob);
   };
+  const hydrateCached = async (img) => {
+    if (!img?.dataset?.cover || img.dataset.coverDone) return;
+    img.dataset.coverDone = "1";
+    const blob = await cachedCover(img.dataset.cover, img.dataset.title).catch(() => null);
+    if (!img.isConnected) return;
+    if (blob) useLocal(img, blob);
+    else {
+      delete img.dataset.coverDone;
+      img.src = img.dataset.src;
+    }
+  };
+  const cachedImages = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) {
+      cachedImages.unobserve(entry.target);
+      void hydrateCached(entry.target);
+    }
+  }, { rootMargin: '300px' }) : null;
+  const watchCached = root => {
+    const imgs = root instanceof HTMLImageElement ? [root] : [...(root.querySelectorAll?.('img[data-cache-cover]') ?? [])];
+    for (const img of imgs) if ('cacheCover' in img.dataset && !img.dataset.coverDone) {
+      if (cachedImages) cachedImages.observe(img);
+      else void hydrateCached(img);
+    }
+  };
   const hydrateSoon = (root) => {
     if (navigator.onLine !== false) return;
     const imgs = root instanceof HTMLImageElement
@@ -80,9 +106,16 @@ export function installCoverFallback() {
         if (node instanceof HTMLImageElement) { if (!node.isConnected) pending.get(node)?.(); }
         else for (const img of node.querySelectorAll?.("img") ?? []) if (!img.isConnected) pending.get(img)?.();
       }
+      if (cachedImages) for (const node of record.removedNodes) {
+        if (node.isConnected) continue;
+        if (node instanceof HTMLImageElement) cachedImages.unobserve(node);
+        else for (const img of node.querySelectorAll?.('img[data-cache-cover]') ?? []) cachedImages.unobserve(img);
+      }
+      for (const node of record.addedNodes) watchCached(node);
       if (navigator.onLine === false) for (const node of record.addedNodes) hydrateSoon(node);
     }
   }).observe(document.documentElement, { childList: true, subtree: true });
+  watchCached(document);
   document.addEventListener(
     "error",
     async (e) => {

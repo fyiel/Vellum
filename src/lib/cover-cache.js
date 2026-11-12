@@ -1,7 +1,5 @@
-// Offline copies of cover art. Every thumbnail in the app is painted from a remote url, so with
-// no network each one falls through to the resolver and then to nothing at all. Covers seen
-// while online are kept in the download store (tauri fs / opfs) behind a bounded url -> path
-// registry, and coverImg's error fallback swaps the stored copy in when the network fails.
+// Cover bytes live in the download store (Tauri fs / OPFS). Library thumbnails reuse them
+// for a day; offline reads can keep using older art if a refresh is unavailable.
 
 import { dlExists, dlPath, dlRead, dlRemove, dlWrite } from './downloads.js'
 import { apiUrl, isNative, rawFetch } from './http.js'
@@ -9,6 +7,9 @@ import { apiUrl, isNative, rawFetch } from './http.js'
 const NS = 'vellum'
 // covers are small; this bounds the cache at a few tens of MB even at the high end
 const MAX = 240
+const DAY = 24 * 60 * 60 * 1000
+const cachePath = entry => typeof entry === 'string' ? entry : entry?.path
+const fresh = (entry, maxAge) => maxAge === Infinity || Number.isFinite(entry?.savedAt) && Date.now() - entry.savedAt < maxAge
 
 let snapshotRaw
 let snapshot = {}
@@ -61,7 +62,7 @@ const EXT_BY_TYPE = {
 const urlExt = url => String(url.match(/\.(jpe?g|png|webp|avif|gif|bmp|svg)(?:[?#]|$)/i)?.[1] || '').toLowerCase()
 const storedExt = (type, url) => EXT_BY_TYPE[String(type || '').split(';')[0].trim().toLowerCase()] || urlExt(url) || 'img'
 
-const inflight = new Set()
+const inflight = new Map()
 // Web cover hosts commonly omit CORS. Tauri's HTTP transport is CORS-free, but
 // its existing capability deliberately permits only the configured reader backend.
 // Keep cover downloads within that boundary instead of expanding native permissions.
@@ -96,13 +97,21 @@ const pump = () => {
         job().catch(() => {}).finally(() => { active -= 1; pump() })
     }
 }
-// fire and forget: covers fill in over the session rather than all at once
-export function storeCover(url, title) {
-    if (!cacheable(url) || navigator.onLine === false) return
-    if (load()[url] || inflight.has(url)) return
-    inflight.add(url)
-    queue.push(() => keep(url, title))
+// Callers can await a shared queued write, or let downloaded covers fill in in the background.
+export function storeCover(url, title, { maxAge = Infinity } = {}) {
+    if (!cacheable(url) || navigator.onLine === false) return Promise.resolve(null)
+    const entry = load()[url]
+    if (cachePath(entry) && fresh(entry, maxAge)) return Promise.resolve(cachePath(entry))
+    if (inflight.has(url)) return inflight.get(url)
+    let resolve
+    const pending = new Promise(done => { resolve = done })
+    inflight.set(url, pending)
+    queue.push(async () => {
+        try { resolve(await keep(url, title)) }
+        catch { resolve(null) }
+    })
     pump()
+    return pending
 }
 
 async function fetchCover(source) {
@@ -141,20 +150,21 @@ async function keep(url, title) {
         await dlWrite(path, blob)
         // The cached registry must stay untouched if the storage write fails.
         const next = { ...load() }
-        next[url] = path
+        const previousPath = cachePath(next[url])
+        next[url] = { path, savedAt: Date.now() }
         const keys = Object.keys(next)
-        const evicted = []
+        const evicted = previousPath && previousPath !== path ? [previousPath] : []
         for (const key of keys.slice(0, Math.max(0, keys.length - MAX))) {
-            evicted.push(next[key])
+            evicted.push(cachePath(next[key]))
             delete next[key]
         }
         // Only delete evicted bytes after the registry was durably updated. Otherwise
         // a quota failure strands existing entries pointing at removed offline covers.
         if (!save(next)) {
-            if (!Object.values(load()).includes(path)) await dlRemove(path).catch(() => {})
+            if (!Object.values(load()).some(entry => cachePath(entry) === path)) await dlRemove(path).catch(() => {})
             return null
         }
-        const retained = new Set(Object.values(next))
+        const retained = new Set(Object.values(next).map(cachePath))
         for (const oldPath of evicted) if (!retained.has(oldPath)) dlRemove(oldPath).catch(() => {})
         return path
     } finally { inflight.delete(url) }
@@ -163,7 +173,7 @@ async function keep(url, title) {
 // the stored bytes for a url, or null when this cover was never seen online
 export async function localCover(url) {
     if (!cacheable(url)) return null
-    const path = load()[url]
+    const path = cachePath(load()[url])
     if (!path) return null
     const blob = await dlRead(path).catch(() => null)
     if (blob?.size) return blob
@@ -177,10 +187,28 @@ export async function localCover(url) {
     // file must not keep this URL marked as cached forever: the next library
     // render can then queue a fresh copy when the user is online.
     const current = load()
-    if (current[url] === path) {
+    if (cachePath(current[url]) === path) {
         const next = { ...current }
         delete next[url]
         save(next)
     }
     return null
+}
+
+const reading = new Map()
+
+export function cachedCover(url, title) {
+    if (!cacheable(url)) return Promise.resolve(null)
+    if (reading.has(url)) return reading.get(url)
+    const pending = readCachedCover(url, title).finally(() => reading.delete(url))
+    reading.set(url, pending)
+    return pending
+}
+
+async function readCachedCover(url, title) {
+    const previous = await localCover(url)
+    if (previous && fresh(load()[url], DAY)) return previous
+    if (navigator.onLine === false) return previous
+    await storeCover(url, title, { maxAge: DAY })
+    return await localCover(url) || previous
 }
